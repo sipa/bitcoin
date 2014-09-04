@@ -177,6 +177,7 @@ public:
 
     CDataStream vRecv;              // received message data
     unsigned int nDataPos;
+    unsigned int nLastDataPos;
 
     int64_t nTime;                  // time (in microseconds) of message receipt.
 
@@ -185,6 +186,7 @@ public:
         in_data = false;
         nHdrPos = 0;
         nDataPos = 0;
+        nLastDataPos = 0;
         nTime = 0;
     }
 
