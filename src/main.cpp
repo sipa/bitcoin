@@ -219,6 +219,8 @@ struct CNodeState {
     uint256 hashLastUnknownBlock;
     // The last full block we both have.
     CBlockIndex *pindexLastCommonBlock;
+    // Whether we've requested headers from this peer.
+    bool fGetheaders;
     // Whether we've started headers synchronization with this peer.
     bool fSyncStarted;
     // Since when we're stalling block download progress (in microseconds), or 0.
@@ -232,6 +234,7 @@ struct CNodeState {
         pindexBestKnownBlock = NULL;
         hashLastUnknownBlock = uint256(0);
         pindexLastCommonBlock = NULL;
+        fGetheaders = false;
         fSyncStarted = false;
         nStallingSince = 0;
         nBlocksInFlight = 0;
@@ -3910,6 +3913,11 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
             return true;
         }
 
+        if (!State(pfrom->id)->fSyncStarted) {
+            State(pfrom->id)->fSyncStarted = true;
+            nSyncStarted++;
+        }
+
         CBlockIndex *pindexLast = NULL;
         BOOST_FOREACH(const CBlockHeader& header, headers) {
             CValidationState state;
@@ -4432,11 +4440,10 @@ bool SendMessages(CNode* pto, bool fSendTrickle)
         if (pindexBestHeader == NULL)
             pindexBestHeader = chainActive.Tip();
         bool fFetch = !pto->fInbound || (pindexBestHeader && (state.pindexLastCommonBlock ? state.pindexLastCommonBlock->nHeight : 0) + 144 > pindexBestHeader->nHeight);
-        if (!state.fSyncStarted && !pto->fClient && fFetch && !fImporting && !fReindex) {
+        if (!state.fGetheaders && !pto->fClient && fFetch && !fImporting && !fReindex) {
             // Only actively request headers from a single peer, unless we're close to today.
             if (nSyncStarted == 0 || pindexBestHeader->GetBlockTime() > GetAdjustedTime() - 24 * 60 * 60) {
-                state.fSyncStarted = true;
-                nSyncStarted++;
+                state.fGetheaders = true;
                 CBlockIndex *pindexStart = pindexBestHeader->pprev ? pindexBestHeader->pprev : pindexBestHeader;
                 LogPrint("net", "initial getheaders (%d) to peer=%d (startheight:%d)\n", pindexStart->nHeight, pto->id, pto->nStartingHeight);
                 pto->PushMessage("getheaders", chainActive.GetLocator(pindexStart), uint256(0));
