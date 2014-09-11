@@ -3729,8 +3729,8 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
                         // time the block arrives, the header chain leading up to it is already validated. Not
                         // doing this will result in the received block being rejected as an orphan in case it is
                         // not a direct successor.
-                        pfrom->PushMessage("getheaders", chainActive.GetLocator(pindexBestHeader), inv.hash);
-                        LogPrint("net", "getheaders (%d) %s to peer=%d\n", pindexBestHeader->nHeight, inv.hash.ToString(), pfrom->id);
+                        pfrom->PushMessage("getheaders", chainActive.GetLocator(pindexBestHeader), uint256(0));
+                        LogPrint("net", "getheaders (%d) to peer=%d\n", pindexBestHeader->nHeight, pfrom->id);
                         if ((chainActive.Tip()->GetBlockTime() > GetAdjustedTime() - Params().TargetSpacing() * 20) && !mapBlocksInFlight.count(inv.hash)) {
                             vToFetch.push_back(inv);
                             // Mark block as in flight already, even though the actual "getdata" message only goes out
@@ -4021,7 +4021,7 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
             // Headers message had its maximum size; the peer may have more headers.
             // TODO: optimize: if pindexLast is an ancestor of chainActive.Tip or pindexBestHeader, continue
             // from there instead.
-            LogPrint("net", "more getheaders (%d) to end to peer=%d (startheight:%d)\n", pindexLast->nHeight, pfrom->id, pfrom->nStartingHeight);
+            LogPrint("net", "more getheaders (%d) to peer=%d (startheight:%d)\n", pindexLast->nHeight, pfrom->id, pfrom->nStartingHeight);
             pfrom->PushMessage("getheaders", chainActive.GetLocator(pindexLast), uint256(0));
         }
     }
