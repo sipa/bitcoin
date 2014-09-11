@@ -3644,7 +3644,7 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
                 UpdateBlockAvailability(pfrom->GetId(), inv.hash);
                 if (!fAlreadyHave) {
                     LogPrint("block", "inv (new) %s from peer=%d\n", inv.ToString(), pfrom->id);
-                    if (!fImporting && !fReindex && !mapBlocksInFlight.count(inv.hash)) {
+                    if (!fImporting && !fReindex) {
                         // First request the headers preceeding the announced block. In the normal fully-synced
                         // case where a new block is announced that succeeds the current tip (no reorganization),
                         // there are no such headers.
@@ -3655,7 +3655,7 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
                         // not a direct successor.
                         pfrom->PushMessage("getheaders", chainActive.GetLocator(pindexBestHeader), inv.hash);
                         LogPrint("net", "getheaders (%d) %s to peer=%d\n", pindexBestHeader->nHeight, inv.hash.ToString(), pfrom->id);
-                        if (chainActive.Tip()->GetBlockTime() > GetAdjustedTime() - Params().TargetSpacing() * 20) {
+                        if ((chainActive.Tip()->GetBlockTime() > GetAdjustedTime() - Params().TargetSpacing() * 20) && !mapBlocksInFlight.count(inv.hash)) {
                             vToFetch.push_back(inv);
                             // Mark block as in flight already, even though the actual "getdata" message only goes out
                             // later (within the same cs_main lock, though).
