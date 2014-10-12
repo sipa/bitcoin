@@ -1061,8 +1061,8 @@ void ThreadSocketHandler()
                 }
                 else if (pnode->nPingNonceSent && pnode->nPingUsecStart + TIMEOUT_INTERVAL * 1000000 < GetTimeMicros())
                 {
-                    LogPrintf("ping timeout: %fs\n", 0.000001 * (GetTimeMicros() - pnode->nPingUsecStart));
-                    pnode->fDisconnect = true;
+                    LogPrintf("peer=%d ping timeout: %fs\n", pnode->id, 0.000001 * (GetTimeMicros() - pnode->nPingUsecStart));
+                    pnode->nPingUsecStart = GetTimeMicros();
                 }
             }
         }
