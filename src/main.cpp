@@ -1854,10 +1854,13 @@ void static UpdateTip(CBlockIndex *pindexNew) {
     mempool.AddTransactionsUpdated(1);
     fUpdatedTip = true;
 
-    LogPrintf("UpdateTip: new best=%s  height=%d  log2_work=%.8g  tx=%lu  date=%s progress=%f  cache=%u\n",
-      chainActive.Tip()->GetBlockHash().ToString(), chainActive.Height(), log(chainActive.Tip()->nChainWork.getdouble())/log(2.0), (unsigned long)chainActive.Tip()->nChainTx,
+    LogPrintf("UpdateTip: best=%s (%d)  date=%s  %f%%  work=%.8g  txs=%lu  cache=%u\n",
+      chainActive.Tip()->GetBlockHash().ToString(), chainActive.Height(),
       DateTimeStrFormat("%Y-%m-%d %H:%M:%S", chainActive.Tip()->GetBlockTime()),
-      Checkpoints::GuessVerificationProgress(chainActive.Tip()), (unsigned int)pcoinsTip->GetCacheSize());
+      Checkpoints::GuessVerificationProgress(chainActive.Tip())*100,
+      log(chainActive.Tip()->nChainWork.getdouble())/log(2.0),
+      (unsigned long)chainActive.Tip()->nTx,
+      (unsigned int)pcoinsTip->GetCacheSize());
 
     cvBlockChange.notify_all();
 
