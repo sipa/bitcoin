@@ -177,6 +177,7 @@ public:
 
     CDataStream vRecv;              // received message data
     unsigned int nDataPos;
+    unsigned int nLastDataPos;
 
     int64_t nTime;                  // time (in microseconds) of message receipt.
 
@@ -185,6 +186,7 @@ public:
         in_data = false;
         nHdrPos = 0;
         nDataPos = 0;
+        nLastDataPos = 0;
         nTime = 0;
     }
 
@@ -380,12 +382,15 @@ public:
         }
     }
 
-    void PushInventory(const CInv& inv)
+    bool PushInventory(const CInv& inv)
     {
         {
             LOCK(cs_inventory);
-            if (!setInventoryKnown.count(inv))
+            if (!setInventoryKnown.count(inv)) {
                 vInventoryToSend.push_back(inv);
+                return true;
+            } else
+                return false;
         }
     }
 
