@@ -461,7 +461,7 @@ bool CTxMemPool::StageTrimToSize(size_t sizelimit, const CAmount& maxfeeremove, 
         }
         if (it->GetFeeRate() > repfeerate) {
             // If the transaction's feerate is worse than what we're looking for, we have processed everything in the mempool
-            // that could improve the staged set. If we don't have an acceptable solution by now, bail out.
+            // that could improve the staged set. We don't have an acceptable solution, so bail out.
             return false;
         }
         std::deque<uint256> todo; // List of hashes that we still need to process (descendants of 'hash').
