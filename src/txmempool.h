@@ -183,6 +183,7 @@ public:
      *  - The list is consistent (if a parent is included, all its dependencies are included as well).
      *  - Removing said list will reduce the DynamicMemoryUsage below sizelimit.
      *  - At most maxfeeremove worth of fees will be removed.
+     *  - No transaction with fee-rate >= repfeerate will be removed.
      *  - No transaction whose hash is in prot will be removed.
      */
     bool StageTrimToSize(size_t sizelimit, const CAmount& maxfeeremove, const CFeeRate& repfeerate, const std::set<uint256>& prot, std::set<uint256>& stage, CAmount& totalfeeremoved, size_t& totalsizeremoved);
@@ -219,6 +220,11 @@ public:
     bool ReadFeeEstimates(CAutoFile& filein);
 
     size_t DynamicMemoryUsage() const;
+
+    /**
+     * Guess the incremental dynamic mem usage for a single entry, assuming we
+     * were to add/remove it from the mempool.
+     */
     size_t GuessDynamicMemoryUsage(const CTxMemPoolEntry& entry) const;
 };
 
