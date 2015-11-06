@@ -309,7 +309,6 @@ class CTransaction
 private:
     /** Memory only. */
     const uint256 hash;
-    void UpdateHash() const;
 
 public:
     static const int32_t CURRENT_VERSION=1;
@@ -381,6 +380,8 @@ public:
     }
 
     std::string ToString() const;
+
+    void UpdateHash() const;
 };
 
 /** A mutable version of CTransaction. */
