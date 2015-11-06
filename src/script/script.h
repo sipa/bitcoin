@@ -619,6 +619,13 @@ public:
     }
 };
 
+struct CScriptWitness
+{
+    std::vector<std::vector<unsigned char> > stack;
+
+    bool IsNull() const { return stack.empty(); }
+};
+
 class CReserveScript
 {
 public:
