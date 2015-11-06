@@ -42,7 +42,9 @@ static const char* ppszTypeName[] =
     "ERROR", // Should never occur
     NetMsgType::TX,
     NetMsgType::BLOCK,
-    "filtered block" // Should never occur
+    "filtered block", // Should never occur
+    "witness block",
+    "witness tx",
 };
 
 /** All known message types. Keep this in the same order as the list of
