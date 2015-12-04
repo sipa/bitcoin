@@ -116,9 +116,9 @@ string ScriptToAsmStr(const CScript& script, const bool fAttemptSighashDecode)
     return str;
 }
 
-string EncodeHexTx(const CTransaction& tx)
+string EncodeHexTx(const CTransaction& tx, bool fIncludeWitness)
 {
-    CDataStream ssTx(SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_WITNESS);
+    CDataStream ssTx(SER_NETWORK, PROTOCOL_VERSION | (fIncludeWitness ? SERIALIZE_TRANSACTION_WITNESS : 0));
     ssTx << tx;
     return HexStr(ssTx.begin(), ssTx.end());
 }

@@ -163,7 +163,7 @@ UniValue generate(const UniValue& params, bool fHelp)
         CBlock *pblock = &pblocktemplate->block;
         {
             LOCK(cs_main);
-            IncrementExtraNonce(pblock, chainActive.Tip(), nExtraNonce);
+            IncrementExtraNonce(pblock, chainActive.Tip(), nExtraNonce, pblocktemplate->vchCoinbaseCommitment);
         }
         while (!CheckProofOfWork(pblock->GetHash(), pblock->nBits, Params().GetConsensus())) {
             // Yes, there is a chance every nonce could fail to satisfy the -regtest
@@ -348,6 +348,7 @@ UniValue getblocktemplate(const UniValue& params, bool fHelp)
             "      {\n"
             "         \"data\" : \"xxxx\",          (string) transaction data encoded in hexadecimal (byte-for-byte)\n"
             "         \"hash\" : \"xxxx\",          (string) hash/id encoded in little-endian hexadecimal\n"
+            "         \"withash\" : \"xxxx\",       (string) witness hash encoded in little-endian hexadecimal\n"
             "         \"depends\" : [              (array) array of numbers \n"
             "             n                        (numeric) transactions before this one (by 1-based index in 'transactions' list) that must be present in the final block if this one is\n"
             "             ,...\n"
@@ -528,7 +529,7 @@ UniValue getblocktemplate(const UniValue& params, bool fHelp)
     UniValue transactions(UniValue::VARR);
     map<uint256, int64_t> setTxIndex;
     int i = 0;
-    BOOST_FOREACH (const CTransaction& tx, pblock->vtx) {
+    BOOST_FOREACH (CTransaction& tx, pblock->vtx) {
         uint256 txHash = tx.GetHash();
         setTxIndex[txHash] = i++;
 
@@ -537,9 +538,16 @@ UniValue getblocktemplate(const UniValue& params, bool fHelp)
 
         UniValue entry(UniValue::VOBJ);
 
-        entry.push_back(Pair("data", EncodeHexTx(tx)));
+        entry.push_back(Pair("data", EncodeHexTx(tx, false)));
+        if (!tx.wit.IsNull()) {
+            CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
+            tx.wit.vtxinwit.resize(tx.vin.size());
+            ss << tx.wit;
+            entry.push_back(Pair("witdata", HexStr(ss.begin(), ss.end())));
+        }
 
         entry.push_back(Pair("hash", txHash.GetHex()));
+        entry.push_back(Pair("withash", tx.GetWitnessHash().GetHex()));
 
         UniValue deps(UniValue::VARR);
         BOOST_FOREACH (const CTxIn &in, tx.vin)
@@ -586,6 +594,9 @@ UniValue getblocktemplate(const UniValue& params, bool fHelp)
     result.push_back(Pair("curtime", pblock->GetBlockTime()));
     result.push_back(Pair("bits", strprintf("%08x", pblock->nBits)));
     result.push_back(Pair("height", (int64_t)(pindexPrev->nHeight+1)));
+    if (!pblocktemplate->vchCoinbaseCommitment.empty()) {
+        result.push_back(Pair("_default_coinbase_commitment", HexStr(pblocktemplate->vchCoinbaseCommitment.begin(), pblocktemplate->vchCoinbaseCommitment.end())));
+    }
 
     return result;
 }
