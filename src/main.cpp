@@ -832,6 +832,11 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
     if (fRequireStandard && !IsStandardTx(tx, reason))
         return state.DoS(0, false, REJECT_NONSTANDARD, reason);
 
+    // Don't accept witness transactions before the final threshold passes
+    if (!tx.wit.IsNull() && !(chainActive.Tip()->nHeight + 1 >= Params().GetConsensus().SegWitHeight && IsSuperMajority(5, chainActive.Tip(), Params().GetConsensus().nMajorityRejectBlockOutdated, Params().GetConsensus()))) {
+        return state.DoS(0, false, REJECT_NONSTANDARD, "no-witness-yet");
+    }
+
     // Only accept nLockTime-using transactions that can be mined in the next
     // block; we don't want our mempool filled up with transactions that can't
     // be mined yet.
@@ -3001,6 +3006,35 @@ static bool CheckIndexAgainstCheckpoint(const CBlockIndex* pindexPrev, CValidati
         return state.DoS(100, error("%s: forked chain older than last checkpoint (height %d)", __func__, nHeight));
 
     return true;
+}
+
+std::vector<unsigned char> GenerateCoinbaseCommitment(const CBlock& block, const CBlockIndex* pindexPrev, const Consensus::Params& consensusParams)
+{
+    std::vector<unsigned char> ret;
+    if (block.nVersion >= 5 && pindexPrev->nHeight + 1 >= consensusParams.SegWitHeight && IsSuperMajority(5, pindexPrev, consensusParams.nMajorityEnforceBlockUpgrade, consensusParams)) {
+        ret.push_back(0xaa);
+        ret.push_back(0x21);
+        ret.push_back(0xa9);
+        ret.push_back(0xed);
+        ret.push_back(0x00);
+        ret.push_back(0x00);
+        ret.push_back(0x00);
+        ret.push_back(0x00);
+        ret.push_back(0x00);
+        uint256 witnessroot = BlockWitnessMerkleRoot(block, NULL);
+        ret.insert(ret.end(), witnessroot.begin(), witnessroot.end());
+    }
+    return ret;
+}
+
+CTxWitness GenerateCoinbaseWitness(const CBlock& block, const CBlockIndex* pindexPrev, const Consensus::Params& consensusParams)
+{
+    CTxWitness ret;
+    if (block.nVersion >= 5 && pindexPrev->nHeight + 1 >= consensusParams.SegWitHeight && IsSuperMajority(5, pindexPrev, consensusParams.nMajorityEnforceBlockUpgrade, consensusParams)) {
+        ret.vtxinwit.resize(1);
+        ret.vtxinwit[0].scriptWitness.stack.resize(1);
+    }
+    return ret;
 }
 
 static bool CheckCoinbaseCommitment(const CScript& script, const uint256& leaf, const std::vector<unsigned char> pathdata, const unsigned char typ[16])
