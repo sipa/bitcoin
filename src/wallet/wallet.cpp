@@ -2160,7 +2160,7 @@ bool CWallet::CreateTransaction(const vector<CRecipient>& vecSend, CWalletTx& wt
                     const CScript& scriptPubKey = coin.first->vout[coin.second].scriptPubKey;
                     SignatureData sigdata;
                     if (sign) {
-                        signSuccess = ProduceSignature(TransactionSignatureCreator(this, &txNewConst, nIn, SIGHASH_ALL), scriptPubKey, sigdata);
+                        signSuccess = ProduceSignature(TransactionSignatureCreator(this, &txNewConst, nIn, coin.first->vout[coin.second].nValue, SIGHASH_ALL), scriptPubKey, sigdata);
                         UpdateTransaction(txNew, nIn, sigdata);
                     } else
                         signSuccess = ProduceSignature(DummySignatureCreator(this), scriptPubKey, sigdata);
