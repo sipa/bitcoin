@@ -1325,7 +1325,16 @@ bool WriteBlockToDisk(const CBlock& block, CDiskBlockPos& pos, const CMessageHea
     if (fileOutPos < 0)
         return error("WriteBlockToDisk: ftell failed");
     pos.nPos = (unsigned int)fileOutPos;
-    fileout << block;
+    try {
+        fileout << block;
+    }
+    catch (const std::exception& e) {
+        return error("%s: Serialize or I/O error - %s at %s", __func__, e.what(), pos.ToString());
+    }
+
+    CValidationState s;
+    if (!CheckBlock(block, s))
+        return error("WriteBlockToDisk: check error %s", s.GetRejectReason());
 
     return true;
 }
@@ -1350,6 +1359,10 @@ bool ReadBlockFromDisk(CBlock& block, const CDiskBlockPos& pos, const Consensus:
     // Check the header
     if (!CheckProofOfWork(block.GetHash(), block.nBits, consensusParams))
         return error("ReadBlockFromDisk: Errors in block header at %s", pos.ToString());
+
+    CValidationState s;
+    if (!CheckBlock(block, s))
+        return error("ReadBlockFromDisk: check error %s", s.GetRejectReason());
 
     return true;
 }
@@ -2953,6 +2966,11 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
 
     // Check the merkle root.
     if (fCheckMerkleRoot) {
+        LogPrintf("Checking block %s: merkle root %s\n", block.GetHash().ToString(), block.hashMerkleRoot.ToString());
+        for (unsigned int i = 0; i < block.vtx.size(); i++) {
+            LogPrintf(" * Transaction %i hash=%s whash=%s:\n", i, block.vtx[i].GetHash().ToString(), block.vtx[i].GetWitnessHash().ToString());
+            LogPrintf("   * tx = %s\n", block.vtx[i].ToString());
+        }
         bool mutated;
         uint256 hashMerkleRoot2 = BlockMerkleRoot(block, &mutated);
         if (block.hashMerkleRoot != hashMerkleRoot2)
