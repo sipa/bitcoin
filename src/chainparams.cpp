@@ -212,6 +212,59 @@ public:
 static CTestNetParams testNetParams;
 
 /**
+ * Segnet
+ */
+class CSegNetParams : public CChainParams {
+public:
+    CSegNetParams() {
+        strNetworkID = "segnet";
+        consensus.nSubsidyHalvingInterval = 210000;
+        consensus.nMajorityEnforceBlockUpgrade = 7;
+        consensus.nMajorityRejectBlockOutdated = 9;
+        consensus.nMajorityWindow = 10;
+        consensus.BIP34Height = -1;
+        consensus.BIP34Hash = uint256();
+        consensus.powLimit = uint256S("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+        consensus.SegWitHeight = 0;
+        consensus.nPowTargetTimespan = 14 * 24 * 60 * 60; // two weeks
+        consensus.nPowTargetSpacing = 10 * 60;
+        consensus.fPowAllowMinDifficultyBlocks = true;
+        consensus.fPowNoRetargeting = false;
+        pchMessageStart[0] = 0x66;
+        pchMessageStart[1] = 0x71;
+        pchMessageStart[2] = 0xf5;
+        pchMessageStart[3] = 0x99;
+        vAlertPubKey = ParseHex("04302390343f91cc401d56d68b123028bf52e5fca1939df127f63c6467cdf9c8e2c14b61104cf817d0b780da337893ecc4aaff1309e536162dabbdb45200ca2b0a");
+        nDefaultPort = 28333;
+        nMaxTipAge = 0x7fffffff;
+        nPruneAfterHeight = 1000;
+
+        genesis = CreateGenesisBlock(1452368293, 0, 0x1d00ffff, 1, 50 * COIN);
+        consensus.hashGenesisBlock = genesis.GetHash();
+
+        vFixedSeeds.clear();
+        vSeeds.clear();
+
+        base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,30);
+        base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,50);
+        base58Prefixes[SECRET_KEY] =     std::vector<unsigned char>(1,158);
+        base58Prefixes[EXT_PUBLIC_KEY] = boost::assign::list_of(0x05)(0x35)(0x87)(0xCF).convert_to_container<std::vector<unsigned char> >();
+        base58Prefixes[EXT_SECRET_KEY] = boost::assign::list_of(0x05)(0x35)(0x83)(0x94).convert_to_container<std::vector<unsigned char> >();
+
+        vFixedSeeds.clear();
+
+        fMiningRequiresPeers = true;
+        fDefaultConsistencyChecks = false;
+        fRequireStandard = false;
+        fMineBlocksOnDemand = false;
+        fTestnetToBeDeprecatedFieldRPC = true;
+
+        // checkpointData is empty
+    }
+};
+static CSegNetParams segNetParams;
+
+/**
  * Regression test
  */
 class CRegTestParams : public CChainParams {
@@ -282,6 +335,8 @@ CChainParams& Params(const std::string& chain)
             return mainParams;
     else if (chain == CBaseChainParams::TESTNET)
             return testNetParams;
+    else if (chain == CBaseChainParams::SEGNET)
+            return segNetParams;
     else if (chain == CBaseChainParams::REGTEST)
             return regTestParams;
     else
