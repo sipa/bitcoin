@@ -837,7 +837,7 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
         return state.DoS(0, false, REJECT_NONSTANDARD, reason);
 
     // Don't accept witness transactions before the final threshold passes
-    if (!tx.wit.IsNull() && !(chainActive.Tip()->nHeight + 1 >= Params().GetConsensus().SegWitHeight && IsSuperMajority(5, chainActive.Tip(), Params().GetConsensus().nMajorityRejectBlockOutdated, Params().GetConsensus()))) {
+    if (!GetBoolArg("-prematurewitness",false) && !tx.wit.IsNull() && !(chainActive.Tip()->nHeight + 1 >= Params().GetConsensus().SegWitHeight && IsSuperMajority(5, chainActive.Tip(), Params().GetConsensus().nMajorityRejectBlockOutdated, Params().GetConsensus()))) {
         return state.DoS(0, false, REJECT_NONSTANDARD, "no-witness-yet");
     }
 
@@ -1181,11 +1181,16 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
             }
         }
 
+        unsigned int scriptVerifyFlags = STANDARD_SCRIPT_VERIFY_FLAGS;
+        if (!Params().RequireStandard()) {
+            scriptVerifyFlags = GetArg("-promiscuousmempoolflags", scriptVerifyFlags);
+        }
+
         // Check against previous transactions
         // This is done last to help prevent CPU exhaustion denial-of-service attacks.
-        if (!CheckInputs(tx, state, view, true, STANDARD_SCRIPT_VERIFY_FLAGS, true)) {
-            if (CheckInputs(tx, state, view, true, STANDARD_SCRIPT_VERIFY_FLAGS & ~(SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_CLEANSTACK), true) &&
-                !CheckInputs(tx, state, view, true, STANDARD_SCRIPT_VERIFY_FLAGS & ~SCRIPT_VERIFY_CLEANSTACK, true)) {
+        if (!CheckInputs(tx, state, view, true, scriptVerifyFlags, true)) {
+            if (CheckInputs(tx, state, view, true, scriptVerifyFlags & ~(SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_CLEANSTACK), true) &&
+                !CheckInputs(tx, state, view, true, scriptVerifyFlags & ~SCRIPT_VERIFY_CLEANSTACK, true)) {
                 // Only the witness is wrong, so the transaction itself may be fine.
                 state.SetCorruptionPossible();
             }
