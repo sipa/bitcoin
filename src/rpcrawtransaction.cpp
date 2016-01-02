@@ -95,6 +95,12 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry)
     }
     entry.push_back(Pair("vout", vout));
 
+    if (!tx.wit.IsNull()) {
+        CDataStream ssWit(SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_WITNESS);
+        ssWit << tx.wit;
+        entry.push_back(Pair("witness", HexStr(ssWit.begin(), ssWit.end())));
+    }
+
     if (!hashBlock.IsNull()) {
         entry.push_back(Pair("blockhash", hashBlock.GetHex()));
         BlockMap::iterator mi = mapBlockIndex.find(hashBlock);
