@@ -1095,9 +1095,13 @@ public:
         if (pwalletMain && pwalletMain->GetPubKey(keyID, pubkey)) {
             CScript basescript;
             basescript << ToByteVector(pubkey) << OP_CHECKSIG;
+            CScript hashscript;
+            hashscript << OP_DUP << OP_HASH160 << ToByteVector(keyID) << OP_EQUALVERIFY << OP_CHECKSIG;
             CScript witscript = GetScriptForWitness(basescript);
+            CScript hashwitscript = GetScriptForWitness(hashscript);
             pwalletMain->AddCScript(basescript);
             pwalletMain->AddCScript(witscript);
+            pwalletMain->AddCScript(hashwitscript);
             result = CScriptID(witscript);
             return true;
         }
