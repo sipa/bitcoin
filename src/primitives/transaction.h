@@ -408,4 +408,7 @@ struct CMutableTransaction
     uint256 GetHash() const;
 };
 
+/** Compute the consensus-critical virtual transaction size. */
+size_t GetVirtualTransactionSize(const CTransaction& tx);
+
 #endif // BITCOIN_PRIMITIVES_TRANSACTION_H
