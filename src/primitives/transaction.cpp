@@ -128,7 +128,7 @@ unsigned int CTransaction::CalculateModifiedSize(unsigned int nTxSize) const
         if (nTxSize > offset)
             nTxSize -= offset;
     }
-    return nTxSize;
+    return (nTxSize * (WITNESS_SCALE_FACTOR - 1) + ::GetSerializeSize(*this, SER_NETWORK, SERIALIZE_TRANSACTION_WITNESS) + WITNESS_SCALE_FACTOR - 1) / WITNESS_SCALE_FACTOR;
 }
 
 std::string CTransaction::ToString() const
@@ -147,4 +147,14 @@ std::string CTransaction::ToString() const
     for (unsigned int i = 0; i < vout.size(); i++)
         str += "    " + vout[i].ToString() + "\n";
     return str;
+}
+
+int64_t GetTransactionCost(const CTransaction& tx)
+{
+    return ::GetSerializeSize(tx, SER_NETWORK, 0) * (WITNESS_SCALE_FACTOR -1) + ::GetSerializeSize(tx, SER_NETWORK, SERIALIZE_TRANSACTION_WITNESS);
+}
+
+int64_t GetVirtualTransactionSize(const CTransaction& tx)
+{
+    return (GetTransactionCost(tx) + WITNESS_SCALE_FACTOR - 1) / WITNESS_SCALE_FACTOR;
 }

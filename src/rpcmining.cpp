@@ -255,7 +255,7 @@ UniValue getmininginfo(const UniValue& params, bool fHelp)
 
     UniValue obj(UniValue::VOBJ);
     obj.push_back(Pair("blocks",           (int)chainActive.Height()));
-    obj.push_back(Pair("currentblocksize", (uint64_t)nLastBlockSize));
+    obj.push_back(Pair("currentblockcost", (uint64_t)nLastBlockCost));
     obj.push_back(Pair("currentblocktx",   (uint64_t)nLastBlockTx));
     obj.push_back(Pair("difficulty",       (double)GetDifficulty()));
     obj.push_back(Pair("errors",           GetWarnings("statusbar")));
@@ -553,6 +553,7 @@ UniValue getblocktemplate(const UniValue& params, bool fHelp)
         int index_in_template = i - 1;
         entry.push_back(Pair("fee", pblocktemplate->vTxFees[index_in_template]));
         entry.push_back(Pair("sigops", pblocktemplate->vTxSigOps[index_in_template]));
+        entry.push_back(Pair("cost", GetTransactionCost(tx)));
 
         transactions.push_back(entry);
     }
@@ -582,8 +583,9 @@ UniValue getblocktemplate(const UniValue& params, bool fHelp)
     result.push_back(Pair("mintime", (int64_t)pindexPrev->GetMedianTimePast()+1));
     result.push_back(Pair("mutable", aMutable));
     result.push_back(Pair("noncerange", "00000000ffffffff"));
-    result.push_back(Pair("sigoplimit", (int64_t)MAX_BLOCK_SIGOPS));
-    result.push_back(Pair("sizelimit", (int64_t)MAX_BLOCK_SIZE));
+    result.push_back(Pair("sigoplimit", (int64_t)MAX_BLOCK_SIGOPS_COST / WITNESS_SCALE_FACTOR));
+    result.push_back(Pair("sizelimit", (int64_t)MAX_BLOCK_COST / WITNESS_SCALE_FACTOR));
+    result.push_back(Pair("costlimit", (int64_t)MAX_BLOCK_COST));
     result.push_back(Pair("curtime", pblock->GetBlockTime()));
     result.push_back(Pair("bits", strprintf("%08x", pblock->nBits)));
     result.push_back(Pair("height", (int64_t)(pindexPrev->nHeight+1)));
