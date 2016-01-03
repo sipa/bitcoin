@@ -148,3 +148,8 @@ std::string CTransaction::ToString() const
         str += "    " + vout[i].ToString() + "\n";
     return str;
 }
+
+size_t GetVirtualTransactionSize(const CTransaction& tx)
+{
+    return (::GetSerializeSize(tx, SER_NETWORK, 0) * 3 + ::GetSerializeSize(tx, SER_NETWORK, SERIALIZE_TRANSACTION_WITNESS) + 3) / 4;
+}
