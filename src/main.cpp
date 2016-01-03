@@ -753,7 +753,7 @@ bool CheckTransaction(const CTransaction& tx, CValidationState &state)
         return state.DoS(10, false, REJECT_INVALID, "bad-txns-vin-empty");
     if (tx.vout.empty())
         return state.DoS(10, false, REJECT_INVALID, "bad-txns-vout-empty");
-    // Size limits
+    // Size limits (this doesn't take the witness into account, as that hasn't been checked for malleability)
     if (::GetSerializeSize(tx, SER_NETWORK, PROTOCOL_VERSION) > MAX_BLOCK_SIZE)
         return state.DoS(100, false, REJECT_INVALID, "bad-txns-oversize");
 
@@ -2979,6 +2979,8 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
     // All potential-corruption validation must be done before we do any
     // transaction validation, as otherwise we may mark the header as invalid
     // because we receive the wrong transactions for it.
+    // Note that witness malleability is checked in ContextualCheckBlock, so no
+    // checks that use witness data may be performed here.
 
     // Size limits
     if (block.vtx.empty() || block.vtx.size() > MAX_BLOCK_SIZE || ::GetSerializeSize(block, SER_NETWORK, PROTOCOL_VERSION) > MAX_BLOCK_SIZE)
@@ -3164,6 +3166,9 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, CBlockIn
     // * The must be at least one output whose scriptPubKey is a single 36-byte push, the first 4 bytes of which are
     //   {0xaa, 0x21, 0xa9, 0xed}, and the following 32 bytes are SHA256(witness root, witness nonce). In case there are
     //   multiple, the last one is used.
+    if (GetVirtualBlockSize(block) > MAX_BLOCK_SIZE) {
+        return state.DoS(100, error("ContextualCheckBlock(): witness size limits failed"), REJECT_INVALID, "bad-blk-wit-length");
+    }
     if (IsWitnessEnabled(block, pindexPrev, consensusParams)) {
         int commitpos = -1;
         for (size_t o = 0; o < block.vtx[0].vout.size(); o++) {
