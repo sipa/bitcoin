@@ -155,4 +155,7 @@ struct CBlockLocator
     }
 };
 
+/** Compute the consensus-critical virtual block size. */
+size_t GetVirtualBlockSize(const CBlock& tx);
+
 #endif // BITCOIN_PRIMITIVES_BLOCK_H

@@ -755,7 +755,7 @@ bool CheckTransaction(const CTransaction& tx, CValidationState &state)
         return state.DoS(10, false, REJECT_INVALID, "bad-txns-vin-empty");
     if (tx.vout.empty())
         return state.DoS(10, false, REJECT_INVALID, "bad-txns-vout-empty");
-    // Size limits
+    // Size limits (this doesn't take the witness into account, as that hasn't been checked for malleability)
     if (::GetSerializeSize(tx, SER_NETWORK, PROTOCOL_VERSION) > MAX_BLOCK_SIZE)
         return state.DoS(100, false, REJECT_INVALID, "bad-txns-oversize");
 
@@ -2978,6 +2978,8 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
     // All potential-corruption validation must be done before we do any
     // transaction validation, as otherwise we may mark the header as invalid
     // because we receive the wrong transactions for it.
+    // Note that witness malleability is checked in ContextualCheckBlock, so no
+    // checks that use witness data may be performed here.
 
     // Size limits
     if (block.vtx.empty() || block.vtx.size() > MAX_BLOCK_SIZE || ::GetSerializeSize(block, SER_NETWORK, PROTOCOL_VERSION) > MAX_BLOCK_SIZE)
@@ -3183,10 +3185,22 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, CBlockIn
             if (memcmp(hashWitness.begin(), &block.vtx[0].vout[commitpos].scriptPubKey[6], 32)) {
                 return state.DoS(100, error("%s : witness merkle commitment mismatch", __func__), REJECT_INVALID, "bad-witness-merkle-match", true);
             }
+            
+            // After the coinbase witness nonce and commitment are verified,
+            // we can check if the virtual size passes (before we've checked
+            // the coinbase witness, it would be possible for the virtual
+            // size to be too large by filling up the coinbase witness,
+            // which doesn't change the block hash, so we couldn't mark
+            // the block as permanently failed).
+            // Note: we aren't checking virtual size for blocks that aren't
+            // witness enabled, but that's okay because CheckBlock still
+            // checks the block size without any witnesses.
+            if (GetVirtualBlockSize(block) > MAX_BLOCK_SIZE) {
+                return state.DoS(100, error("ContextualCheckBlock(): witness size limits failed"), REJECT_INVALID, "bad-blk-wit-length");
+            }
             return true;
         }
     }
-    // No witness data is allowed in blocks that don't commit to witness data, as this would otherwise leave room from spam.
     for (size_t i = 0; i < block.vtx.size(); i++) {
         if (!block.vtx[i].wit.IsNull()) {
             return state.DoS(100, error("%s : unexpected witness data found", __func__), REJECT_INVALID, "unexpected-witness", true);
