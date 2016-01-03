@@ -85,6 +85,10 @@ enum
     // Support segregated witness
     //
     SCRIPT_VERIFY_WITNESS = (1U << 10),
+    
+    // Making v2-v16 witness program non-standard
+    //
+    SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM  = (1U << 11),
 };
 
 bool CheckSignatureEncoding(const std::vector<unsigned char> &vchSig, unsigned int flags, ScriptError* serror);
