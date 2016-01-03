@@ -1233,6 +1233,8 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
         if (memcmp(hashScriptPubKey.begin(), &program[0], 32)) {
             return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
         }
+    } else if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM) {
+        return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM);
     } else {
         // Higher version witness scripts return true for future softfork compatibility
         return set_success(serror);
