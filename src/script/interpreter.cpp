@@ -863,10 +863,9 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                     if (nKeysCount < 0 || nKeysCount > MAX_PUBKEYS_PER_MULTISIG)
                         return set_error(serror, SCRIPT_ERR_PUBKEY_COUNT);
                     nOpCount += nKeysCount;
-                    if (nOpCount > MAX_OPS_PER_SCRIPT)
-                        return set_error(serror, SCRIPT_ERR_OP_COUNT);
                     int ikey = ++i;
                     i += nKeysCount;
+                    int nActualKeysCount = nKeysCount;
                     if ((int)stack.size() < i)
                         return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
 
@@ -877,7 +876,34 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                     i += nSigsCount;
                     if ((int)stack.size() < i)
                         return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
-
+                    int nSigsFlag = CScriptNum(stacktop(-i), fRequireMinimal).getint();
+                    if (sigversion == 1)
+                    {
+                        // Count the actual signature number in witness program
+                        nOpCount -= nKeysCount;
+                        nOpCount += nSigsCount;
+                        
+                        // It technially allows 32 keys at most, but this check is redundant as MAX_PUBKEYS_PER_MULTISIG = 20
+                        if (nKeysCount > 32)
+                            return set_error(serror, SCRIPT_ERR_PUBKEY_COUNT);
+                        
+                        // Out-of-range flags
+                        if (nSigsFlag >> nKeysCount)
+                            return set_error(serror, SCRIPT_ERR_SIG_FLAG);
+                        
+                        // Incorrect number of flags
+                        int f = 0;
+                        for (int k = 0; k < nKeysCount; k++)
+                        {
+                            if ((1U << k) & nSigsFlag)
+                                f++;
+                        }
+                        if (f != nSigsCount)
+                            return set_error(serror, SCRIPT_ERR_SIG_FLAG);
+                    }
+                    if (nOpCount > MAX_OPS_PER_SCRIPT)
+                        return set_error(serror, SCRIPT_ERR_OP_COUNT);
+                        
                     // Subset of script starting at the most recent codeseparator
                     CScript scriptCode(pbegincodehash, pend);
 
@@ -900,6 +926,29 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                         if (!CheckSignatureEncoding(vchSig, flags, serror) || !CheckPubKeyEncoding(vchPubKey, flags, serror)) {
                             // serror is set
                             return false;
+                        }
+
+                        if (sigversion == 1)
+                        {
+                            // Signature flag mask is the signature position - number of keys - 3
+                            int iflag = isig - nActualKeysCount - 3;
+                            if ((1U << iflag) & nSigsFlag)
+                            {
+                                // Check signature only if the bit flag is set
+                                bool fOk = checker.CheckSig(vchSig, vchPubKey, scriptCode, sigversion);
+                                if (!fOk)
+                                {
+                                    fSuccess = false;
+                                    break;
+                                }
+                                isig++;
+                                nSigsCount--;
+                            }
+                            ikey++;
+                            nKeysCount--;
+                            if (nSigsCount > nKeysCount)
+                                fSuccess = false;
+                            continue;
                         }
 
                         // Check signature
@@ -931,7 +980,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                     // to removing it from the stack.
                     if (stack.size() < 1)
                         return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
-                    if ((flags & SCRIPT_VERIFY_NULLDUMMY) && stacktop(-1).size())
+                    if ((flags & SCRIPT_VERIFY_NULLDUMMY) && !(flags & SCRIPT_VERIFY_WITNESS) && stacktop(-1).size())
                         return set_error(serror, SCRIPT_ERR_SIG_NULLDUMMY);
                     popstack(stack);
 
