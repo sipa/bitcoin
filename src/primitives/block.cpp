@@ -32,11 +32,10 @@ std::string CBlock::ToString() const
     return s.str();
 }
 
-size_t GetVirtualBlockSize(const CBlock& block)
+size_t GetBlockCost(const CBlock& block)
 {
-    // The formula is: vsize = base_size + witness_size / 4.
-    // We can only serialize base or totalbase+witness, however, so the formula
-    // becomes: vsize = base_size + (total_size - base_size) / 4 or
-    // vsize = (total_size + 3 * base_size) / 4.
-    return (::GetSerializeSize(block, SER_NETWORK, 0) * 3 + ::GetSerializeSize(block, SER_NETWORK, SERIALIZE_TRANSACTION_WITNESS) + 3) / 4;
+    // witness data is 4 times less costly than core data, because we can prune it
+    size_t coreCost = ::GetSerializeSize(block, SER_NETWORK, 0);
+    size_t witCost = ::GetSerializeSize(block, SER_NETWORK, SERIALIZE_TRANSACTION_WITNESS) - coreCost;
+    return witCost + 4 * coreCost;
 }
