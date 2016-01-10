@@ -3223,7 +3223,7 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, CBlockIn
             // Note: we aren't checking virtual size for blocks that aren't
             // witness enabled, but that's okay because CheckBlock still
             // checks the block size without any witnesses.
-            if (GetVirtualBlockSize(block) > MAX_BLOCK_SIZE) {
+            if (GetBlockCost(block) > MAX_BLOCK_COST) {
                 return state.DoS(100, error("ContextualCheckBlock(): witness size limits failed"), REJECT_INVALID, "bad-blk-wit-length");
             }
             return true;
