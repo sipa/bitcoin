@@ -4219,7 +4219,8 @@ std::string GetWarnings(const std::string& strFor)
 
 bool static AlreadyHave(const CInv& inv) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
 {
-    switch (inv.type)
+    uint32_t msgType = inv.type & MSG_TYPE_MASK;
+    switch (msgType)
     {
     case MSG_TX:
     case MSG_WITNESS_TX:
@@ -4266,7 +4267,10 @@ void static ProcessGetData(CNode* pfrom, const Consensus::Params& consensusParam
             boost::this_thread::interruption_point();
             it++;
 
-            if (inv.type == MSG_BLOCK || inv.type == MSG_FILTERED_BLOCK || inv.type == MSG_WITNESS_BLOCK)
+            uint32_t msgType = inv.type & MSG_TYPE_MASK;
+            bool fSendWitness = inv.type & MSG_WITNESS_FLAG;
+
+            if (msgType == MSG_BLOCK || msgType == MSG_FILTERED_BLOCK || msgType == MSG_WITNESS_BLOCK)
             {
                 bool send = false;
                 BlockMap::iterator mi = mapBlockIndex.find(inv.hash);
@@ -4290,7 +4294,7 @@ void static ProcessGetData(CNode* pfrom, const Consensus::Params& consensusParam
                 // disconnect node in case we have reached the outbound limit for serving historical blocks
                 // never disconnect whitelisted nodes
                 static const int nOneWeek = 7 * 24 * 60 * 60; // assume > 1 week = historical
-                if (send && CNode::OutboundTargetReached(true) && ( ((pindexBestHeader != NULL) && (pindexBestHeader->GetBlockTime() - mi->second->GetBlockTime() > nOneWeek)) || inv.type == MSG_FILTERED_BLOCK) && !pfrom->fWhitelisted)
+                if (send && CNode::OutboundTargetReached(true) && ( ((pindexBestHeader != NULL) && (pindexBestHeader->GetBlockTime() - mi->second->GetBlockTime() > nOneWeek)) || msgType == MSG_FILTERED_BLOCK) && !pfrom->fWhitelisted)
                 {
                     LogPrint("net", "historical block serving limit reached, disconnect peer=%d\n", pfrom->GetId());
 
@@ -4306,9 +4310,9 @@ void static ProcessGetData(CNode* pfrom, const Consensus::Params& consensusParam
                     CBlock block;
                     if (!ReadBlockFromDisk(block, (*mi).second, consensusParams))
                         assert(!"cannot load block from disk");
-                    if (inv.type == MSG_BLOCK)
-                        pfrom->PushMessage(NetMsgType::BLOCK, block);
-                    if (inv.type == MSG_WITNESS_BLOCK)
+                    if (msgType == MSG_BLOCK)
+                        pfrom->PushMessageWithFlag(fSendWitness ? SERIALIZE_TRANSACTION_WITNESS : 0, NetMsgType::BLOCK, block);
+                    if (msgType == MSG_WITNESS_BLOCK)
                         pfrom->PushMessageWithFlag(SERIALIZE_TRANSACTION_WITNESS, NetMsgType::BLOCK, block);
                     else // MSG_FILTERED_BLOCK)
                     {
@@ -4316,7 +4320,7 @@ void static ProcessGetData(CNode* pfrom, const Consensus::Params& consensusParam
                         if (pfrom->pfilter)
                         {
                             CMerkleBlock merkleBlock(block, *pfrom->pfilter);
-                            pfrom->PushMessage(NetMsgType::MERKLEBLOCK, merkleBlock);
+                            pfrom->PushMessageWithFlag(fSendWitness ? SERIALIZE_TRANSACTION_WITNESS : 0, NetMsgType::MERKLEBLOCK, merkleBlock);
                             // CMerkleBlock just contains hashes, so also push any transactions in the block the client did not see
                             // This avoids hurting performance by pointlessly requiring a round-trip
                             // Note that there is currently no way for a node to request any single transactions we didn't send here -
@@ -4325,7 +4329,7 @@ void static ProcessGetData(CNode* pfrom, const Consensus::Params& consensusParam
                             // however we MUST always provide at least what the remote peer needs
                             typedef std::pair<unsigned int, uint256> PairType;
                             BOOST_FOREACH(PairType& pair, merkleBlock.vMatchedTxn)
-                                pfrom->PushMessage(NetMsgType::TX, block.vtx[pair.first]);
+                                pfrom->PushMessageWithFlag(fSendWitness ? SERIALIZE_TRANSACTION_WITNESS : 0, NetMsgType::TX, block.vtx[pair.first]);
                         }
                         // else
                             // no response
@@ -4344,7 +4348,7 @@ void static ProcessGetData(CNode* pfrom, const Consensus::Params& consensusParam
                     }
                 }
             }
-            else if (inv.type == MSG_TX || inv.type == MSG_WITNESS_TX)
+            else if (msgType == MSG_TX || msgType == MSG_WITNESS_TX)
             {
                 // Send stream from relay memory
                 bool pushed = false;
@@ -4352,14 +4356,14 @@ void static ProcessGetData(CNode* pfrom, const Consensus::Params& consensusParam
                     LOCK(cs_mapRelayTx);
                     map<uint256, CTransaction>::iterator mi = mapRelayTx.find(inv.hash);
                     if (mi != mapRelayTx.end()) {
-                        pfrom->PushMessageWithFlag(inv.type == MSG_WITNESS_TX ? SERIALIZE_TRANSACTION_WITNESS : 0, NetMsgType::TX, (*mi).second);
+                        pfrom->PushMessageWithFlag((fSendWitness || msgType == MSG_WITNESS_TX) ? SERIALIZE_TRANSACTION_WITNESS : 0, NetMsgType::TX, (*mi).second);
                         pushed = true;
                     }
                 }
-                if (!pushed && (inv.type == MSG_TX || inv.type == MSG_WITNESS_TX)) {
+                if (!pushed && (msgType == MSG_TX || msgType == MSG_WITNESS_TX)) {
                     CTransaction tx;
                     if (mempool.lookup(inv.hash, tx)) {
-                        pfrom->PushMessageWithFlag(inv.type == MSG_WITNESS_TX ? SERIALIZE_TRANSACTION_WITNESS : 0, NetMsgType::TX, tx);
+                        pfrom->PushMessageWithFlag((fSendWitness || msgType == MSG_WITNESS_TX) ? SERIALIZE_TRANSACTION_WITNESS : 0, NetMsgType::TX, tx);
                         pushed = true;
                     }
                 }
@@ -4371,7 +4375,7 @@ void static ProcessGetData(CNode* pfrom, const Consensus::Params& consensusParam
             // Track requests for our stuff.
             GetMainSignals().Inventory(inv.hash);
 
-            if (inv.type == MSG_BLOCK || inv.type == MSG_FILTERED_BLOCK || inv.type == MSG_WITNESS_BLOCK)
+            if (msgType == MSG_BLOCK || msgType == MSG_FILTERED_BLOCK || msgType == MSG_WITNESS_BLOCK)
                 break;
         }
     }
