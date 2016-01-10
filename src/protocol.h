@@ -324,4 +324,7 @@ enum {
     MSG_WITNESS_TX,
 };
 
+const uint32_t MSG_WITNESS_FLAG = 1 << 31;
+const uint32_t MSG_TYPE_MASK = 0xffffffff >> 1; // Only one flag for now
+
 #endif // BITCOIN_PROTOCOL_H
