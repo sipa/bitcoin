@@ -179,8 +179,9 @@ const char* CInv::GetCommand() const
     int masked = type & MSG_TYPE_MASK;
     switch (masked)
     {
-    case MSG_TX:    return NetMsgType::TX;
-    case MSG_BLOCK: return NetMsgType::BLOCK;
+    case MSG_TX:                return NetMsgType::TX;
+    case MSG_BLOCK:             return NetMsgType::BLOCK;
+    case MSG_FILTERED_BLOCK:    return NetMsgType::MERKLEBLOCK;
     default:
         throw std::out_of_range(strprintf("CInv::GetCommand(): type=%d unknown type", type));
     }

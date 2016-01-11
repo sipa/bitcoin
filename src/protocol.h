@@ -291,9 +291,9 @@ enum GetDataMsg
 {
     MSG_TX = 1,
     MSG_BLOCK,
-    MSG_TYPE_MAX = MSG_BLOCK,
     // The following can only occur in getdata. Invs always use TX or BLOCK.
     MSG_FILTERED_BLOCK,
+    MSG_TYPE_MAX = MSG_FILTERED_BLOCK,
     UNDEFINED,
 };
 
