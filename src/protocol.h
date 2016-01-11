@@ -315,13 +315,17 @@ public:
     uint256 hash;
 };
 
+const uint32_t MSG_WITNESS_FLAG = 1 << 30;
+const uint32_t MSG_TYPE_MASK    = 0xffffffff >> 2;
 enum {
     MSG_TX = 1,
     MSG_BLOCK,
     // The following can only occur in getdata. Invs always use TX or BLOCK.
     MSG_FILTERED_BLOCK,
-    MSG_WITNESS_BLOCK = MSG_BLOCK | 0x40000000,
-    MSG_WITNESS_TX = MSG_TX | 0x40000000,
+    MSG_WITNESS_BLOCK = MSG_BLOCK | MSG_WITNESS_FLAG,
+    MSG_WITNESS_TX = MSG_TX | MSG_WITNESS_FLAG,
 };
+
+const int MSG_TYPE_MAX = MSG_FILTERED_BLOCK;
 
 #endif // BITCOIN_PROTOCOL_H
