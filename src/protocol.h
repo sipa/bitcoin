@@ -327,6 +327,7 @@ public:
     friend bool operator<(const CInv& a, const CInv& b);
 
     bool IsKnownType() const;
+    bool HasWitness() const { return type & MSG_WITNESS_FLAG; }
     const char* GetCommand() const;
     std::string ToString() const;
 
