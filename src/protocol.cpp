@@ -165,7 +165,9 @@ CInv::CInv(const std::string& strType, const uint256& hashIn)
 
 bool operator<(const CInv& a, const CInv& b)
 {
-    return (a.type < b.type || (a.type == b.type && a.hash < b.hash));
+    int aType = a.type & MSG_TYPE_MASK;
+    int bType = b.type & MSG_TYPE_MASK;
+    return (aType < bType || (aType == bType && a.hash < b.hash));
 }
 
 bool CInv::IsKnownType() const
