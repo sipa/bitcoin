@@ -1215,23 +1215,34 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
     CScript scriptPubKey;
 
     if (witversion == 0) {
-        // Version 0 segregated witness program: CScript inside the program, inputs in witness
-        scriptPubKey = CScript(program.begin(), program.end());
-        stack = witness.stack;
-    } else if (witversion == 1) {
-        // Version 1 segregated witness program: SHA256(CScript) inside the program, CScript + inputs in witness
-        if (program.size() != 32) {
+        if (program.size() == 32) {
+            // Version 0 segregated witness program: SHA256(CScript) inside the program, CScript + inputs in witness
+            if (witness.stack.size() == 0) {
+                return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WITNESS_EMPTY);
+            }
+            scriptPubKey = CScript(witness.stack.back().begin(), witness.stack.back().end());
+            stack = std::vector<std::vector<unsigned char> >(witness.stack.begin(), witness.stack.end() - 1);
+            uint256 hashScriptPubKey;
+            CSHA256().Write(&scriptPubKey[0], scriptPubKey.size()).Finalize(hashScriptPubKey.begin());
+            if (memcmp(hashScriptPubKey.begin(), &program[0], 32)) {
+                return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+            }
+        }
+        else if (program.size() == 20) {
+            if (witness.stack.size() != 2) {
+                return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH); // 2 items in witness
+            }
+            scriptPubKey = CScript(OP_CHECKSIG); // scriptPubKey is OP_CHECKSIG???
+            pubKey = CScript(witness.stack.back().begin(), witness.stack.back().end()); // last witness item is pubKey
+            stack = witness.stack; // stack is the whole witness.stack
+            uint256 hashPubKey;
+            CHASH160().Write(&pubKey[0], pubKey.size()).Finalize(hashPubKey.begin()); // hash160 of pubKey
+            if (memcmp(hashPubKey.begin(), &program[0], 20)) {
+                return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH); // compare with witness program
+            }
+        }
+        else {
             return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WRONG_LENGTH);
-        }
-        if (witness.stack.size() == 0) {
-            return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WITNESS_EMPTY);
-        }
-        scriptPubKey = CScript(witness.stack.back().begin(), witness.stack.back().end());
-        stack = std::vector<std::vector<unsigned char> >(witness.stack.begin(), witness.stack.end() - 1);
-        uint256 hashScriptPubKey;
-        CSHA256().Write(&scriptPubKey[0], scriptPubKey.size()).Finalize(hashScriptPubKey.begin());
-        if (memcmp(hashScriptPubKey.begin(), &program[0], 32)) {
-            return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
         }
     } else if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM) {
         return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM);
