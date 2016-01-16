@@ -137,6 +137,9 @@ CBlockTemplate* CreateNewBlock(const CChainParams& chainparams, const CScript& s
         pblock->nTime = GetAdjustedTime();
         const int64_t nMedianTimePast = pindexPrev->GetMedianTimePast();
 
+        // Decide whether to include witness transactions (temporary)
+        bool fIncludeWitness = IsWitnessEnabled(*pblock, pindexPrev, chainparams.GetConsensus());
+
         int64_t nLockTimeCutoff = (STANDARD_LOCKTIME_VERIFY_FLAGS & LOCKTIME_MEDIAN_TIME_PAST)
                                 ? nMedianTimePast
                                 : pblock->GetBlockTime();
@@ -181,6 +184,9 @@ CBlockTemplate* CreateNewBlock(const CChainParams& chainparams, const CScript& s
                 continue; // could have been added to the priorityBlock
 
             const CTransaction& tx = iter->GetTx();
+
+            if (!fIncludeWitness && !tx.wit.IsNull())
+                continue; // cannot accept witness transactions into a non-witness block
 
             bool fOrphan = false;
             BOOST_FOREACH(CTxMemPool::txiter parent, mempool.GetMemPoolParents(iter))
@@ -275,10 +281,17 @@ CBlockTemplate* CreateNewBlock(const CChainParams& chainparams, const CScript& s
         nLastBlockSize = nBlockSize;
         LogPrintf("CreateNewBlock(): total size %u txs: %u fees: %ld sigops %d\n", nBlockSize, nBlockTx, nFees, nBlockSigOps);
 
+
         // Compute final coinbase transaction.
         txNew.vout[0].nValue = nFees + GetBlockSubsidy(nHeight, chainparams.GetConsensus());
-        txNew.vin[0].scriptSig = CScript() << nHeight << OP_0;
+        txNew.vin[0].scriptSig = CScript() << nHeight;
+        if (!pblocktemplate->vchCoinbaseCommitment.empty()) {
+            txNew.vin[0].scriptSig << pblocktemplate->vchCoinbaseCommitment;
+        }
+        txNew.vin[0].scriptSig << OP_0;
         pblock->vtx[0] = txNew;
+        GenerateCoinbaseCommitment(*pblock, pindexPrev, chainparams.GetConsensus());
+        pblocktemplate->vchCoinbaseCommitment = std::vector<unsigned char>(pblock->vtx[0].vout.back().scriptPubKey.begin(), pblock->vtx[0].vout.back().scriptPubKey.end());
         pblocktemplate->vTxFees[0] = -nFees;
 
         // Fill in header
@@ -297,7 +310,7 @@ CBlockTemplate* CreateNewBlock(const CChainParams& chainparams, const CScript& s
     return pblocktemplate.release();
 }
 
-void IncrementExtraNonce(CBlock* pblock, const CBlockIndex* pindexPrev, unsigned int& nExtraNonce)
+void IncrementExtraNonce(CBlock* pblock, const CBlockIndex* pindexPrev, unsigned int& nExtraNonce, const std::vector<unsigned char> vchCoinbaseCommitment)
 {
     // Update nExtraNonce
     static uint256 hashPrevBlock;
@@ -309,7 +322,7 @@ void IncrementExtraNonce(CBlock* pblock, const CBlockIndex* pindexPrev, unsigned
     ++nExtraNonce;
     unsigned int nHeight = pindexPrev->nHeight+1; // Height first in coinbase required for block.version=2
     CMutableTransaction txCoinbase(pblock->vtx[0]);
-    txCoinbase.vin[0].scriptSig = (CScript() << nHeight << CScriptNum(nExtraNonce)) + COINBASE_FLAGS;
+    txCoinbase.vin[0].scriptSig = (CScript() << nHeight << vchCoinbaseCommitment << CScriptNum(nExtraNonce)) + COINBASE_FLAGS;
     assert(txCoinbase.vin[0].scriptSig.size() <= 100);
 
     pblock->vtx[0] = txCoinbase;
@@ -424,7 +437,7 @@ void static BitcoinMiner(const CChainParams& chainparams)
                 return;
             }
             CBlock *pblock = &pblocktemplate->block;
-            IncrementExtraNonce(pblock, pindexPrev, nExtraNonce);
+            IncrementExtraNonce(pblock, pindexPrev, nExtraNonce, pblocktemplate->vchCoinbaseCommitment);
 
             LogPrintf("Running BitcoinMiner with %u transactions in block (%u bytes)\n", pblock->vtx.size(),
                 ::GetSerializeSize(*pblock, SER_NETWORK, PROTOCOL_VERSION));
