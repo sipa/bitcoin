@@ -65,8 +65,16 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry)
     entry.push_back(Pair("size", (int)::GetSerializeSize(tx, SER_NETWORK, PROTOCOL_VERSION)));
     entry.push_back(Pair("version", tx.nVersion));
     entry.push_back(Pair("locktime", (int64_t)tx.nLockTime));
+    
+    if (!tx.wit.IsNull()) {
+        if (!tx.IsCoinBase())
+            entry.push_back(Pair("wtxid", tx.GetWitnessHash().GetHex()));
+        entry.push_back(Pair("wsize", (int)::GetSerializeSize(tx, SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_WITNESS)));
+    }
+    
     UniValue vin(UniValue::VARR);
-    BOOST_FOREACH(const CTxIn& txin, tx.vin) {
+    for (unsigned int i = 0; i < tx.vin.size(); i++) {
+        const CTxIn& txin = tx.vin[i];
         UniValue in(UniValue::VOBJ);
         if (tx.IsCoinBase())
             in.push_back(Pair("coinbase", HexStr(txin.scriptSig.begin(), txin.scriptSig.end())));
@@ -78,6 +86,18 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry)
             o.push_back(Pair("hex", HexStr(txin.scriptSig.begin(), txin.scriptSig.end())));
             in.push_back(Pair("scriptSig", o));
         }
+        if (!tx.wit.vtxinwit[i].IsNull()) {
+            string w;
+            for (unsigned int j = 0; j < tx.wit.vtxinwit[i].scriptWitness.stack.size(); j++) {
+                CDataStream ssWit(SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_WITNESS);
+                ssWit << tx.wit.vtxinwit[i].scriptWitness.stack[j];
+                w += HexStr(ssWit.begin(), ssWit.end());
+                if (j != tx.wit.vtxinwit[i].scriptWitness.stack.size() - 1)
+                    w += " ";
+            }
+            in.push_back(Pair("witness", w));
+        }
+
         in.push_back(Pair("sequence", (int64_t)txin.nSequence));
         vin.push_back(in);
     }
@@ -94,12 +114,6 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry)
         vout.push_back(out);
     }
     entry.push_back(Pair("vout", vout));
-
-    if (!tx.wit.IsNull()) {
-        CDataStream ssWit(SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_WITNESS);
-        ssWit << tx.wit;
-        entry.push_back(Pair("witness", HexStr(ssWit.begin(), ssWit.end())));
-    }
 
     if (!hashBlock.IsNull()) {
         entry.push_back(Pair("blockhash", hashBlock.GetHex()));
@@ -143,6 +157,8 @@ UniValue getrawtransaction(const UniValue& params, bool fHelp)
             "  \"size\" : n,             (numeric) The transaction size\n"
             "  \"version\" : n,          (numeric) The version\n"
             "  \"locktime\" : ttt,       (numeric) The lock time\n"
+            "  \"wtxid\" : \"id\",       (string) The witness id (segwit tx only)\n"
+            "  \"wsize\" : n,            (numeric) The transaction size with witness data (segwit tx only)\n"
             "  \"vin\" : [               (array of json objects)\n"
             "     {\n"
             "       \"txid\": \"id\",    (string) The transaction id\n"
@@ -152,6 +168,7 @@ UniValue getrawtransaction(const UniValue& params, bool fHelp)
             "         \"hex\": \"hex\"   (string) hex\n"
             "       },\n"
             "       \"sequence\": n      (numeric) The script sequence number\n"
+            "       \"witness\": \"hex\" (string) witness data (if any)\n"
             "     }\n"
             "     ,...\n"
             "  ],\n"
@@ -440,6 +457,8 @@ UniValue decoderawtransaction(const UniValue& params, bool fHelp)
             "  \"size\" : n,             (numeric) The transaction size\n"
             "  \"version\" : n,          (numeric) The version\n"
             "  \"locktime\" : ttt,       (numeric) The lock time\n"
+            "  \"wtxid\" : \"id\",       (string) The witness id (segwit tx only)\n"
+            "  \"wsize\" : n,            (numeric) The transaction size with witness data (segwit tx only)\n"
             "  \"vin\" : [               (array of json objects)\n"
             "     {\n"
             "       \"txid\": \"id\",    (string) The transaction id\n"
@@ -448,6 +467,7 @@ UniValue decoderawtransaction(const UniValue& params, bool fHelp)
             "         \"asm\": \"asm\",  (string) asm\n"
             "         \"hex\": \"hex\"   (string) hex\n"
             "       },\n"
+            "       \"witness\": \"hex\" (string) witness data (if any)\n"
             "       \"sequence\": n     (numeric) The script sequence number\n"
             "     }\n"
             "     ,...\n"
