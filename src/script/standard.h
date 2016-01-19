@@ -17,6 +17,7 @@ static const bool DEFAULT_ACCEPT_DATACARRIER = true;
 
 class CKeyID;
 class CScript;
+class CWitKeyID160;
 
 /** A reference to a CScript: the Hash160 of its serialization (see script.h) */
 class CScriptID : public uint160
@@ -25,6 +26,27 @@ public:
     CScriptID() : uint160() {}
     CScriptID(const CScript& in);
     CScriptID(const uint160& in) : uint160(in) {}
+};
+
+class CWitScriptID256
+{
+public:
+    CWitScriptID256() : nVersion(0) {}
+    CWitScriptID256(const CScript& in, int nVersionIn);
+    CWitScriptID256(const uint256& in, int nVersionIn) : hash(in), nVersion(nVersionIn) {}
+    bool operator<(const CWitScriptID256& in) const
+    {
+        return in.nVersion < nVersion || in.hash < hash;
+    }
+    bool operator==(const CWitScriptID256& in) const
+    {
+        return in.nVersion == nVersion && in.hash == hash;
+    }
+    const uint256& GetHash() const { return hash; }
+    int GetVersion() const { return nVersion; }
+private:
+    uint256 hash;
+    int nVersion;
 };
 
 static const unsigned int MAX_OP_RETURN_RELAY = 83; //! bytes (+1 for OP_RETURN, +2 for the pushdata opcodes)
@@ -68,7 +90,7 @@ public:
  *  * CScriptID: TX_SCRIPTHASH destination
  *  A CTxDestination is the internal data type encoded in a CBitcoinAddress
  */
-typedef boost::variant<CNoDestination, CKeyID, CScriptID> CTxDestination;
+typedef boost::variant<CNoDestination, CKeyID, CScriptID, CWitKeyID160, CWitScriptID256> CTxDestination;
 
 const char* GetTxnOutputType(txnouttype t);
 

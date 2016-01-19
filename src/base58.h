@@ -106,9 +106,10 @@ public:
     bool Set(const CKeyID &id);
     bool Set(const CScriptID &id);
     bool Set(const CTxDestination &dest);
+    bool Set(const CWitKeyID160 &dest);
+    bool Set(const CWitScriptID256 &dest);
     bool IsValid() const;
     bool IsValid(const CChainParams &params) const;
-
     CBitcoinAddress() {}
     CBitcoinAddress(const CTxDestination &dest) { Set(dest); }
     CBitcoinAddress(const std::string& strAddress) { SetString(strAddress); }
@@ -117,6 +118,8 @@ public:
     CTxDestination Get() const;
     bool GetKeyID(CKeyID &keyID) const;
     bool IsScript() const;
+    bool IsWitness() const;
+    bool IsWitness(const CChainParams &params) const;
 };
 
 /**
