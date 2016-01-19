@@ -97,6 +97,7 @@ UniValue blockToJSON(const CBlock& block, const CBlockIndex* blockindex, bool tx
     result.push_back(Pair("confirmations", confirmations));
     result.push_back(Pair("size", (int)::GetSerializeSize(block, SER_NETWORK, PROTOCOL_VERSION)));
     result.push_back(Pair("wsize", (int)::GetSerializeSize(block, SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_WITNESS)));
+    result.push_back(Pair("vsize", (int)::GetVirtualBlockSize(block)));
     result.push_back(Pair("height", blockindex->nHeight));
     result.push_back(Pair("version", block.nVersion));
     result.push_back(Pair("merkleroot", block.hashMerkleRoot.GetHex()));
@@ -374,6 +375,7 @@ UniValue getblock(const UniValue& params, bool fHelp)
             "  \"confirmations\" : n,   (numeric) The number of confirmations, or -1 if the block is not on the main chain\n"
             "  \"size\" : n,            (numeric) The block size\n"
             "  \"wsize\" : n,           (numeric) The block size with witness data\n"
+            "  \"vsize\" : n,           (numeric) The virtual transaction size (size + (wsize-size)/4)\n"
             "  \"height\" : n,          (numeric) The block height or index\n"
             "  \"version\" : n,         (numeric) The block version\n"
             "  \"merkleroot\" : \"xxxx\", (string) The merkle root\n"
