@@ -59,6 +59,18 @@ void ScriptPubKeyToJSON(const CScript& scriptPubKey, UniValue& out, bool fInclud
     out.push_back(Pair("addresses", a));
 }
 
+string WitnessToStr(const CTxinWitness& witness)
+{
+    string str;
+    for (unsigned int j = 0; j < witness.scriptWitness.stack.size(); j++) {
+        if (j > 0)
+            str += " ";
+        std::vector<unsigned char> item = witness.scriptWitness.stack[j];
+        str += HexStr(item.begin(), item.end());
+    }
+    return str;
+}
+
 void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry)
 {
     entry.push_back(Pair("txid", tx.GetHash().GetHex()));
@@ -70,6 +82,7 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry)
         if (!tx.IsCoinBase())
             entry.push_back(Pair("wtxid", tx.GetWitnessHash().GetHex()));
         entry.push_back(Pair("wsize", (int)::GetSerializeSize(tx, SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_WITNESS)));
+        entry.push_back(Pair("vsize", (int)::GetVirtualTransactionSize(tx)));
     }
     
     UniValue vin(UniValue::VARR);
@@ -86,18 +99,11 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry)
             o.push_back(Pair("hex", HexStr(txin.scriptSig.begin(), txin.scriptSig.end())));
             in.push_back(Pair("scriptSig", o));
         }
-        if (!tx.wit.vtxinwit[i].IsNull()) {
-            string w;
-            for (unsigned int j = 0; j < tx.wit.vtxinwit[i].scriptWitness.stack.size(); j++) {
-                CDataStream ssWit(SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_WITNESS);
-                ssWit << tx.wit.vtxinwit[i].scriptWitness.stack[j];
-                w += HexStr(ssWit.begin(), ssWit.end());
-                if (j != tx.wit.vtxinwit[i].scriptWitness.stack.size() - 1)
-                    w += " ";
+        if (!tx.wit.IsNull()) {
+            if (!tx.wit.vtxinwit[i].IsNull()) {
+                in.push_back(Pair("txinwitness", WitnessToStr(tx.wit.vtxinwit[i])));
             }
-            in.push_back(Pair("witness", w));
         }
-
         in.push_back(Pair("sequence", (int64_t)txin.nSequence));
         vin.push_back(in);
     }
@@ -159,6 +165,7 @@ UniValue getrawtransaction(const UniValue& params, bool fHelp)
             "  \"locktime\" : ttt,       (numeric) The lock time\n"
             "  \"wtxid\" : \"id\",       (string) The witness id (segwit tx only)\n"
             "  \"wsize\" : n,            (numeric) The transaction size with witness data (segwit tx only)\n"
+            "  \"vsize\" : n,            (numeric) The virtual transaction size (size + (wsize-size)/4)\n"
             "  \"vin\" : [               (array of json objects)\n"
             "     {\n"
             "       \"txid\": \"id\",    (string) The transaction id\n"
@@ -168,7 +175,7 @@ UniValue getrawtransaction(const UniValue& params, bool fHelp)
             "         \"hex\": \"hex\"   (string) hex\n"
             "       },\n"
             "       \"sequence\": n      (numeric) The script sequence number\n"
-            "       \"witness\": \"hex\" (string) witness data (if any)\n"
+            "       \"txinwitness\": \"hex\" (string) witness data (if any)\n"
             "     }\n"
             "     ,...\n"
             "  ],\n"
@@ -459,6 +466,7 @@ UniValue decoderawtransaction(const UniValue& params, bool fHelp)
             "  \"locktime\" : ttt,       (numeric) The lock time\n"
             "  \"wtxid\" : \"id\",       (string) The witness id (segwit tx only)\n"
             "  \"wsize\" : n,            (numeric) The transaction size with witness data (segwit tx only)\n"
+            "  \"vsize\" : n,            (numeric) The virtual transaction size (size + (wsize-size)/4)\n"
             "  \"vin\" : [               (array of json objects)\n"
             "     {\n"
             "       \"txid\": \"id\",    (string) The transaction id\n"
@@ -467,7 +475,7 @@ UniValue decoderawtransaction(const UniValue& params, bool fHelp)
             "         \"asm\": \"asm\",  (string) asm\n"
             "         \"hex\": \"hex\"   (string) hex\n"
             "       },\n"
-            "       \"witness\": \"hex\" (string) witness data (if any)\n"
+            "       \"txinwitness\": \"hex\" (string) txin witness data (if any)\n"
             "       \"sequence\": n     (numeric) The script sequence number\n"
             "     }\n"
             "     ,...\n"
