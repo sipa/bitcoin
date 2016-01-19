@@ -397,7 +397,7 @@ class DummySignatureChecker : public BaseSignatureChecker
 public:
     DummySignatureChecker() {}
 
-    bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, int sigversion) const
+    bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, int sigversion)
     {
         return true;
     }
