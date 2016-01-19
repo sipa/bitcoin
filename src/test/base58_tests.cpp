@@ -92,6 +92,14 @@ public:
     {
         return (exp_addrType == "none");
     }
+    bool operator()(const CWitKeyID160 &id) const
+    {
+        return (exp_addrType == "witness_keyhash");
+    }
+    bool operator()(const CWitScriptID256 &id) const
+    {
+        return (exp_addrType == "witness_scripthash");
+    }
 };
 
 // Visitor to check address payload
@@ -110,6 +118,16 @@ public:
     {
         uint160 exp_key(exp_payload);
         return exp_key == id;
+    }
+    bool operator()(const CWitKeyID160 &id) const
+    {
+        uint160 exp_key(exp_payload);
+        return exp_key == id.GetHash();
+    }
+    bool operator()(const CWitScriptID256 &id) const
+    {
+        uint256 exp_key(exp_payload);
+        return exp_key == id.GetHash();
     }
     bool operator()(const CNoDestination &no) const
     {
@@ -164,7 +182,7 @@ BOOST_AUTO_TEST_CASE(base58_keys_valid_parse)
             // Must be valid public key
             BOOST_CHECK_MESSAGE(addr.SetString(exp_base58string), "SetString:" + strTest);
             BOOST_CHECK_MESSAGE(addr.IsValid(), "!IsValid:" + strTest);
-            BOOST_CHECK_MESSAGE(addr.IsScript() == (exp_addrType == "script"), "isScript mismatch" + strTest);
+            BOOST_CHECK_MESSAGE(addr.IsScript() == (exp_addrType == "script" || exp_addrType == "witness_scripthash"), "isScript mismatch" + strTest);
             CTxDestination dest = addr.Get();
             BOOST_CHECK_MESSAGE(boost::apply_visitor(TestAddrTypeVisitor(exp_addrType), dest), "addrType mismatch" + strTest);
 
@@ -219,6 +237,16 @@ BOOST_AUTO_TEST_CASE(base58_keys_valid_gen)
             else if(exp_addrType == "script")
             {
                 dest = CScriptID(uint160(exp_payload));
+            }
+            else if(exp_addrType == "witness_keyhash")
+            {
+                int nVersion = find_value(metadata, "witnessVersion").get_int();
+                dest = CWitKeyID160(uint160(exp_payload), nVersion);
+            }
+            else if(exp_addrType == "witness_scripthash")
+            {
+                int nVersion = find_value(metadata, "witnessVersion").get_int();
+                dest = CWitScriptID256(uint256(exp_payload), nVersion);
             }
             else if(exp_addrType == "none")
             {

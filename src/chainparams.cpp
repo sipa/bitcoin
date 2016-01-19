@@ -113,6 +113,8 @@ public:
         base58Prefixes[SECRET_KEY] =     std::vector<unsigned char>(1,128);
         base58Prefixes[EXT_PUBLIC_KEY] = boost::assign::list_of(0x04)(0x88)(0xB2)(0x1E).convert_to_container<std::vector<unsigned char> >();
         base58Prefixes[EXT_SECRET_KEY] = boost::assign::list_of(0x04)(0x88)(0xAD)(0xE4).convert_to_container<std::vector<unsigned char> >();
+        base58Prefixes[WIT_PUBKEY_ADDRESS] = std::vector<unsigned char>(1,6);
+        base58Prefixes[WIT_SCRIPT_ADDRESS] = std::vector<unsigned char>(1,10);
 
         vFixedSeeds = std::vector<SeedSpec6>(pnSeed6_main, pnSeed6_main + ARRAYLEN(pnSeed6_main));
 
@@ -190,6 +192,8 @@ public:
         base58Prefixes[SECRET_KEY] =     std::vector<unsigned char>(1,239);
         base58Prefixes[EXT_PUBLIC_KEY] = boost::assign::list_of(0x04)(0x35)(0x87)(0xCF).convert_to_container<std::vector<unsigned char> >();
         base58Prefixes[EXT_SECRET_KEY] = boost::assign::list_of(0x04)(0x35)(0x83)(0x94).convert_to_container<std::vector<unsigned char> >();
+        base58Prefixes[WIT_PUBKEY_ADDRESS] = std::vector<unsigned char>(1,3);
+        base58Prefixes[WIT_SCRIPT_ADDRESS] = std::vector<unsigned char>(1,40);
 
         vFixedSeeds = std::vector<SeedSpec6>(pnSeed6_test, pnSeed6_test + ARRAYLEN(pnSeed6_test));
 
@@ -250,6 +254,8 @@ public:
         base58Prefixes[SECRET_KEY] =     std::vector<unsigned char>(1,158);
         base58Prefixes[EXT_PUBLIC_KEY] = boost::assign::list_of(0x05)(0x35)(0x87)(0xCF).convert_to_container<std::vector<unsigned char> >();
         base58Prefixes[EXT_SECRET_KEY] = boost::assign::list_of(0x05)(0x35)(0x83)(0x94).convert_to_container<std::vector<unsigned char> >();
+        base58Prefixes[WIT_PUBKEY_ADDRESS] = std::vector<unsigned char>(1,3);
+        base58Prefixes[WIT_SCRIPT_ADDRESS] = std::vector<unsigned char>(1,40);
 
         vFixedSeeds = std::vector<SeedSpec6>(pnSeed6_seg, pnSeed6_seg + ARRAYLEN(pnSeed6_seg));
 
