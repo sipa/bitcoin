@@ -17,8 +17,8 @@ from binascii import hexlify
 NODE_0 = 0
 NODE_1 = 1
 NODE_2 = 2
-WIT_V0 = 0
-WIT_V1 = 1
+WIT_V0_20 = 0
+WIT_V0_32 = 1
 
 def sha256(s):
     return hashlib.new('sha256', s).digest()
@@ -27,13 +27,16 @@ def ripemd160(s):
     return hashlib.new('ripemd160', s).digest()
 
 def witness_script(version, pubkey):
-    if (version == 0):
+    # Simple pay to witness pub key hash   (20 byte Witness version 0)
+    if (version == WIT_V0_20):
         pubkeyhash = hexlify(ripemd160(sha256(pubkey.decode("hex"))))
-        pkscript = "001976a914" + pubkeyhash + "88ac"
-    elif (version == 1):
-        witnessprogram = "21"+pubkey+"ac"
+        pkscript = "0014" + pubkeyhash
+    # Generic pay to hash of witness program (32 byte Witness version 0)
+    # Use 1-of-1 multisig
+    elif (version == WIT_V0_32):
+        witnessprogram = "5121"+pubkey+"51ae"
         hashwitnessprogram = hexlify(sha256(witnessprogram.decode("hex")))
-        pkscript = "5120" + hashwitnessprogram
+        pkscript = "0020" + hashwitnessprogram
     else:
         assert("Wrong version" == "0 or 1")
     return pkscript
@@ -130,7 +133,15 @@ class SegWitTest(BitcoinTestFramework):
         wit_ids = [] # wit_ids[NODE][VER] is an array of txids that spend to a witness version VER pkscript to an address for NODE via bare witness
         for i in xrange(3):
             newaddress = self.nodes[i].getnewaddress()
+            # Add witness address to wallet to recognize p2wpkh 20 bytes txs
             self.nodes[i].addwitnessaddress(newaddress)
+
+            # Add multisig address and witness address for multisig script to wallet to recognize p2wh 32 byte witness txs
+            # In this case of a 1-of-1 CHECKMULTISIG
+            multisig_id = self.nodes[i].addmultisigaddress(1,[newaddress])
+            self.nodes[i].addwitnessaddress(multisig_id)
+
+            # Save pub keys so we can create the pay to witness format txs
             self.pubkey.append(self.nodes[i].validateaddress(newaddress)["pubkey"])
             p2sh_ids.append([])
             wit_ids.append([])
@@ -157,38 +168,38 @@ class SegWitTest(BitcoinTestFramework):
 
         print "Verify default node can't accept any witness format txs before fork"
         # unsigned, no scriptsig
-        self.fail_accept(self.nodes[0], wit_ids[NODE_0][WIT_V0][0], False)
-        self.fail_accept(self.nodes[0], wit_ids[NODE_0][WIT_V1][0], False)
-        self.fail_accept(self.nodes[0], p2sh_ids[NODE_0][WIT_V0][0], False)
-        self.fail_accept(self.nodes[0], p2sh_ids[NODE_0][WIT_V1][0], False)
+        self.fail_accept(self.nodes[0], wit_ids[NODE_0][WIT_V0_20][0], False)
+        self.fail_accept(self.nodes[0], wit_ids[NODE_0][WIT_V0_32][0], False)
+        self.fail_accept(self.nodes[0], p2sh_ids[NODE_0][WIT_V0_20][0], False)
+        self.fail_accept(self.nodes[0], p2sh_ids[NODE_0][WIT_V0_32][0], False)
         # unsigned with redeem script
-        self.fail_accept(self.nodes[0], p2sh_ids[NODE_0][WIT_V0][0], False, addlength(witness_script(0, self.pubkey[0])))
-        self.fail_accept(self.nodes[0], p2sh_ids[NODE_0][WIT_V1][0], False, addlength(witness_script(1, self.pubkey[0])))
+        self.fail_accept(self.nodes[0], p2sh_ids[NODE_0][WIT_V0_20][0], False, addlength(witness_script(0, self.pubkey[0])))
+        self.fail_accept(self.nodes[0], p2sh_ids[NODE_0][WIT_V0_32][0], False, addlength(witness_script(1, self.pubkey[0])))
         # signed
-        self.fail_accept(self.nodes[0], wit_ids[NODE_0][WIT_V0][0], True)
-        self.fail_accept(self.nodes[0], wit_ids[NODE_0][WIT_V1][0], True)
-        self.fail_accept(self.nodes[0], p2sh_ids[NODE_0][WIT_V0][0], True)
-        self.fail_accept(self.nodes[0], p2sh_ids[NODE_0][WIT_V1][0], True)
+        self.fail_accept(self.nodes[0], wit_ids[NODE_0][WIT_V0_20][0], True)
+        self.fail_accept(self.nodes[0], wit_ids[NODE_0][WIT_V0_32][0], True)
+        self.fail_accept(self.nodes[0], p2sh_ids[NODE_0][WIT_V0_20][0], True)
+        self.fail_accept(self.nodes[0], p2sh_ids[NODE_0][WIT_V0_32][0], True)
 
         print "Verify witness txs are skipped for mining before the fork"
-        self.skip_mine(self.nodes[2], wit_ids[NODE_2][WIT_V0][0], True) #block 743
-        self.skip_mine(self.nodes[2], wit_ids[NODE_2][WIT_V1][0], True) #block 744
-        self.skip_mine(self.nodes[2], p2sh_ids[NODE_2][WIT_V0][0], True) #block 745
-        self.skip_mine(self.nodes[2], p2sh_ids[NODE_2][WIT_V1][0], True) #block 746
+        self.skip_mine(self.nodes[2], wit_ids[NODE_2][WIT_V0_20][0], True) #block 743
+        self.skip_mine(self.nodes[2], wit_ids[NODE_2][WIT_V0_32][0], True) #block 744
+        self.skip_mine(self.nodes[2], p2sh_ids[NODE_2][WIT_V0_20][0], True) #block 745
+        self.skip_mine(self.nodes[2], p2sh_ids[NODE_2][WIT_V0_32][0], True) #block 746
 
         # TODO: An old node would see these txs without witnesses and be able to mine them
 
         print "Verify unsigned bare witness txs in version 5 blocks are valid before the fork"
-        self.success_mine(self.nodes[2], wit_ids[NODE_2][WIT_V0][1], False) #block 747
-        self.success_mine(self.nodes[2], wit_ids[NODE_2][WIT_V1][1], False) #block 748
+        self.success_mine(self.nodes[2], wit_ids[NODE_2][WIT_V0_20][1], False) #block 747
+        self.success_mine(self.nodes[2], wit_ids[NODE_2][WIT_V0_32][1], False) #block 748
 
         print "Verify unsigned p2sh witness txs without a redeem script are invalid"
-        self.fail_accept(self.nodes[2], p2sh_ids[NODE_2][WIT_V0][1], False)
-        self.fail_accept(self.nodes[2], p2sh_ids[NODE_2][WIT_V1][1], False)
+        self.fail_accept(self.nodes[2], p2sh_ids[NODE_2][WIT_V0_20][1], False)
+        self.fail_accept(self.nodes[2], p2sh_ids[NODE_2][WIT_V0_32][1], False)
 
         print "Verify unsigned p2sh witness txs with a redeem script in version 5 blocks are valid before the fork"
-        self.success_mine(self.nodes[2], p2sh_ids[NODE_2][WIT_V0][1], False, addlength(witness_script(0, self.pubkey[2]))) #block 749
-        self.success_mine(self.nodes[2], p2sh_ids[NODE_2][WIT_V1][1], False, addlength(witness_script(1, self.pubkey[2]))) #block 750
+        self.success_mine(self.nodes[2], p2sh_ids[NODE_2][WIT_V0_20][1], False, addlength(witness_script(0, self.pubkey[2]))) #block 749
+        self.success_mine(self.nodes[2], p2sh_ids[NODE_2][WIT_V0_32][1], False, addlength(witness_script(1, self.pubkey[2]))) #block 750
 
         print "Verify previous witness txs skipped for mining can now be mined"
         assert_equal(len(self.nodes[2].getrawmempool()), 4)
@@ -198,10 +209,10 @@ class SegWitTest(BitcoinTestFramework):
         assert_equal(len(self.nodes[2].getblock(block[0])["tx"]), 5)
 
         print "Verify witness txs without witness data in version 5 blocks are invalid after the fork"
-        self.fail_mine(self.nodes[2], wit_ids[NODE_2][WIT_V0][2], False)
-        self.fail_mine(self.nodes[2], wit_ids[NODE_2][WIT_V1][2], False)
-        self.fail_mine(self.nodes[2], p2sh_ids[NODE_2][WIT_V0][2], False, addlength(witness_script(0, self.pubkey[2])))
-        self.fail_mine(self.nodes[2], p2sh_ids[NODE_2][WIT_V1][2], False, addlength(witness_script(1, self.pubkey[2])))
+        self.fail_mine(self.nodes[2], wit_ids[NODE_2][WIT_V0_20][2], False)
+        self.fail_mine(self.nodes[2], wit_ids[NODE_2][WIT_V0_32][2], False)
+        self.fail_mine(self.nodes[2], p2sh_ids[NODE_2][WIT_V0_20][2], False, addlength(witness_script(0, self.pubkey[2])))
+        self.fail_mine(self.nodes[2], p2sh_ids[NODE_2][WIT_V0_32][2], False, addlength(witness_script(1, self.pubkey[2])))
 
 
         print "Verify that a version 4 block can still mine those unsigned txs"
@@ -213,32 +224,32 @@ class SegWitTest(BitcoinTestFramework):
         assert_equal(len(self.nodes[1].getblock(block[0])["tx"]), 5)
 
         print "Verify all types of witness txs can be submitted signed after the fork to node with -prematurewitness"
-        self.success_mine(self.nodes[2], wit_ids[NODE_2][WIT_V0][3], True) #block 753
-        self.success_mine(self.nodes[2], wit_ids[NODE_2][WIT_V1][3], True) #block 754
-        self.success_mine(self.nodes[2], p2sh_ids[NODE_2][WIT_V0][3], True) #block 755
-        self.success_mine(self.nodes[2], p2sh_ids[NODE_2][WIT_V1][3], True) #block 756
+        self.success_mine(self.nodes[2], wit_ids[NODE_2][WIT_V0_20][3], True) #block 753
+        self.success_mine(self.nodes[2], wit_ids[NODE_2][WIT_V0_32][3], True) #block 754
+        self.success_mine(self.nodes[2], p2sh_ids[NODE_2][WIT_V0_20][3], True) #block 755
+        self.success_mine(self.nodes[2], p2sh_ids[NODE_2][WIT_V0_32][3], True) #block 756
 
         print "Verify default node can't accept any witness format txs between enforce and reject points of fork"
         # unsigned, no scriptsig
-        self.fail_accept(self.nodes[0], wit_ids[NODE_0][WIT_V0][0], False)
-        self.fail_accept(self.nodes[0], wit_ids[NODE_0][WIT_V1][0], False)
-        self.fail_accept(self.nodes[0], p2sh_ids[NODE_0][WIT_V0][0], False)
-        self.fail_accept(self.nodes[0], p2sh_ids[NODE_0][WIT_V1][0], False)
+        self.fail_accept(self.nodes[0], wit_ids[NODE_0][WIT_V0_20][0], False)
+        self.fail_accept(self.nodes[0], wit_ids[NODE_0][WIT_V0_32][0], False)
+        self.fail_accept(self.nodes[0], p2sh_ids[NODE_0][WIT_V0_20][0], False)
+        self.fail_accept(self.nodes[0], p2sh_ids[NODE_0][WIT_V0_32][0], False)
         # unsigned with redeem script
-        self.fail_accept(self.nodes[0], p2sh_ids[NODE_0][WIT_V0][0], False, addlength(witness_script(0, self.pubkey[0])))
-        self.fail_accept(self.nodes[0], p2sh_ids[NODE_0][WIT_V1][0], False, addlength(witness_script(1, self.pubkey[0])))
+        self.fail_accept(self.nodes[0], p2sh_ids[NODE_0][WIT_V0_20][0], False, addlength(witness_script(0, self.pubkey[0])))
+        self.fail_accept(self.nodes[0], p2sh_ids[NODE_0][WIT_V0_32][0], False, addlength(witness_script(1, self.pubkey[0])))
         # signed
-        self.fail_accept(self.nodes[0], wit_ids[NODE_0][WIT_V0][0], True)
-        self.fail_accept(self.nodes[0], wit_ids[NODE_0][WIT_V1][0], True)
-        self.fail_accept(self.nodes[0], p2sh_ids[NODE_0][WIT_V0][0], True)
-        self.fail_accept(self.nodes[0], p2sh_ids[NODE_0][WIT_V1][0], True)
+        self.fail_accept(self.nodes[0], wit_ids[NODE_0][WIT_V0_20][0], True)
+        self.fail_accept(self.nodes[0], wit_ids[NODE_0][WIT_V0_32][0], True)
+        self.fail_accept(self.nodes[0], p2sh_ids[NODE_0][WIT_V0_20][0], True)
+        self.fail_accept(self.nodes[0], p2sh_ids[NODE_0][WIT_V0_32][0], True)
 
         # TODO: verify witness txs are invalid if in a v4 block
         print "Verify witness txs aren't mined in a v4 block"
-        self.skip_mine(self.nodes[1], wit_ids[NODE_1][WIT_V0][0], True) #block 757
-        self.skip_mine(self.nodes[1], wit_ids[NODE_1][WIT_V1][0], True) #block 758
-        self.skip_mine(self.nodes[1], p2sh_ids[NODE_1][WIT_V0][0], True) #block 759
-        self.skip_mine(self.nodes[1], p2sh_ids[NODE_1][WIT_V1][0], True) #block 760
+        self.skip_mine(self.nodes[1], wit_ids[NODE_1][WIT_V0_20][0], True) #block 757
+        self.skip_mine(self.nodes[1], wit_ids[NODE_1][WIT_V0_32][0], True) #block 758
+        self.skip_mine(self.nodes[1], p2sh_ids[NODE_1][WIT_V0_20][0], True) #block 759
+        self.skip_mine(self.nodes[1], p2sh_ids[NODE_1][WIT_V0_32][0], True) #block 760
 
         # Mine them from ver 5 node
         sync_mempools(self.nodes[1:3])
@@ -260,10 +271,10 @@ class SegWitTest(BitcoinTestFramework):
             raise AssertionError("Created valid block when TestBlockValidity should have failed")
 
         print "Verify default node can now use witness txs"
-        self.success_mine(self.nodes[0], wit_ids[NODE_0][WIT_V0][0], True) #block 957
-        self.success_mine(self.nodes[0], wit_ids[NODE_0][WIT_V1][0], True) #block 958
-        self.success_mine(self.nodes[0], p2sh_ids[NODE_0][WIT_V0][0], True) #block 959
-        self.success_mine(self.nodes[0], p2sh_ids[NODE_0][WIT_V1][0], True) #block 960
+        self.success_mine(self.nodes[0], wit_ids[NODE_0][WIT_V0_20][0], True) #block 957
+        self.success_mine(self.nodes[0], wit_ids[NODE_0][WIT_V0_32][0], True) #block 958
+        self.success_mine(self.nodes[0], p2sh_ids[NODE_0][WIT_V0_20][0], True) #block 959
+        self.success_mine(self.nodes[0], p2sh_ids[NODE_0][WIT_V0_32][0], True) #block 960
 
 if __name__ == '__main__':
     SegWitTest().main()
