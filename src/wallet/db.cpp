@@ -205,7 +205,7 @@ bool CDBEnv::Salvage(const std::string& strFile, bool fAggressive, std::vector<C
     std::string keyHex, valueHex;
     while (!strDump.eof() && keyHex != "DATA=END") {
         getline(strDump, keyHex);
-        if (keyHex != "DATA_END") {
+        if (keyHex != "DATA=END") {
             getline(strDump, valueHex);
             vResult.push_back(make_pair(ParseHex(keyHex), ParseHex(valueHex)));
         }
@@ -224,7 +224,7 @@ void CDBEnv::CheckpointLSN(const std::string& strFile)
 }
 
 
-CDB::CDB(const std::string& strFilename, const char* pszMode, bool fFlushOnCloseIn) : pdb(NULL), activeTxn(NULL)
+CDB::CDB(const std::string& strFilename, const char* pszMode, bool fFlushOnCloseIn, int nSerVersionIn) : pdb(NULL), activeTxn(NULL), nSerVersion(nSerVersionIn)
 {
     int ret;
     fReadOnly = (!strchr(pszMode, '+') && !strchr(pszMode, 'w'));

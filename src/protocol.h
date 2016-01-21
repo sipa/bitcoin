@@ -218,6 +218,11 @@ extern const char *REJECT;
  * @see https://bitcoin.org/en/developer-reference#sendheaders
  */
 extern const char *SENDHEADERS;
+/**
+ * Indicates that a node can be asked for blocks and transactions including
+ * witness data.
+ */
+extern const char *HAVEWITNESS;
 
 };
 
@@ -281,6 +286,22 @@ public:
     unsigned int nTime;
 };
 
+/** getdata message types */
+const uint32_t MSG_WITNESS_FLAG = 1 << 30;
+const uint32_t MSG_TYPE_MASK    = 0xffffffff >> 2;
+enum GetDataMsg
+{
+    UNDEFINED = 0,
+    MSG_TX,
+    MSG_BLOCK,
+    MSG_TYPE_MAX = MSG_BLOCK,
+    // The following can only occur in getdata. Invs always use TX or BLOCK.
+    MSG_FILTERED_BLOCK,
+    MSG_WITNESS_BLOCK = MSG_BLOCK | MSG_WITNESS_FLAG,
+    MSG_WITNESS_TX = MSG_TX | MSG_WITNESS_FLAG,
+    MSG_FILTERED_WITNESS_BLOCK = MSG_FILTERED_BLOCK | MSG_WITNESS_FLAG,
+};
+
 /** inv message data */
 class CInv
 {
@@ -308,14 +329,6 @@ public:
 public:
     int type;
     uint256 hash;
-};
-
-enum {
-    MSG_TX = 1,
-    MSG_BLOCK,
-    // Nodes may always request a MSG_FILTERED_BLOCK in a getdata, however,
-    // MSG_FILTERED_BLOCK should not appear in any invs except as a part of getdata.
-    MSG_FILTERED_BLOCK,
 };
 
 #endif // BITCOIN_PROTOCOL_H

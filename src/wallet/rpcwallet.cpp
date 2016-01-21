@@ -11,6 +11,7 @@
 #include "main.h"
 #include "net.h"
 #include "netbase.h"
+#include "policy/rbf.h"
 #include "rpcserver.h"
 #include "timedata.h"
 #include "util.h"
@@ -76,6 +77,23 @@ void WalletTxToJSON(const CWalletTx& wtx, UniValue& entry)
     entry.push_back(Pair("walletconflicts", conflicts));
     entry.push_back(Pair("time", wtx.GetTxTime()));
     entry.push_back(Pair("timereceived", (int64_t)wtx.nTimeReceived));
+
+    // Add opt-in RBF status
+    std::string rbfStatus = "no";
+    if (confirms <= 0) {
+        LOCK(mempool.cs);
+        if (!mempool.exists(hash)) {
+            if (SignalsOptInRBF(wtx)) {
+                rbfStatus = "yes";
+            } else {
+                rbfStatus = "unknown";
+            }
+        } else if (IsRBFOptIn(*mempool.mapTx.find(hash), mempool)) {
+            rbfStatus = "yes";
+        }
+    }
+    entry.push_back(Pair("bip125-replaceable", rbfStatus));
+
     BOOST_FOREACH(const PAIRTYPE(string,string)& item, wtx.mapValue)
         entry.push_back(Pair(item.first, item.second));
 }
@@ -1082,6 +1100,75 @@ UniValue addmultisigaddress(const UniValue& params, bool fHelp)
     return CBitcoinAddress(innerID).ToString();
 }
 
+class Witnessifier : public boost::static_visitor<bool>
+{
+public:
+    CScriptID result;
+
+    bool operator()(const CNoDestination &dest) const { return false; }
+
+    bool operator()(const CKeyID &keyID) {
+        CPubKey pubkey;
+        if (pwalletMain && pwalletMain->GetPubKey(keyID, pubkey)) {
+            CScript basescript;
+            basescript << ToByteVector(pubkey) << OP_CHECKSIG;
+            CScript witscript = GetScriptForWitness(basescript);
+            pwalletMain->AddCScript(witscript);
+            result = CScriptID(witscript);
+            return true;
+        }
+        return false;
+    }
+
+    bool operator()(const CScriptID &scriptID) {
+        CScript subscript;
+        if (pwalletMain && pwalletMain->GetCScript(scriptID, subscript)) {
+            int witnessversion;
+            std::vector<unsigned char> witprog;
+            if (subscript.IsWitnessProgram(witnessversion, witprog)) {
+                result = scriptID;
+                return true;
+            }
+            CScript witscript = GetScriptForWitness(subscript);
+            pwalletMain->AddCScript(witscript);
+            result = CScriptID(witscript);
+            return true;
+        }
+        return false;
+    }
+};
+
+UniValue addwitnessaddress(const UniValue& params, bool fHelp)
+{
+    if (fHelp || params.size() < 1 || params.size() > 1)
+    {
+        string msg = "createwitnessaddress \"address\"\n"
+            "\nAdd a witness address for a script (with pubkey or redeemscript known).\n"
+            "It returns the witness script.\n"
+
+            "\nArguments:\n"
+            "1. \"address\"       (string, required) An address\n"
+
+            "\nResult:\n"
+            "\"witnessaddress\",  (string) The value of the new address (P2SH of witness script).\n"
+            "}\n"
+        ;
+        throw runtime_error(msg);
+    }
+
+    CBitcoinAddress address(params[0].get_str());
+    if (!address.IsValid())
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid Bitcoin address");
+
+    Witnessifier w;
+    CTxDestination dest = address.Get();
+    bool ret = boost::apply_visitor(w, dest);
+    if (!ret) {
+        throw JSONRPCError(RPC_WALLET_ERROR, "Public key or redeemscript not known to wallet");
+    }
+
+    return CBitcoinAddress(w.result).ToString();
+}
 
 struct tallyitem
 {
@@ -1439,6 +1526,8 @@ UniValue listtransactions(const UniValue& params, bool fHelp)
             "    \"otheraccount\": \"accountname\",  (string) For the 'move' category of transactions, the account the funds came \n"
             "                                          from (for receiving funds, positive amounts), or went to (for sending funds,\n"
             "                                          negative amounts).\n"
+            "    \"bip125-replaceable\": \"yes|no|unknown\"  (string) Whether this transaction could be replaced due to BIP125 (replace-by-fee);\n"
+            "                                                     may be unknown for unconfirmed transactions not in the mempool\n"
             "  }\n"
             "]\n"
 
@@ -1707,6 +1796,8 @@ UniValue gettransaction(const UniValue& params, bool fHelp)
             "  \"txid\" : \"transactionid\",   (string) The transaction id.\n"
             "  \"time\" : ttt,            (numeric) The transaction time in seconds since epoch (1 Jan 1970 GMT)\n"
             "  \"timereceived\" : ttt,    (numeric) The time received in seconds since epoch (1 Jan 1970 GMT)\n"
+            "  \"bip125-replaceable\": \"yes|no|unknown\"  (string) Whether this transaction could be replaced due to BIP125 (replace-by-fee);\n"
+            "                                                   may be unknown for unconfirmed transactions not in the mempool\n"
             "  \"details\" : [\n"
             "    {\n"
             "      \"account\" : \"accountname\",  (string) DEPRECATED. The account name involved in the transaction, can be \"\" for the default account.\n"

@@ -22,6 +22,8 @@ bitcoind/bitcoin-qt (on Linux).
 Downgrade warning
 ------------------
 
+### Downgrade to a version < 0.10.0
+
 Because release 0.10.0 and later makes use of headers-first synchronization and
 parallel block download (see further), the block files and databases are not
 backwards-compatible with pre-0.10 versions of Bitcoin Core or other software:
@@ -40,8 +42,17 @@ bootstrap.dat) anew afterwards. It is possible that the data from a completely
 synchronised 0.10 node may be usable in older versions as-is, but this is not
 supported and may break as soon as the older version attempts to reindex.
 
-This does not affect wallet forward or backward compatibility. There are no
-known problems when downgrading from 0.12.x to a version >= 0.10.0.
+This does not affect wallet forward or backward compatibility.
+
+### Downgrade to a version < 0.12.0
+
+Because release 0.12.0 and later will obfuscate the chainstate on every
+fresh sync or reindex, the chainstate is not backwards-compatible with
+pre-0.12 versions of Bitcoin Core or other software.
+
+If you want to downgrade after you have done a reindex with 0.12.0 or later,
+you will need to reindex when you first start Bitcoin Core version 0.11 or
+earlier.
 
 Notable changes
 ===============
@@ -113,6 +124,12 @@ minimum relay feerate will be increased to match this feerate plus the initial
 minimum relay feerate. The initial minimum relay feerate is set to
 1000 satoshis per kB.
 
+Bitcoin Core 0.12 also introduces new default policy limits on the length and
+size of unconfirmed transaction chains that are allowed in the mempool
+(generally limiting the length of unconfirmed chains to 25 transactions, with a
+total size of 101 KB).  These limits can be overriden using command line
+arguments; see the extended help (`--help -help-debug`) for more information.
+
 Replace-by-fee transactions
 ---------------------------
 
@@ -148,8 +165,8 @@ the OP_RETURN. The limit on OP_RETURN output size is now applied to the entire
 serialized scriptPubKey, 83 bytes by default. (the previous 80 byte default plus
 three bytes overhead)
 
-Relay: Priority transactions
-----------------------------
+Relay and Mining: Priority transactions
+---------------------------------------
 
 Transactions that do not pay the minimum relay fee, are called "free
 transactions" or priority transactions. Previous versions of Bitcoin
@@ -160,8 +177,11 @@ priority space).
 
 Priority code is scheduled for removal in Bitcoin Core 0.13. In
 Bitcoin Core 0.12, the default block priority size has been set to `0`
-and priority transactions are not accepted to the mempool if mempool
-limiting has triggered a higher effective minimum relay fee.
+and the priority calculation has been simplified to only include the
+coin age of inputs that were in the blockchain at the time the transaction
+was accepted into the mempool.  In addition priority transactions are not
+accepted to the mempool if mempool limiting has triggered a higher effective
+minimum relay fee.
 
 Automatically use Tor hidden services
 -------------------------------------
@@ -243,6 +263,17 @@ sanity check. Since 0.12, these are no longer stored. When loading a
 0.12 wallet into an older version, it will automatically rescan to avoid
 failed checks.
 
+Wallet: Pruning
+---------------
+
+With 0.12 it is possible to use wallet functionality in pruned mode.
+However, rescans as well as the RPCs `importwallet`, `importaddress`,
+`importprivkey` are disabled.
+
+To enable block pruning set `prune=<N>` on the command line or in
+`bitcoin.conf`, where `N` is the number of MiB to allot for
+raw block & undo data.
+
 `NODE_BLOOM` service bit
 ------------------------
 
@@ -279,11 +310,14 @@ RPC: Low-level API changes
 * The `asm` property of each scriptSig now contains the decoded signature hash
   type for each signature that provides a valid defined hash type.
 
+* OP_NOP2 has been renamed to OP_CHECKLOCKTIMEVERIFY by [BIP 65](https://github.com/bitcoin/bips/blob/master/bip-0065.mediawiki)
+
 The following items contain assembly representations of scriptSig signatures
 and are affected by this change:
 
 - RPC `getrawtransaction`
 - RPC `decoderawtransaction`
+- RPC `decodescript`
 - REST `/rest/tx/` (JSON format)
 - REST `/rest/block/` (JSON format when including extended tx details)
 - `bitcoin-tx -json`
@@ -291,11 +325,11 @@ and are affected by this change:
 For example, the `scriptSig.asm` property of a transaction input that
 previously showed an assembly representation of:
 
-    304502207fa7a6d1e0ee81132a269ad84e68d695483745cde8b541e3bf630749894e342a022100c1f7ab20e13e22fb95281a870f3dcf38d782e53023ee313d741ad0cfbc0c509001
+    304502207fa7a6d1e0ee81132a269ad84e68d695483745cde8b541e3bf630749894e342a022100c1f7ab20e13e22fb95281a870f3dcf38d782e53023ee313d741ad0cfbc0c509001 400000 OP_NOP2
 
 now shows as:
 
-    304502207fa7a6d1e0ee81132a269ad84e68d695483745cde8b541e3bf630749894e342a022100c1f7ab20e13e22fb95281a870f3dcf38d782e53023ee313d741ad0cfbc0c5090[ALL]
+    304502207fa7a6d1e0ee81132a269ad84e68d695483745cde8b541e3bf630749894e342a022100c1f7ab20e13e22fb95281a870f3dcf38d782e53023ee313d741ad0cfbc0c5090[ALL] 400000 OP_CHECKLOCKTIMEVERIFY
 
 Note that the output of the RPC `decodescript` did not change because it is
 configured specifically to process scriptPubKey and not scriptSig scripts.
@@ -352,6 +386,15 @@ caching. A sample config for apache2 could look like:
     # ProxyPass / balancer://balancer_cluster_name
 
     </VirtualHost>
+
+Mining Code Changes
+-------------------
+
+The mining code in 0.12 has been optimized to be significantly faster and use less
+memory. As part of these changes, consensus critical calculations are cached on a
+transaction's acceptance into the mempool and the mining code now relies on the
+consistency of the mempool to assemble blocks. However all blocks are still tested
+for validity after assembly.
 
 0.12.0 Change log
 =================

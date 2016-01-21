@@ -2158,11 +2158,12 @@ bool CWallet::CreateTransaction(const vector<CRecipient>& vecSend, CWalletTx& wt
                 {
                     bool signSuccess;
                     const CScript& scriptPubKey = coin.first->vout[coin.second].scriptPubKey;
-                    CScript& scriptSigRes = txNew.vin[nIn].scriptSig;
-                    if (sign)
-                        signSuccess = ProduceSignature(TransactionSignatureCreator(this, &txNewConst, nIn, SIGHASH_ALL), scriptPubKey, scriptSigRes);
-                    else
-                        signSuccess = ProduceSignature(DummySignatureCreator(this), scriptPubKey, scriptSigRes);
+                    SignatureData sigdata;
+                    if (sign) {
+                        signSuccess = ProduceSignature(TransactionSignatureCreator(this, &txNewConst, nIn, coin.first->vout[coin.second].nValue, SIGHASH_ALL), scriptPubKey, sigdata);
+                        UpdateTransaction(txNew, nIn, sigdata);
+                    } else
+                        signSuccess = ProduceSignature(DummySignatureCreator(this), scriptPubKey, sigdata);
 
                     if (!signSuccess)
                     {
@@ -2172,12 +2173,13 @@ bool CWallet::CreateTransaction(const vector<CRecipient>& vecSend, CWalletTx& wt
                     nIn++;
                 }
 
-                unsigned int nBytes = ::GetSerializeSize(txNew, SER_NETWORK, PROTOCOL_VERSION);
+                unsigned int nBytes = GetVirtualTransactionSize(txNew);
 
                 // Remove scriptSigs if we used dummy signatures for fee calculation
                 if (!sign) {
                     BOOST_FOREACH (CTxIn& vin, txNew.vin)
                         vin.scriptSig = CScript();
+                    txNew.wit.SetNull();
                 }
 
                 // Embed the constructed transaction data in wtxNew.

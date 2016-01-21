@@ -3,7 +3,7 @@ Bitcoin Core integration/staging tree
 
 [![Build Status](https://travis-ci.org/bitcoin/bitcoin.svg?branch=master)](https://travis-ci.org/bitcoin/bitcoin)
 
-https://www.bitcoin.org
+https://bitcoincore.org
 
 What is Bitcoin?
 ----------------
@@ -21,7 +21,7 @@ License
 -------
 
 Bitcoin Core is released under the terms of the MIT license. See [COPYING](COPYING) for more
-information or see http://opensource.org/licenses/MIT.
+information or see https://opensource.org/licenses/MIT.
 
 Development Process
 -------------------
