@@ -255,7 +255,7 @@ inline void SerializeTransaction(TxType& tx, Stream& s, Operation ser_action, in
     if (ser_action.ForRead()) {
         /* Try to read the vin. In case the dummy is there, this will be read as an empty vector. */
         READWRITE(*const_cast<std::vector<CTxIn>*>(&tx.vin));
-        if (tx.vin.size() == 0) {
+        if (tx.vin.size() == 0 && (nVersion & SERIALIZE_TRANSACTION_WITNESS)) {
             /* We read a dummy or an empty vin. */
             READWRITE(flags);
             if (flags != 0) {
