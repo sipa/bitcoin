@@ -448,5 +448,65 @@
             "isPrivkey": false, 
             "isTestnet": false
         }
+    ],
+    [
+        "QWz8m8pbR6nqXJHEdtRTAxoQ6YHkxRNxLw7x",
+        "78f0c6aeafc418a10bc92c2bb24cdd2d27dc0a0b",
+        {
+            "addrType": "witness_keyhash",
+            "isPrivkey": false,
+            "isTestnet": true,
+            "witnessVersion": 0
+        }
+    ],
+    [
+        "p2y9GjzzvXoHJ8WWMaYaz7hf8sv74LiU8dLK",
+        "a2594531c857b98e4f1a8aa78e2edb74efe8ff37",
+        {
+            "addrType": "witness_keyhash",
+            "isPrivkey": false,
+            "isTestnet": false,
+            "witnessVersion": 0
+        }
+    ],
+    [
+        "p2y7mdSZzcPLZL1S5woeBmafWvnE1yFk3H2f",
+        "91df9b382022f8dbcf33a960d9c5d82e996d2020",
+        {
+            "addrType": "witness_keyhash",
+            "isPrivkey": false,
+            "isTestnet": false,
+            "witnessVersion": 0
+        }
+    ],
+    [
+        "T7nYVDjPz5V9vPCfBJq4R55LvFkA3ReMfbvT5AX6vxAEgZRGtKF5d",
+        "59bc07ec402a63b072f07115bfc83d73a8a88c1654c85e2dd64bc6aee40cc239",
+        {
+            "addrType": "witness_scripthash",
+            "isPrivkey": false,
+            "isTestnet": true,
+            "witnessVersion": 0
+        }
+    ],
+    [
+        "T7nXtahqZTvcSfU3QHhKSfJsTVb57oEM9aFRTQa6i5jnaUw5wvNAb",
+        "0b1572dae6a95c50e7e8203b4de0d06291be349b9a8b9ef49d6389fc2f785dcf",
+        {
+            "addrType": "witness_scripthash",
+            "isPrivkey": false,
+            "isTestnet": true,
+            "witnessVersion": 0
+        }
+    ],
+    [
+        "7XhQN533dfoMqSCNMt85Pu77pmjXE84Pq9FSsVTb6Rzu5h8oAc8Tn",
+        "99071ccd792c8bb97138de5817169043c09676872e8f90e6aab433f8e532a693",
+        {
+            "addrType": "witness_scripthash",
+            "isPrivkey": false,
+            "isTestnet": false,
+            "witnessVersion": 0
+        }
     ]
 ]

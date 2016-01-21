@@ -20,6 +20,7 @@ bool fAcceptDatacarrier = DEFAULT_ACCEPT_DATACARRIER;
 unsigned nMaxDatacarrierBytes = MAX_OP_RETURN_RELAY;
 
 CScriptID::CScriptID(const CScript& in) : uint160(Hash160(in.begin(), in.end())) {}
+CWitScriptID256::CWitScriptID256(const CScript& in, int nVersionIn) : hash(Hash(in.begin(), in.end())), nVersion(nVersionIn) {}
 
 const char* GetTxnOutputType(txnouttype t)
 {
@@ -230,6 +231,16 @@ bool ExtractDestination(const CScript& scriptPubKey, CTxDestination& addressRet)
         addressRet = CScriptID(uint160(vSolutions[0]));
         return true;
     }
+    else if (whichType == TX_WITNESS_V0_KEYHASH)
+    {
+        addressRet = CWitKeyID160(uint160(vSolutions[0]), 0);
+        return true;
+    }
+    else if (whichType == TX_WITNESS_V0_SCRIPTHASH)
+    {
+        addressRet = CWitScriptID256(uint256(vSolutions[0]), 0);
+        return true;
+    }
     // Multisig txns have more than one address...
     return false;
 }
@@ -297,6 +308,17 @@ public:
     bool operator()(const CScriptID &scriptID) const {
         script->clear();
         *script << OP_HASH160 << ToByteVector(scriptID) << OP_EQUAL;
+        return true;
+    }
+
+    bool operator()(const CWitKeyID160 &keyID) const {
+        script->clear();
+        *script << keyID.GetVersion() << ToByteVector(keyID.GetHash());
+        return true;
+    }
+    bool operator()(const CWitScriptID256 &scriptID) const {
+        script->clear();
+        *script << scriptID.GetVersion() << ToByteVector(scriptID.GetHash());
         return true;
     }
 };

@@ -31,6 +31,26 @@ public:
     CKeyID(const uint160& in) : uint160(in) {}
 };
 
+class CWitKeyID160
+{
+public:
+    CWitKeyID160() : nVersion(0) {}
+    CWitKeyID160(const uint160& in, int nVersionIn) : hash(in), nVersion(nVersionIn) {}
+    bool operator<(const CWitKeyID160& in) const
+    {
+        return in.nVersion < nVersion || in.hash < hash;
+    }
+    bool operator==(const CWitKeyID160& in) const
+    {
+        return in.nVersion == nVersion && in.hash == hash;
+    }
+    const uint160& GetHash() const { return hash; }
+    int GetVersion() const { return nVersion; }
+private:
+    uint160 hash;
+    int nVersion;
+};
+
 typedef uint256 ChainCode;
 
 /** An encapsulated public key. */

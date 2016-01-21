@@ -1136,6 +1136,33 @@ public:
         }
         return false;
     }
+
+    bool operator()(const CWitKeyID160 &keyID) {
+        CPubKey pubkey;
+        if (!pwalletMain || !pwalletMain->GetPubKey(keyID.GetHash(), pubkey))
+            return false;
+
+        CScript witscript;
+        witscript << keyID.GetVersion() << ToByteVector(keyID.GetHash());
+        pwalletMain->AddCScript(witscript);
+        result = CScriptID(witscript);
+        return true;
+    }
+
+    bool operator()(const CWitScriptID256 &scriptID) {
+        const uint256& hash256 = scriptID.GetHash();
+        uint160 hash;
+        CRIPEMD160().Write(hash256.begin(), hash256.size()).Finalize(hash.begin());
+        CScriptID id(hash);
+        if (!pwalletMain || !pwalletMain->HaveCScript(id))
+            return false;
+
+        CScript witscript;
+        witscript << scriptID.GetVersion() << ToByteVector(scriptID.GetHash());
+        pwalletMain->AddCScript(witscript);
+        result = CScriptID(witscript);
+        return true;
+    }
 };
 
 UniValue addwitnessaddress(const UniValue& params, bool fHelp)

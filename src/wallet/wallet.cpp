@@ -2856,6 +2856,22 @@ public:
             Process(script);
     }
 
+    void operator()(const CWitKeyID160 &scriptID) {
+        CScript script;
+        if (keystore.GetCScript(scriptID.GetHash(), script))
+            Process(script);
+    }
+
+    void operator()(const CWitScriptID256 &scriptID) {
+        const uint256& hash256 = scriptID.GetHash();
+        uint160 hash;
+        CRIPEMD160().Write(hash256.begin(), hash256.size()).Finalize(hash.begin());
+        CScriptID id = CScriptID(hash);
+        CScript script;
+        if (keystore.GetCScript(id, script))
+            Process(script);
+    }
+
     void operator()(const CNoDestination &none) {}
 };
 
