@@ -1381,13 +1381,13 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
 size_t static WitnessSigOps(int witversion, const std::vector<unsigned char>& witprogram, const CScriptWitness& witness, int flags)
 {
     if (witversion == 0) {
-        CScript script(witprogram.begin(), witprogram.end());
-        return script.GetSigOpCount(true);
-    }
+        if (witprogram.size() == 20) 
+            return 1;
 
-    if (witversion == 1 && witness.stack.size() > 0) {
-        CScript subscript(witness.stack.back().begin(), witness.stack.back().end());
-        return subscript.GetSigOpCount(true);
+        if (witprogram.size() == 32 && witness.stack.size() > 0) {
+            CScript subscript(witness.stack.back().begin(), witness.stack.back().end());
+            return subscript.GetSigOpCount(true);
+        }
     }
 
     // Future flags may be implemented here.
