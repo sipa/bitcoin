@@ -246,15 +246,6 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
     set_error(serror, SCRIPT_ERR_UNKNOWN_ERROR);
     if (script.size() > 10000)
         return set_error(serror, SCRIPT_ERR_SCRIPT_SIZE);
-    
-    // Disallow stack item size > MAX_SCRIPT_ELEMENT_SIZE in witness stack    
-    if (sigversion == 1) {
-        for (unsigned int i = 1; i <= stack.size(); i++) {
-            if (stacktop(-i).size() > MAX_SCRIPT_ELEMENT_SIZE)
-                return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
-        }
-    }
-    
     int nOpCount = 0;
     bool fRequireMinimal = (flags & SCRIPT_VERIFY_MINIMALDATA) != 0;
 
@@ -1255,6 +1246,12 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
     } else {
         // Higher version witness scripts return true for future softfork compatibility
         return set_success(serror);
+    }
+
+    // Disallow stack item size > MAX_SCRIPT_ELEMENT_SIZE in witness stack
+    for (unsigned int i = 1; i <= stack.size(); i++) {
+        if (stacktop(-i).size() > MAX_SCRIPT_ELEMENT_SIZE)
+            return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
     }
 
     if (!EvalScript(stack, scriptPubKey, flags, checker, 1, serror)) {
