@@ -89,6 +89,10 @@ enum
     // Making v2-v16 witness program non-standard
     //
     SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM = (1U << 11),
+    
+    // Check witness stack size (policy)
+    SCRIPT_VERIFY_WITNESS_SIZE = (1U << 12)
+    
 };
 
 bool CheckSignatureEncoding(const std::vector<unsigned char> &vchSig, unsigned int flags, ScriptError* serror);
