@@ -247,6 +247,11 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
     if (script.size() > 10000)
         return set_error(serror, SCRIPT_ERR_SCRIPT_SIZE);
     int nOpCount = 0;
+    int nAccurateSigOpsCount = 0;
+    int nStackSize = 0;
+    for (unsigned int i = 0; i < stack.size(); i++) {
+        nStackSize += stack.at(i).size();
+    }
     bool fRequireMinimal = (flags & SCRIPT_VERIFY_MINIMALDATA) != 0;
 
     try
@@ -822,6 +827,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                     if (stack.size() < 2)
                         return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
 
+                    nAccurateSigOpsCount++;
                     valtype& vchSig    = stacktop(-2);
                     valtype& vchPubKey = stacktop(-1);
 
@@ -877,6 +883,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                         return set_error(serror, SCRIPT_ERR_SIG_COUNT);
                     int isig = ++i;
                     i += nSigsCount;
+                    nAccurateSigOpsCount += nSigsCount;
                     if ((int)stack.size() < i)
                         return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
 
@@ -964,6 +971,9 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
     {
         return set_error(serror, SCRIPT_ERR_UNKNOWN_ERROR);
     }
+
+    if (sigversion == 1 && (flags & SCRIPT_VERIFY_WITNESS_SIZE) && (nStackSize > (nAccurateSigOpsCount * 73 + 200)))
+        return set_error(serror, SCRIPT_ERR_WITNESS_SIZE);
 
     if (!vfExec.empty())
         return set_error(serror, SCRIPT_ERR_UNBALANCED_CONDITIONAL);

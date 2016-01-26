@@ -81,6 +81,8 @@ const char* ScriptErrorString(const ScriptError serror)
             return "Witness requires only-redeemscript scriptSig";
         case SCRIPT_ERR_WITNESS_UNEXPECTED:
             return "Witness provided for non-witness script";
+        case SCRIPT_ERR_WITNESS_SIZE:
+            return "Witness stack too big";
         case SCRIPT_ERR_UNKNOWN_ERROR:
         case SCRIPT_ERR_ERROR_COUNT:
         default: break;
