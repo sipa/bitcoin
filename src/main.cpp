@@ -4325,6 +4325,12 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
 
         pfrom->fClient = !(pfrom->nServices & NODE_NETWORK);
 
+        if((pfrom->nServices & NODE_WITNESS))
+        {
+            LOCK(cs_main);
+            State(pfrom->GetId())->fHaveWitness = true;
+        }
+
         // Potentially mark this peer as a preferred download peer.
         UpdatePreferredDownload(pfrom, State(pfrom->GetId()));
 
@@ -4414,9 +4420,6 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
             pfrom->PushMessage(NetMsgType::SENDHEADERS);
         }
 
-        if (pfrom->nVersion >= WITNESS_VERSION) {
-            pfrom->PushMessage(NetMsgType::HAVEWITNESS);
-        }
     }
 
 
@@ -4491,14 +4494,6 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
         LOCK(cs_main);
         State(pfrom->GetId())->fPreferHeaders = true;
     }
-
-
-    else if (strCommand == NetMsgType::HAVEWITNESS)
-    {
-        LOCK(cs_main);
-        State(pfrom->GetId())->fHaveWitness = true;
-    }
-
 
     else if (strCommand == NetMsgType::INV)
     {
