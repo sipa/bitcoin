@@ -34,6 +34,7 @@
 #include "utilmoneystr.h"
 #include "utilstrencodings.h"
 #include "validationinterface.h"
+#include "versionbits.h"
 
 #include <sstream>
 
@@ -2080,6 +2081,50 @@ void PartitionCheck(bool (*initialDownloadCheck)(), CCriticalSection& cs, const 
     }
 }
 
+// Protected by cs_main
+static VersionBitsCache versionbitscache;
+
+int32_t ComputeBlockVersion(const CBlockIndex* pindexPrev, const Consensus::Params& params)
+{
+    LOCK(cs_main);
+    int32_t nVersion = 0;
+
+    for (int i = 0; i < (int)Consensus::MAX_VERSION_BITS_DEPLOYMENTS; i++) {
+        ThresholdState state = VersionBitsState(pindexPrev, params, (Consensus::DeploymentPos)i, versionbitscache);
+        if (state == THRESHOLD_LOCKED_IN || state == THRESHOLD_STARTED) {
+            nVersion |= VersionBitsMask(params, (Consensus::DeploymentPos)i);
+        }
+    }
+
+    if (nVersion == 0) {
+        // Pre-versionbits
+        return VERSIONBITS_LAST_OLD_BLOCK_VERSION;
+    } else {
+        return nVersion | VERSIONBITS_TOP_BITS;
+    }
+}
+
+/**
+ * Threshold condition checker that triggers when unknown versionbits are seen on the network.
+ */
+class WarningBitsConditionChecker : public AbstractThresholdConditionChecker
+{
+public:
+    int64_t BeginTime(const Consensus::Params& params) const { return 0; }
+    int64_t EndTime(const Consensus::Params& params) const { return std::numeric_limits<int64_t>::max(); }
+    int Period(const Consensus::Params& params) const { return params.nMinerConfirmationWindow; }
+    int Threshold(const Consensus::Params& params) const { return params.nRuleChangeActivationThreshold; }
+
+    bool Condition(const CBlockIndex* pindex, const Consensus::Params& params) const
+    {
+        return (pindex->nVersion & ~ComputeBlockVersion(pindex->pprev, params)) != 0;
+    }
+};
+
+// Protected by cs_main
+static ThresholdConditionCache warningcache;
+static WarningBitsConditionChecker warningcheck;
+
 static int64_t nTimeCheck = 0;
 static int64_t nTimeForks = 0;
 static int64_t nTimeVerify = 0;
@@ -2448,25 +2493,17 @@ void static UpdateTip(CBlockIndex *pindexNew) {
     cvBlockChange.notify_all();
 
     // Check the version of the last 100 blocks to see if we need to upgrade:
-    static bool fWarned = false;
-    if (!IsInitialBlockDownload() && !fWarned)
+    if (!IsInitialBlockDownload())
     {
-        int nUpgraded = 0;
         const CBlockIndex* pindex = chainActive.Tip();
-        for (int i = 0; i < 100 && pindex != NULL; i++)
-        {
-            if (pindex->nVersion > CBlock::CURRENT_VERSION)
-                ++nUpgraded;
-            pindex = pindex->pprev;
-        }
-        if (nUpgraded > 0)
-            LogPrintf("%s: %d of last 100 blocks above version %d\n", __func__, nUpgraded, (int)CBlock::CURRENT_VERSION);
-        if (nUpgraded > 100/2)
-        {
-            // strMiscWarning is read by GetWarnings(), called by Qt and the JSON-RPC code to warn the user:
-            strMiscWarning = _("Warning: This version is obsolete; upgrade required!");
-            CAlert::Notify(strMiscWarning, true);
-            fWarned = true;
+        ThresholdState state = warningcheck.GetStateFor(pindex, chainParams.GetConsensus(), warningcache);
+        if (state == THRESHOLD_ACTIVE || state == THRESHOLD_LOCKED_IN) {
+            if (state == THRESHOLD_ACTIVE) {
+                strMiscWarning = _("Warning: unknown softfork has activated");
+                CAlert::Notify(strMiscWarning, true);
+            } else {
+                LogPrintf("Warning: An unknown softfork is about to activate\n");
+            }
         }
     }
 }
