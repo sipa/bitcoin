@@ -21,8 +21,8 @@ enum DeploymentPos
  * Struct for each individual consensus rule change using BIP9.
  */
 struct BIP9Deployment {
-    /** Bitmask to select the particular bit, only a single bit should be active. */
-    uint32_t bitmask;
+    /** Bit position to select the particular bit in nVersion. */
+    int bit;
     /** Start MedianTime for version bits miner confirmation. Can be a date in the past */
     int64_t nStartTime;
     /** Timeout/expiry MedianTime for the deployment attempt. */
