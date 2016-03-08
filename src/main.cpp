@@ -2105,11 +2105,12 @@ int32_t ComputeBlockVersion(const CBlockIndex* pindexPrev, const Consensus::Para
 }
 
 /**
- * Threshold condition checker that triggers when unknown versionbits are seen on the network.
+ * Threshold condition checker that triggers when an unknown versionbits fork at a specific bit is seen on the network.
  */
 class WarningBitsConditionChecker : public AbstractThresholdConditionChecker
 {
 public:
+    WarningBitsConditionChecker(int _bit) : bit(_bit) { }
     int64_t BeginTime(const Consensus::Params& params) const { return 0; }
     int64_t EndTime(const Consensus::Params& params) const { return std::numeric_limits<int64_t>::max(); }
     int Period(const Consensus::Params& params) const { return params.nMinerConfirmationWindow; }
@@ -2117,13 +2118,34 @@ public:
 
     bool Condition(const CBlockIndex* pindex, const Consensus::Params& params) const
     {
-        return (pindex->nVersion & ~ComputeBlockVersion(pindex->pprev, params)) != 0;
+        // Only look for BIP9 unknown forks which set the bit in question
+        return (((pindex->nVersion & VERSIONBITS_TOP_MASK) == VERSIONBITS_TOP_BITS) &&
+                ((pindex->nVersion & ~ComputeBlockVersion(pindex->pprev, params))
+                 & (((uint32_t)1) << bit)) != 0);
     }
-};
 
-// Protected by cs_main
-static ThresholdConditionCache warningcache;
-static WarningBitsConditionChecker warningcheck;
+    bool CheckForUnknownFork(const CBlockIndex* pindexPrev, const Consensus::Params& params) const
+    {
+        // Only need to check for an unknown fork to activate on blocks that start a period
+        if (pindexPrev && ((pindexPrev->nHeight + 1) % Period(params) == 0)) {
+            ThresholdConditionCache warningcache;
+            // Since these are unkown forks, we can assume they are always started
+            // Shortcut by putting only one entry in the cache at the previous period for THRESHOLD_STARTED
+            // and then we'll use GetStateFor to see if unknown bit was set enough to trigger THRESHOLD_LOCKED_IN
+            if (pindexPrev->nHeight >= Period(params)) {
+                warningcache[pindexPrev->GetAncestor(pindexPrev->nHeight - Period(params))] = THRESHOLD_STARTED;
+            }
+            return (GetStateFor(pindexPrev, params, warningcache) == THRESHOLD_LOCKED_IN);
+        }
+        // Only want to check for exactly when it LOCKED_IN (or possibly ACTIVATED)
+        // so we can just return false if not on a period boundary
+        else {
+            return false;
+        }
+    }
+private:
+    int bit;
+};
 
 static int64_t nTimeCheck = 0;
 static int64_t nTimeForks = 0;
@@ -2497,18 +2519,43 @@ void static UpdateTip(CBlockIndex *pindexNew) {
 
     cvBlockChange.notify_all();
 
-    // Check the version of the last 100 blocks to see if we need to upgrade:
-    if (!IsInitialBlockDownload())
+    // Always look for BIP9 soft forks that have activated that we didn't know about
+    // This must happen during IBD also because signaling is transient
+    const CBlockIndex* pindex = chainActive.Tip();
+    for (int bitnum = 0; bitnum <= HIGHEST_VERSION_BITS_BIT; bitnum++) {
+        WarningBitsConditionChecker warningcheck(bitnum);
+        // Note that this will alert twice for any unknown soft fork.  Once at lock in, and likely again at activation.
+        if (warningcheck.CheckForUnknownFork(pindex, chainParams.GetConsensus())) {
+            LogPrintf("Warning: unknown softfork has activated at bit %d at height %d\n", bitnum, pindex->nHeight);
+            strMiscWarning = _("Warning: unknown softfork has activated");
+            CAlert::Notify(strMiscWarning, true);
+        }
+    }
+
+    // Check the version of the last 100 blocks to detect permanent changes we might not know about
+    static bool fWarned = false;
+    if (!IsInitialBlockDownload() && !fWarned)
     {
+        int nUpgraded = 0;
         const CBlockIndex* pindex = chainActive.Tip();
-        ThresholdState state = warningcheck.GetStateFor(pindex, chainParams.GetConsensus(), warningcache);
-        if (state == THRESHOLD_ACTIVE || state == THRESHOLD_LOCKED_IN) {
-            if (state == THRESHOLD_ACTIVE) {
-                strMiscWarning = _("Warning: unknown softfork has activated");
-                CAlert::Notify(strMiscWarning, true);
-            } else {
-                LogPrintf("Warning: An unknown softfork is about to activate\n");
+        for (int i = 0; i < 100 && pindex != NULL; i++)
+        {
+            if ((pindex->nVersion & ~ComputeBlockVersion(pindex->pprev, chainParams.GetConsensus())) != 0) {
+                // This should probably be refined to warn on version 4 blocks once first soft fork activates
+                if (pindex->nVersion != VERSIONBITS_LAST_OLD_BLOCK_VERSION) {
+                    ++nUpgraded;
+                }
             }
+            pindex = pindex->pprev;
+        }
+        if (nUpgraded > 0)
+            LogPrintf("%s: %d of last 100 blocks different from expected version\n", __func__, nUpgraded);
+        if (nUpgraded > 100/2)
+        {
+            // strMiscWarning is read by GetWarnings(), called by Qt and the JSON-RPC code to warn the user:
+            strMiscWarning = _("Warning: This version is obsolete; upgrade required!");
+            CAlert::Notify(strMiscWarning, true);
+            fWarned = true;
         }
     }
 }
