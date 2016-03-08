@@ -14,6 +14,8 @@ static const int32_t VERSIONBITS_LAST_OLD_BLOCK_VERSION = 4;
 static const int32_t VERSIONBITS_TOP_BITS = 0x20000000UL;
 /** What bitmask determines whether versionbits is in use */
 static const int32_t VERSIONBITS_TOP_MASK = 0xE0000000UL;
+/** Highest bit number that can be set for versionbits */
+static const int HIGHEST_VERSION_BITS_BIT = 28;
 
 enum ThresholdState {
     THRESHOLD_DEFINED,
