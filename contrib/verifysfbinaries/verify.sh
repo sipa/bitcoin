@@ -1,6 +1,6 @@
 #!/bin/bash
 
-###   This script attempts to download the signature file SHA256SUMS.asc from SourceForge
+###   This script attempts to download the signature file SHA256SUMS.asc from bitcoin.org
 ###   It first checks if the signature passes, and then downloads the files specified in
 ###   the file, and checks if the hashes of these files match those that are specified
 ###   in the signature file.
@@ -17,14 +17,14 @@ function clean_up {
 WORKINGDIR="/tmp/bitcoin"
 TMPFILE="hashes.tmp"
 
-#this URL is used if a version number is not specified as an argument to the script
-SIGNATUREFILE="http://downloads.sourceforge.net/project/bitcoin/Bitcoin/bitcoin-0.8.2/SHA256SUMS.asc"
-
 SIGNATUREFILENAME="SHA256SUMS.asc"
 RCSUBDIR="test/"
-BASEDIR="http://downloads.sourceforge.net/project/bitcoin/Bitcoin/"
-VERSIONPREFIX="bitcoin-"
+BASEDIR="https://bitcoin.org/bin/"
+VERSIONPREFIX="bitcoin-core-"
 RCVERSIONSTRING="rc"
+
+#this URL is used if a version number is not specified as an argument to the script
+SIGNATUREFILE="$BASEDIR""$VERSIONPREFIX""0.10.4/""$RCSUBDIR""$SIGNATUREFILENAME"
 
 if [ ! -d "$WORKINGDIR" ]; then
    mkdir "$WORKINGDIR"
@@ -62,7 +62,7 @@ WGETOUT=$(wget -N "$BASEDIR$SIGNATUREFILENAME" 2>&1)
 #and then see if wget completed successfully
 if [ $? -ne 0 ]; then
    echo "Error: couldn't fetch signature file. Have you specified the version number in the following format?"
-   echo "[bitcoin-]<version>-[rc[0-9]] (example: bitcoin-0.7.1-rc1)"
+   echo "[$VERSIONPREFIX]<version>-[$RCVERSIONSTRING[0-9]] (example: "$VERSIONPREFIX"0.10.4-"$RCVERSIONSTRING"1)"
    echo "wget output:"
    echo "$WGETOUT"|sed 's/^/\t/g'
    exit 2
@@ -82,7 +82,7 @@ if [ $RET -ne 0 ]; then
       echo "Bad signature."
    elif [ $RET -eq 2 ]; then
       #or if a gpg error has occurred
-      echo "gpg error. Do you have Gavin's code signing key installed?"
+      echo "gpg error. Do you have the Bitcoin Core binary release signing key installed?"
    fi
 
    echo "gpg output:"
@@ -115,5 +115,7 @@ fi
 
 #everything matches! clean up the mess
 clean_up $FILES $SIGNATUREFILENAME $TMPFILE
+
+echo -e "Verified hashes of \n$FILES"
 
 exit 0

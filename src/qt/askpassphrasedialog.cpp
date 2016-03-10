@@ -1,12 +1,22 @@
+// Copyright (c) 2011-2015 The Bitcoin Core developers
+// Distributed under the MIT software license, see the accompanying
+// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+
+#if defined(HAVE_CONFIG_H)
+#include "config/bitcoin-config.h"
+#endif
+
 #include "askpassphrasedialog.h"
 #include "ui_askpassphrasedialog.h"
 
 #include "guiconstants.h"
 #include "walletmodel.h"
 
+#include "support/allocators/secure.h"
+
+#include <QKeyEvent>
 #include <QMessageBox>
 #include <QPushButton>
-#include <QKeyEvent>
 
 AskPassphraseDialog::AskPassphraseDialog(Mode mode, QWidget *parent) :
     QDialog(parent),
@@ -16,6 +26,10 @@ AskPassphraseDialog::AskPassphraseDialog(Mode mode, QWidget *parent) :
     fCapsLock(false)
 {
     ui->setupUi(this);
+
+    ui->passEdit1->setMinimumSize(ui->passEdit1->sizeHint());
+    ui->passEdit2->setMinimumSize(ui->passEdit2->sizeHint());
+    ui->passEdit3->setMinimumSize(ui->passEdit3->sizeHint());
 
     ui->passEdit1->setMaxLength(MAX_PASSPHRASE_SIZE);
     ui->passEdit2->setMaxLength(MAX_PASSPHRASE_SIZE);
@@ -29,9 +43,9 @@ AskPassphraseDialog::AskPassphraseDialog(Mode mode, QWidget *parent) :
     switch(mode)
     {
         case Encrypt: // Ask passphrase x2
+            ui->warningLabel->setText(tr("Enter the new passphrase to the wallet.<br/>Please use a passphrase of <b>ten or more random characters</b>, or <b>eight or more words</b>."));
             ui->passLabel1->hide();
             ui->passEdit1->hide();
-            ui->warningLabel->setText(tr("Enter the new passphrase to the wallet.<br/>Please use a passphrase of <b>10 or more random characters</b>, or <b>eight or more words</b>."));
             setWindowTitle(tr("Encrypt wallet"));
             break;
         case Unlock: // Ask passphrase
@@ -52,10 +66,9 @@ AskPassphraseDialog::AskPassphraseDialog(Mode mode, QWidget *parent) :
             break;
         case ChangePass: // Ask old passphrase + new passphrase x2
             setWindowTitle(tr("Change passphrase"));
-            ui->warningLabel->setText(tr("Enter the old and new passphrase to the wallet."));
+            ui->warningLabel->setText(tr("Enter the old passphrase and new passphrase to the wallet."));
             break;
     }
-
     textChanged();
     connect(ui->passEdit1, SIGNAL(textChanged(QString)), this, SLOT(textChanged()));
     connect(ui->passEdit2, SIGNAL(textChanged(QString)), this, SLOT(textChanged()));
@@ -110,9 +123,9 @@ void AskPassphraseDialog::accept()
                 {
                     QMessageBox::warning(this, tr("Wallet encrypted"),
                                          "<qt>" +
-                                         tr("Bitcoin will close now to finish the encryption process. "
+                                         tr("%1 will close now to finish the encryption process. "
                                          "Remember that encrypting your wallet cannot fully protect "
-                                         "your bitcoins from being stolen by malware infecting your computer.") +
+                                         "your bitcoins from being stolen by malware infecting your computer.").arg(tr(PACKAGE_NAME)) +
                                          "<br><br><b>" +
                                          tr("IMPORTANT: Any previous backups you have made of your wallet file "
                                          "should be replaced with the newly generated, encrypted wallet file. "
