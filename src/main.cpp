@@ -3063,9 +3063,17 @@ bool IsWitnessEnabled(const CBlock& block, const CBlockIndex* pindexPrev, const 
 }
 
 
-bool CheckWitnessCommitAndNonce(const CBlock& block, int commitpos, CValidationState& state)
+bool CheckWitnessCommit(const CBlock& block, int commitpos, CValidationState& state)
 {
-    if (block.vtx[0].wit.vtxinwit.size() != 1 || block.vtx[0].wit.vtxinwit[0].scriptWitness.stack.size() != 1 || block.vtx[0].wit.vtxinwit[0].scriptWitness.stack[0].size() != 32) {
+    size_t stack_size;
+
+    if (block.vtx[0].vout[commitpos].scriptPubKey[1] == 0x24) {
+        stack_size = 1;
+    } else {
+        stack_size = block.vtx[0].vout[commitpos].scriptPubKey[38];
+    }
+
+    if (block.vtx[0].wit.vtxinwit.size() != 1 || block.vtx[0].wit.vtxinwit[0].scriptWitness.stack.size() != stack_size) {
         return state.DoS(100, error("%s : invalid witness commitment size", __func__), REJECT_INVALID, "bad-witness-merkle-size", true);
     }
 
@@ -3088,7 +3096,9 @@ int FindWitnessCommitPos(const CBlock& block)
     for (size_t o = 0; o < block.vtx[0].vout.size(); o++) {
         if (block.vtx[0].vout[o].scriptPubKey.size() >= 38
             && block.vtx[0].vout[o].scriptPubKey[0] == OP_RETURN
-            && block.vtx[0].vout[o].scriptPubKey[1] == 0x24
+            && (block.vtx[0].vout[o].scriptPubKey[1] == 0x24
+                || (block.vtx[0].vout[o].scriptPubKey[1] == 0x25
+                    && block.vtx[0].vout[o].scriptPubKey.size() >= 39))
             && block.vtx[0].vout[o].scriptPubKey[2] == 0xaa
             && block.vtx[0].vout[o].scriptPubKey[3] == 0x21
             && block.vtx[0].vout[o].scriptPubKey[4] == 0xa9
@@ -3222,7 +3232,7 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, CBlockIn
     if (IsWitnessEnabled(block, pindexPrev, consensusParams)) {
         int commitpos = FindWitnessCommitPos(block);
         if (commitpos != -1) {
-            if (!CheckWitnessCommitAndNonce(block, commitpos, state)) {
+            if (!CheckWitnessCommit(block, commitpos, state)) {
                 return false;
             }
 
