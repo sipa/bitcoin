@@ -3066,7 +3066,7 @@ bool IsWitnessEnabled(const CBlock& block, const CBlockIndex* pindexPrev, const 
 bool CheckWitnessCommitAndNonce(const CBlock& block, int commitpos, CValidationState& state)
 {
     bool malleated = false;
-    uint256 hashWitness = BlockWitnessMerkleRoot(block, &malleated);
+    uint256 hashWitness = BlockTxWitnessMerkleRoot(block, &malleated);
     // The malleation check is ignored; as the transaction tree itself
     // already does not permit it, it is impossible to trigger in the
     // witness tree.
@@ -3127,7 +3127,7 @@ std::vector<unsigned char> GenerateCoinbaseCommitment(CBlock& block, const CBloc
     std::vector<unsigned char> ret(32, 0x00);
     if (fHaveWitness && IsWitnessEnabled(block, pindexPrev, consensusParams)) {
         if (commitpos == -1) {
-            uint256 witnessroot = BlockWitnessMerkleRoot(block, NULL);
+            uint256 witnessroot = BlockTxWitnessMerkleRoot(block, NULL);
             CHash256().Write(witnessroot.begin(), 32).Write(&ret[0], 32).Finalize(witnessroot.begin());
             CTxOut out;
             out.nValue = 0;
