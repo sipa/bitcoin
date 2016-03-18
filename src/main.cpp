@@ -2832,7 +2832,10 @@ bool ReceivedBlockTransactions(const CBlock &block, CValidationState& state, CBl
     pindexNew->nFile = pos.nFile;
     pindexNew->nDataPos = pos.nPos;
     pindexNew->nUndoPos = 0;
-    pindexNew->nStatus |= BLOCK_HAVE_DATA;
+    pindexNew->nStatus |= BLOCK_HAVE_DATA | BLOCK_OPT_WITNESS;
+    if (IsWitnessEnabled(block, pindexNew->pprev, Params().GetConsensus())) {
+        pindexNew->nStatus |= BLOCK_OPT_WITNESS;
+    }
     pindexNew->RaiseValidity(BLOCK_VALID_TRANSACTIONS);
     setDirtyBlockIndex.insert(pindexNew);
 
@@ -3057,7 +3060,7 @@ static bool CheckIndexAgainstCheckpoint(const CBlockIndex* pindexPrev, CValidati
     return true;
 }
 
-bool IsWitnessEnabled(const CBlock& block, const CBlockIndex* pindexPrev, const Consensus::Params& params)
+bool IsWitnessEnabled(const CBlockHeader& block, const CBlockIndex* pindexPrev, const Consensus::Params& params)
 {
     return (block.nVersion >= 5 && pindexPrev->nHeight + 1 >= params.SegWitHeight && IsSuperMajority(5, pindexPrev, params.nMajorityEnforceBlockUpgrade,  params));
 }
@@ -3296,7 +3299,7 @@ static bool AcceptBlock(const CBlock& block, CValidationState& state, const CCha
     // Try to process all requested blocks that we don't have, but only
     // process an unrequested block if it's new and has enough work to
     // advance our tip, and isn't too many blocks ahead.
-    bool fAlreadyHave = pindex->nStatus & BLOCK_HAVE_DATA;
+    bool fAlreadyHave = (pindex->nStatus & (BLOCK_HAVE_DATA | BLOCK_OPT_WITNESS)) == (BLOCK_HAVE_DATA | BLOCK_OPT_WITNESS);
     bool fHasMoreWork = (chainActive.Tip() ? pindex->nChainWork > chainActive.Tip()->nChainWork : true);
     // Blocks that are too out-of-order needlessly limit the effectiveness of
     // pruning, because pruning will not delete block files that contain any
@@ -3782,6 +3785,43 @@ bool CVerifyDB::VerifyDB(const CChainParams& chainparams, CCoinsView *coinsview,
     }
 
     LogPrintf("No coin database inconsistencies in last %i blocks (%i transactions)\n", chainActive.Height() - pindexState->nHeight, nGoodTransactions);
+
+    return true;
+}
+
+bool RewindBlockIndex(const Consensus::Params& params)
+{
+    LOCK(cs_main);
+
+    int nHeight = 1;
+    while (nHeight <= chainActive.Height()) {
+        CBlockHeader header = chainActive[nHeight]->GetBlockHeader();
+        if (IsWitnessEnabled(header, chainActive[nHeight - 1], params) && !(chainActive[nHeight]->nStatus & BLOCK_OPT_WITNESS)) {
+            break;
+        }
+        nHeight++;
+    }
+
+    // nHeight is now the height of the first insufficiently-validated block, or tipheight + 1
+    CValidationState state;
+    while (chainActive.Height() >= nHeight) {
+        CBlockIndex* pindex = chainActive.Tip();
+        if (!DisconnectTip(state, Params().GetConsensus()))
+            return false;
+        // Reduce validity flag and have-data flags.
+        pindex->nStatus = (std::min<unsigned int>(pindex->nStatus & BLOCK_VALID_MASK, BLOCK_VALID_TREE) | (pindex->nStatus & ~BLOCK_VALID_MASK)) & ~(BLOCK_HAVE_DATA | BLOCK_HAVE_UNDO);
+        pindex->nFile = 0;
+        pindex->nDataPos = 0;
+        pindex->nUndoPos = 0;
+        setDirtyBlockIndex.insert(pindex);
+        // Occasionally flush state to disk.
+        if (!FlushStateToDisk(state, FLUSH_STATE_PERIODIC))
+            return false;
+    }
+
+    if (!FlushStateToDisk(state, FLUSH_STATE_ALWAYS)) {
+        return false;
+    }
 
     return true;
 }

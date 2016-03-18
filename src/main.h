@@ -418,7 +418,9 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, CBlockIn
 bool TestBlockValidity(CValidationState& state, const CChainParams& chainparams, const CBlock& block, CBlockIndex* pindexPrev, bool fCheckPOW = true, bool fCheckMerkleRoot = true);
 
 /** Check whether witness commitments are required for block. */
-bool IsWitnessEnabled(const CBlock& block, const CBlockIndex* pindexPrev, const Consensus::Params& params);
+bool IsWitnessEnabled(const CBlockHeader& block, const CBlockIndex* pindexPrev, const Consensus::Params& params);
+
+bool RewindBlockIndex(const Consensus::Params& params);
 
 void UpdateUncommitedBlockStructures(CBlock& block, const CBlockIndex* pindexPrev, const Consensus::Params& consensusParams);
 
