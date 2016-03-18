@@ -847,14 +847,19 @@ void CWallet::MarkConflicted(const uint256& hashBlock, const uint256& hashTx)
 {
     LOCK2(cs_main, cs_wallet);
 
-    CBlockIndex* pindex;
-    assert(mapBlockIndex.count(hashBlock));
-    pindex = mapBlockIndex[hashBlock];
     int conflictconfirms = 0;
-    if (chainActive.Contains(pindex)) {
-        conflictconfirms = -(chainActive.Height() - pindex->nHeight + 1);
+    if (mapBlockIndex.count(hashBlock)) {
+        CBlockIndex* pindex = mapBlockIndex[hashBlock];
+        if (chainActive.Contains(pindex)) {
+            conflictconfirms = -(chainActive.Height() - pindex->nHeight + 1);
+        }
     }
-    assert(conflictconfirms < 0);
+    // If number of conflict confirms cannot be determined, this means
+    // that the block is still unknown or not yet part of the main chain,
+    // for example when loading the wallet during a reindex. Do nothing in that
+    // case.
+    if (conflictconfirms >= 0)
+        return;
 
     // Do not flush the wallet here for performance reasons
     CWalletDB walletdb(strWalletFile, "r+", false);
@@ -2158,11 +2163,12 @@ bool CWallet::CreateTransaction(const vector<CRecipient>& vecSend, CWalletTx& wt
                 {
                     bool signSuccess;
                     const CScript& scriptPubKey = coin.first->vout[coin.second].scriptPubKey;
-                    CScript& scriptSigRes = txNew.vin[nIn].scriptSig;
-                    if (sign)
-                        signSuccess = ProduceSignature(TransactionSignatureCreator(this, &txNewConst, nIn, SIGHASH_ALL), scriptPubKey, scriptSigRes);
-                    else
-                        signSuccess = ProduceSignature(DummySignatureCreator(this), scriptPubKey, scriptSigRes);
+                    SignatureData sigdata;
+                    if (sign) {
+                        signSuccess = ProduceSignature(TransactionSignatureCreator(this, &txNewConst, nIn, coin.first->vout[coin.second].nValue, SIGHASH_ALL), scriptPubKey, sigdata);
+                        UpdateTransaction(txNew, nIn, sigdata);
+                    } else
+                        signSuccess = ProduceSignature(DummySignatureCreator(this), scriptPubKey, sigdata);
 
                     if (!signSuccess)
                     {
@@ -2172,12 +2178,13 @@ bool CWallet::CreateTransaction(const vector<CRecipient>& vecSend, CWalletTx& wt
                     nIn++;
                 }
 
-                unsigned int nBytes = ::GetSerializeSize(txNew, SER_NETWORK, PROTOCOL_VERSION);
+                unsigned int nBytes = GetVirtualTransactionSize(txNew);
 
                 // Remove scriptSigs if we used dummy signatures for fee calculation
                 if (!sign) {
                     BOOST_FOREACH (CTxIn& vin, txNew.vin)
                         vin.scriptSig = CScript();
+                    txNew.wit.SetNull();
                 }
 
                 // Embed the constructed transaction data in wtxNew.

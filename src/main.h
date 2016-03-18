@@ -108,8 +108,8 @@ static const bool DEFAULT_TXINDEX = false;
 static const unsigned int DEFAULT_BANSCORE_THRESHOLD = 100;
 
 static const bool DEFAULT_TESTSAFEMODE = false;
-/** Default for -permitrbf */
-static const bool DEFAULT_PERMIT_REPLACEMENT = true;
+/** Default for -mempoolreplacement */
+static const bool DEFAULT_ENABLE_REPLACEMENT = true;
 
 /** Maximum number of headers to announce when relaying blocks with headers message.*/
 static const unsigned int MAX_BLOCKS_TO_ANNOUNCE = 8;
@@ -141,7 +141,7 @@ extern bool fCheckpointsEnabled;
 extern size_t nCoinCacheUsage;
 extern CFeeRate minRelayTxFee;
 extern bool fAlerts;
-extern bool fPermitReplacement;
+extern bool fEnableReplacement;
 
 /** Best header we've seen so far (used for getheaders queries' starting points). */
 extern CBlockIndex *pindexBestHeader;
@@ -361,6 +361,7 @@ class CScriptCheck
 {
 private:
     CScript scriptPubKey;
+    CAmount amount;
     const CTransaction *ptxTo;
     unsigned int nIn;
     unsigned int nFlags;
@@ -368,9 +369,9 @@ private:
     ScriptError error;
 
 public:
-    CScriptCheck(): ptxTo(0), nIn(0), nFlags(0), cacheStore(false), error(SCRIPT_ERR_UNKNOWN_ERROR) {}
+    CScriptCheck(): amount(0), ptxTo(0), nIn(0), nFlags(0), cacheStore(false), error(SCRIPT_ERR_UNKNOWN_ERROR) {}
     CScriptCheck(const CCoins& txFromIn, const CTransaction& txToIn, unsigned int nInIn, unsigned int nFlagsIn, bool cacheIn) :
-        scriptPubKey(txFromIn.vout[txToIn.vin[nInIn].prevout.n].scriptPubKey),
+        scriptPubKey(txFromIn.vout[txToIn.vin[nInIn].prevout.n].scriptPubKey), amount(txFromIn.vout[txToIn.vin[nInIn].prevout.n].nValue),
         ptxTo(&txToIn), nIn(nInIn), nFlags(nFlagsIn), cacheStore(cacheIn), error(SCRIPT_ERR_UNKNOWN_ERROR) { }
 
     bool operator()();
@@ -378,6 +379,7 @@ public:
     void swap(CScriptCheck &check) {
         scriptPubKey.swap(check.scriptPubKey);
         std::swap(ptxTo, check.ptxTo);
+        std::swap(amount, check.amount);
         std::swap(nIn, check.nIn);
         std::swap(nFlags, check.nFlags);
         std::swap(cacheStore, check.cacheStore);
@@ -414,6 +416,19 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, CBlockIn
 
 /** Check a block is completely valid from start to finish (only works on top of our current best block, with cs_main held) */
 bool TestBlockValidity(CValidationState& state, const CChainParams& chainparams, const CBlock& block, CBlockIndex* pindexPrev, bool fCheckPOW = true, bool fCheckMerkleRoot = true);
+
+/** Check whether witness commitments are required for block. */
+bool IsWitnessEnabled(const CBlockHeader& block, const CBlockIndex* pindexPrev, const Consensus::Params& params);
+
+bool RewindBlockIndex(const Consensus::Params& params);
+
+void UpdateUncommitedBlockStructures(CBlock& block, const CBlockIndex* pindexPrev, const Consensus::Params& consensusParams);
+
+/** Update uncommitted block structures (currently: only the witness nonce). This is safe for submitted blocks. */
+void UpdateUncommitedBlockStructures(CBlock& block, const CBlockIndex* pindexPrev, const Consensus::Params& consensusParams);
+
+/** Produce the necessary coinbase commitment for a block (modifies the hash, don't call for mined blocks). */
+std::vector<unsigned char> GenerateCoinbaseCommitment(CBlock& block, const CBlockIndex* pindexPrev, const Consensus::Params& consensusParams);
 
 
 class CBlockFileInfo
