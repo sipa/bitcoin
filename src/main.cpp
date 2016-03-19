@@ -3066,14 +3066,57 @@ bool IsWitnessEnabled(const CBlockHeader& block, const CBlockIndex* pindexPrev, 
 }
 
 
-void UpdateUncommitedBlockStructures(CBlock& block, const CBlockIndex* pindexPrev, const Consensus::Params& consensusParams)
+bool CheckWitnessCommit(const CBlock& block, int commitpos, CValidationState& state)
+{
+    size_t stack_size;
+
+    if (block.vtx[0].vout[commitpos].scriptPubKey[1] == 0x24) {
+        stack_size = 1;
+    } else {
+        stack_size = block.vtx[0].vout[commitpos].scriptPubKey[38];
+    }
+
+    if (block.vtx[0].wit.vtxinwit.size() != 1 || block.vtx[0].wit.vtxinwit[0].scriptWitness.stack.size() != stack_size) {
+        return state.DoS(100, error("%s : invalid witness commitment size", __func__), REJECT_INVALID, "bad-witness-merkle-size", true);
+    }
+
+    bool malleated = false;
+    uint256 hashWitness = BlockWitnessMerkleRoot(block, &malleated);
+    // The malleation check is ignored; as the transaction tree itself
+    // already does not permit it, it is impossible to trigger in the
+    // witness tree.
+
+    if (memcmp(hashWitness.begin(), &block.vtx[0].vout[commitpos].scriptPubKey[6], 32)) {
+        return state.DoS(100, error("%s : witness merkle commitment mismatch", __func__), REJECT_INVALID, "bad-witness-merkle-match", true);
+    }
+
+    return true;
+}
+
+int FindWitnessCommitPos(const CBlock& block)
 {
     int commitpos = -1;
     for (size_t o = 0; o < block.vtx[0].vout.size(); o++) {
-        if (block.vtx[0].vout[o].scriptPubKey.size() >= 38 && block.vtx[0].vout[o].scriptPubKey[0] == OP_RETURN && block.vtx[0].vout[o].scriptPubKey[1] == 0x24 && block.vtx[0].vout[o].scriptPubKey[2] == 0xaa && block.vtx[0].vout[o].scriptPubKey[3] == 0x21 && block.vtx[0].vout[o].scriptPubKey[4] == 0xa9 && block.vtx[0].vout[o].scriptPubKey[5] == 0xed) {
+        if (block.vtx[0].vout[o].scriptPubKey.size() >= 38
+            && block.vtx[0].vout[o].scriptPubKey[0] == OP_RETURN
+            && (block.vtx[0].vout[o].scriptPubKey[1] == 0x24
+                || (block.vtx[0].vout[o].scriptPubKey[1] == 0x25
+                    && block.vtx[0].vout[o].scriptPubKey.size() >= 39))
+            && block.vtx[0].vout[o].scriptPubKey[2] == 0xaa
+            && block.vtx[0].vout[o].scriptPubKey[3] == 0x21
+            && block.vtx[0].vout[o].scriptPubKey[4] == 0xa9
+            && block.vtx[0].vout[o].scriptPubKey[5] == 0xed)
+        {
             commitpos = o;
         }
     }
+    return commitpos;
+}
+
+
+void UpdateUncommitedBlockStructures(CBlock& block, const CBlockIndex* pindexPrev, const Consensus::Params& consensusParams)
+{
+    int commitpos = FindWitnessCommitPos(block);
     static const std::vector<unsigned char> nonce(32, 0x00);
     if (commitpos != -1 && IsWitnessEnabled(block, pindexPrev, consensusParams) && block.vtx[0].wit.IsEmpty()) {
         block.vtx[0].wit.vtxinwit.resize(1);
@@ -3085,12 +3128,7 @@ void UpdateUncommitedBlockStructures(CBlock& block, const CBlockIndex* pindexPre
 std::vector<unsigned char> GenerateCoinbaseCommitment(CBlock& block, const CBlockIndex* pindexPrev, const Consensus::Params& consensusParams)
 {
     std::vector<unsigned char> commitment;
-    int commitpos = -1;
-    for (size_t o = 0; o < block.vtx[0].vout.size(); o++) {
-        if (block.vtx[0].vout[o].scriptPubKey.size() >= 38 && block.vtx[0].vout[o].scriptPubKey[0] == OP_RETURN && block.vtx[0].vout[o].scriptPubKey[1] == 0x24 && block.vtx[0].vout[o].scriptPubKey[2] == 0xaa && block.vtx[0].vout[o].scriptPubKey[3] == 0x21 && block.vtx[0].vout[o].scriptPubKey[4] == 0xa9 && block.vtx[0].vout[o].scriptPubKey[5] == 0xed) {
-            commitpos = o;
-        }
-    }
+    int commitpos = FindWitnessCommitPos(block);
     bool fHaveWitness = false;
     for (size_t t = 1; t < block.vtx.size(); t++) {
         if (!block.vtx[t].wit.IsNull()) {
@@ -3101,7 +3139,7 @@ std::vector<unsigned char> GenerateCoinbaseCommitment(CBlock& block, const CBloc
     std::vector<unsigned char> ret(32, 0x00);
     if (fHaveWitness && IsWitnessEnabled(block, pindexPrev, consensusParams)) {
         if (commitpos == -1) {
-            uint256 witnessroot = BlockWitnessMerkleRoot(block, NULL);
+            uint256 witnessroot = BlockTxWitnessMerkleRoot(block, NULL);
             CHash256().Write(witnessroot.begin(), 32).Write(&ret[0], 32).Finalize(witnessroot.begin());
             CTxOut out;
             out.nValue = 0;
@@ -3195,26 +3233,12 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, CBlockIn
     //   {0xaa, 0x21, 0xa9, 0xed}, and the following 32 bytes are SHA256(witness root, witness nonce). In case there are
     //   multiple, the last one is used.
     if (IsWitnessEnabled(block, pindexPrev, consensusParams)) {
-        int commitpos = -1;
-        for (size_t o = 0; o < block.vtx[0].vout.size(); o++) {
-            if (block.vtx[0].vout[o].scriptPubKey.size() >= 38 && block.vtx[0].vout[o].scriptPubKey[0] == OP_RETURN && block.vtx[0].vout[o].scriptPubKey[1] == 0x24 && block.vtx[0].vout[o].scriptPubKey[2] == 0xaa && block.vtx[0].vout[o].scriptPubKey[3] == 0x21 && block.vtx[0].vout[o].scriptPubKey[4] == 0xa9 && block.vtx[0].vout[o].scriptPubKey[5] == 0xed) {
-                commitpos = o;
-            }
-        }
+        int commitpos = FindWitnessCommitPos(block);
         if (commitpos != -1) {
-            bool malleated = false;
-            uint256 hashWitness = BlockWitnessMerkleRoot(block, &malleated);
-            // The malleation check is ignored; as the transaction tree itself
-            // already does not permit it, it is impossible to trigger in the
-            // witness tree.
-            if (block.vtx[0].wit.vtxinwit.size() != 1 || block.vtx[0].wit.vtxinwit[0].scriptWitness.stack.size() != 1 || block.vtx[0].wit.vtxinwit[0].scriptWitness.stack[0].size() != 32) {
-                return state.DoS(100, error("%s : invalid witness commitment size", __func__), REJECT_INVALID, "bad-witness-merkle-size", true);
+            if (!CheckWitnessCommit(block, commitpos, state)) {
+                return false;
             }
-            CHash256().Write(hashWitness.begin(), 32).Write(&block.vtx[0].wit.vtxinwit[0].scriptWitness.stack[0][0], 32).Finalize(hashWitness.begin());
-            if (memcmp(hashWitness.begin(), &block.vtx[0].vout[commitpos].scriptPubKey[6], 32)) {
-                return state.DoS(100, error("%s : witness merkle commitment mismatch", __func__), REJECT_INVALID, "bad-witness-merkle-match", true);
-            }
-            
+
             // After the coinbase witness nonce and commitment are verified,
             // we can check if the virtual size passes (before we've checked
             // the coinbase witness, it would be possible for the virtual

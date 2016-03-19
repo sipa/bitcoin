@@ -26,6 +26,12 @@ uint256 BlockMerkleRoot(const CBlock& block, bool* mutated = NULL);
  * Compute the Merkle root of the witness transactions in a block.
  * *mutated is set to true if a duplicated subtree was found.
  */
+uint256 BlockTxWitnessMerkleRoot(const CBlock& block, bool* mutated = NULL);
+
+/*
+ * Compute the Merkle root of the coinbase transaction's witness stack.
+ * *mutated is set to true if a duplicated subtree was found.
+ */
 uint256 BlockWitnessMerkleRoot(const CBlock& block, bool* mutated = NULL);
 
 /*

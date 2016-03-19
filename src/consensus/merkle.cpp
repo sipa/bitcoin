@@ -161,7 +161,7 @@ uint256 BlockMerkleRoot(const CBlock& block, bool* mutated)
     return ComputeMerkleRoot(leaves, mutated);
 }
 
-uint256 BlockWitnessMerkleRoot(const CBlock& block, bool* mutated)
+uint256 BlockTxWitnessMerkleRoot(const CBlock& block, bool* mutated)
 {
     std::vector<uint256> leaves;
     leaves.resize(block.vtx.size());
@@ -170,6 +170,25 @@ uint256 BlockWitnessMerkleRoot(const CBlock& block, bool* mutated)
         leaves[s] = block.vtx[s].GetWitnessHash();
     }
     return ComputeMerkleRoot(leaves, mutated);
+}
+
+uint256 BlockWitnessMerkleRoot(const CBlock& block, bool* pmutated)
+{
+    const CScriptWitness& cbsw = block.vtx[0].wit.vtxinwit[0].scriptWitness;
+    std::vector<uint256> leaves;
+    leaves.resize(cbsw.stack.size() + 1);
+    leaves[0] = BlockTxWitnessMerkleRoot(block, pmutated);
+    for (size_t s = 0; s < cbsw.stack.size(); s++) {
+        if (cbsw.stack[s].size() == 32) {
+            // dumb idea, but should make it backwards compatible with segnet3
+            leaves[s+1] = uint256(cbsw.stack[s]);
+        } else {
+            leaves[s+1] = Hash(cbsw.stack[s].begin(), cbsw.stack[s].end());
+        }
+    }
+    if (pmutated && *pmutated)
+        pmutated = NULL;
+    return ComputeMerkleRoot(leaves, pmutated);
 }
 
 std::vector<uint256> BlockMerkleBranch(const CBlock& block, uint32_t position)
