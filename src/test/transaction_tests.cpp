@@ -166,8 +166,9 @@ BOOST_AUTO_TEST_CASE(tx_valid)
                     amount = mapprevOutValues[tx.vin[i].prevout];
                 }
                 unsigned int verify_flags = ParseScriptFlags(test[2].get_str());
+                const CScriptWitness *witness = (i < tx.wit.vtxinwit.size()) ? &tx.wit.vtxinwit[i].scriptWitness : NULL;
                 BOOST_CHECK_MESSAGE(VerifyScript(tx.vin[i].scriptSig, mapprevOutScriptPubKeys[tx.vin[i].prevout],
-                                                 &tx.wit.vtxinwit[i].scriptWitness, verify_flags, TransactionSignatureChecker(&tx, i, amount), &err),
+                                                 witness, verify_flags, TransactionSignatureChecker(&tx, i, amount), &err),
                                     strTest);
                 BOOST_CHECK_MESSAGE(err == SCRIPT_ERR_OK, ScriptErrorString(err));
             }
@@ -249,8 +250,9 @@ BOOST_AUTO_TEST_CASE(tx_invalid)
                 if (mapprevOutValues.count(tx.vin[i].prevout)) {
                     amount = mapprevOutValues[tx.vin[i].prevout];
                 }
+                const CScriptWitness *witness = (i < tx.wit.vtxinwit.size()) ? &tx.wit.vtxinwit[i].scriptWitness : NULL;
                 fValid = VerifyScript(tx.vin[i].scriptSig, mapprevOutScriptPubKeys[tx.vin[i].prevout],
-                                      &tx.wit.vtxinwit[i].scriptWitness, verify_flags, TransactionSignatureChecker(&tx, i, amount), &err);
+                                      witness, verify_flags, TransactionSignatureChecker(&tx, i, amount), &err);
             }
             BOOST_CHECK_MESSAGE(!fValid, strTest);
             BOOST_CHECK_MESSAGE(err != SCRIPT_ERR_OK, ScriptErrorString(err));
