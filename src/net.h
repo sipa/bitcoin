@@ -164,7 +164,7 @@ extern CCriticalSection cs_vNodes;
 extern std::map<uint256, CTransaction> mapRelayTx;
 extern std::deque<std::pair<int64_t, uint256> > vRelayTxExpiration;
 extern CCriticalSection cs_mapRelayTx;
-extern limitedmap<CInv, int64_t> mapAlreadyAskedFor;
+extern limitedmap<uint256, int64_t> mapAlreadyAskedFor;
 
 extern std::vector<std::string> vAddedNodes;
 extern CCriticalSection cs_vAddedNodes;
