@@ -5794,6 +5794,9 @@ bool SendMessages(CNode* pto)
                 pto->nNextInvSend = PoissonNextSend(nNow, INVENTORY_BROADCAST_INTERVAL >> !pto->fInbound);
             }
 
+            // Time to send but the peer has requested we not relay transactions.
+            if (fSendTrickle && !pto->fRelayTxes) pto->setInventoryTxToSend.clear();
+
             // Respond to BIP35 mempool requests
             if (fSendTrickle && pto->fSendMempool) {
                 std::vector<uint256> vtxid;
@@ -5839,6 +5842,11 @@ bool SendMessages(CNode* pto)
                 for (std::set<uint256>::iterator it = pto->setInventoryTxToSend.begin(); it != pto->setInventoryTxToSend.end(); it++) {
                     vInvTx.push_back(it);
                 }
+                CAmount filterrate = 0;
+                {
+                    LOCK(pto->cs_feeFilter);
+                    filterrate = pto->minFeeFilter;
+                }
                 // Topologically and fee-rate sort the inventory we send for privacy and priority reasons.
                 // A heap is used so that not all items need sorting if only a few are being sent.
                 CompareInvMempoolOrder compareInvMempoolOrder(&mempool);
@@ -5846,6 +5854,7 @@ bool SendMessages(CNode* pto)
                 // No reason to drain out at many times the network's capacity,
                 // especially since we have many peers and some will draw much shorter delays.
                 unsigned int nRelayedTransactions = 0;
+                LOCK(pto->cs_filter);
                 while (!vInvTx.empty() && nRelayedTransactions < INVENTORY_BROADCAST_MAX) {
                     // Fetch the top element from the heap
                     std::pop_heap(vInvTx.begin(), vInvTx.end(), compareInvMempoolOrder);
@@ -5857,6 +5866,19 @@ bool SendMessages(CNode* pto)
                     // Check if not in the filter already
                     if (pto->filterInventoryKnown.contains(hash)) {
                         continue;
+                    }
+                    // Not in the mempool anymore? don't bother sending it.
+                    CFeeRate feeRate;
+                    if (!mempool.lookupFeeRate(*it, feeRate)) {
+                        continue;
+                    }
+                    if (filterrate && feeRate.GetFeePerK() < filterrate) {
+                        continue;
+                    }
+                    if (pto->pfilter) {
+                        CTransaction tx;
+                        if (!mempool.lookup(*it, tx)) continue;
+                        if (!pto->pfilter->IsRelevantAndUpdate(tx)) continue;
                     }
                     // Send
                     vInv.push_back(CInv(MSG_TX, hash));
