@@ -241,6 +241,7 @@ static CTestNetParams testNetParams;
 /**
  * Segnet
  */
+// NOTE: segnet is not intended to be merged into Core. It was intended to allow testing before migrating to testnet.
 class CSegNetParams : public CChainParams {
 public:
     CSegNetParams() {

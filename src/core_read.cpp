@@ -90,6 +90,18 @@ CScript ParseScript(const std::string& s)
     return result;
 }
 
+/* NOTE: For every serialization corresponds to at most one valid transaction,
+         with or without witness. Thus, in every situation where we deal with
+         valid transactions, we can simply try to decode with witness flag
+         enabled, and there will be no ambiguity.
+
+         However, when dealing with potentially invalid transactions, things are
+         different. The decoderawtransaction and fundrawtransaction RPCs accept
+         serialized transaction that potentially don't have any inputs. Such a
+         serialization may be ambiguous. In those cases, and only those, we
+         first try to decode without, and then with, checking that the entire
+         serialization is consumed.
+*/
 bool DecodeHexTx(CTransaction& tx, const std::string& strHexTx, bool fTryNoWitness)
 {
     if (!IsHex(strHexTx))

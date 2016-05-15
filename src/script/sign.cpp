@@ -286,6 +286,24 @@ static vector<valtype> CombineMultisig(const CScript& scriptPubKey, const BaseSi
 
 namespace
 {
+/* NOTE: a large amount of the code changes related to signing are due switching
+ *       internal functions to operate on byte arrays directly rather than
+ *       CScript encoded lists of pushes.
+ * 
+ *       However, that is (1) inconvenient in a segwit setting,
+ *       where we may need to convert the result of a normal signing operation
+ *       to a scriptwitness (which is not a script, but a vector of byte arrays,
+ *       see SignatureData) and (2) annoying even in the existing cases (for example,
+ *       you can't do manipulation like popping off a stack element without first
+ *       calling EvalScript).
+ *
+ *       So all internal signing code is changed to work on byte array vectors or the
+ *       Stacks type below, which is converted to a SignatureData type by all externally
+ *       callable functions. A side effect is that ProduceSignature can't write
+ *       directly into a CMutableTransaction anymore, but a separate UpdateTransaction
+ *       is used to convert the results in SignatureData to the scriptSig and scriptWitness
+ *       fields.
+ */
 struct Stacks
 {
     std::vector<valtype> script;

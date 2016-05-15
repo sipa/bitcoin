@@ -156,6 +156,9 @@ public:
 bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& script, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* error = NULL);
 bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness* witness, unsigned int flags, const BaseSignatureChecker& checker, ScriptError* serror = NULL);
 
+/* NOTE: previously, sigop counting was done inside main, and implemented separately for P2SH and normal inputs.
+         This is not a very scalable approach if we expect more script improvements in the future that may
+         introduce new signature types. Thus, we move sigop counting to script, passing along the evaluation flags. */
 size_t CountWitnessSigOps(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness* witness, unsigned int flags);
 
 #endif // BITCOIN_SCRIPT_INTERPRETER_H
