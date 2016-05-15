@@ -151,6 +151,10 @@ bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
     return true;
 }
 
+/* NOTE: For transactions we define a 'virtual transaction size' (equal to
+         transaction_cost / 4), which has no consensus meaning, but is used
+         for fee calculations, so there is a smooth transition from feerate
+         defined by size (for non-segwit transactions, size == vsize) */
 int64_t GetVirtualTransactionSize(int64_t nCost)
 {
     return (nCost + WITNESS_SCALE_FACTOR - 1) / WITNESS_SCALE_FACTOR;

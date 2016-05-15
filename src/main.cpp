@@ -944,6 +944,10 @@ unsigned int GetP2SHSigOpCount(const CTransaction& tx, const CCoinsViewCache& in
     return nSigOps;
 }
 
+// NOTE: this is a tricky refactor. All call sites to GetLegacySigOpCount, GetP2SHSigOpCount, and
+//       the new CountWitnessSigOps are moved to this function, in both AcceptToMemoryPoolWorker
+//       and ConnectBlock. In ConnectBlock however, the existing calls are spread over a parent
+//       code block and a !tx.IsCoinBase() conditional (which is mimicked in this function),
 int64_t GetTransactionSigOpCost(const CTransaction& tx, const CCoinsViewCache& inputs, int flags)
 {
     int64_t nSigOps = GetLegacySigOpCount(tx) * WITNESS_SCALE_FACTOR;
@@ -2424,6 +2428,10 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             return state.DoS(100, error("ConnectBlock(): too many sigops"),
                              REJECT_INVALID, "bad-blk-sigops");
 
+        // NOTE: the existing (!tx.IsCoinBase()) conditional is split in two, as the above
+        // GetTransactionSigOpCost requires being called for non-coinbase transactions as
+        // well, but the HaveInputs() call above needs to be called before, and the
+        // script evaluation below needs to go after.
         if (!tx.IsCoinBase())
         {
             nFees += view.GetValueIn(tx)-tx.GetValueOut();
@@ -2687,6 +2695,11 @@ void static UpdateTip(CBlockIndex *pindexNew, const CChainParams& chainParams) {
 }
 
 /** Disconnect chainActive's tip. You probably want to call mempool.removeForReorg and manually re-limit mempool size after this, with cs_main held. */
+/* NOTE: Disconnecting many blocks is very slow if we want to retain mempool consistency.
+         During RewindBlock (called at startup, to go back to the state of the last block before the
+         fork), no entries exist in the mempool anyway, so we're able to skip all mempool-related
+         logic. The fBare parameter indicates that just chainstate but no mempool operations
+         need to be performed. */
 bool static DisconnectTip(CValidationState& state, const CChainParams& chainparams, bool fBare = false)
 {
     CBlockIndex *pindexDelete = chainActive.Tip();

@@ -38,6 +38,13 @@ public:
     template <typename Stream, typename Operation>
     inline void SerializationOp(Stream& s, Operation ser_action, int nType, int nVersion) {
         READWRITE(this->nVersion);
+        // NOTE: the assignment to the local variable nVersion is removed as it is unused. It was
+        //       intended to let serialization depend on block version number. That strategy would
+        //       lead to inconsistent behaviour, and you really need coordinated serialization changes
+        //       across the network instead. See the extended serialization format for transactions
+        //       instead, which is designed to be (1) backward compatible and (2) is purely a p2p
+        //       layer change that doesn't leak into consensus structures (so a new node can
+        //       downgrade when relaying to an old node, without breaking PoW).
         READWRITE(hashPrevBlock);
         READWRITE(hashMerkleRoot);
         READWRITE(nTime);
