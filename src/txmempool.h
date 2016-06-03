@@ -11,12 +11,14 @@
 
 #include "amount.h"
 #include "coins.h"
+#include "indirectmap.h"
 #include "primitives/transaction.h"
 #include "sync.h"
 
 #undef foreach
 #include "boost/multi_index_container.hpp"
 #include "boost/multi_index/ordered_index.hpp"
+#include "boost/multi_index/hashed_index.hpp"
 
 class CAutoFile;
 class CBlockIndex;
@@ -305,20 +307,6 @@ struct ancestor_score {};
 
 class CBlockPolicyEstimator;
 
-/** An inpoint - a combination of a transaction and an index n into its vin */
-class CInPoint
-{
-public:
-    const CTransaction* ptx;
-    uint32_t n;
-
-    CInPoint() { SetNull(); }
-    CInPoint(const CTransaction* ptxIn, uint32_t nIn) { ptx = ptxIn; n = nIn; }
-    void SetNull() { ptx = NULL; n = (uint32_t) -1; }
-    bool IsNull() const { return (ptx == NULL && n == (uint32_t) -1); }
-    size_t DynamicMemoryUsage() const { return 0; }
-};
-
 /**
  * CTxMemPool stores valid-according-to-the-current-best-chain
  * transactions that may be included in the next block.
@@ -422,7 +410,7 @@ public:
         CTxMemPoolEntry,
         boost::multi_index::indexed_by<
             // sorted by txid
-            boost::multi_index::ordered_unique<mempoolentry_txid>,
+            boost::multi_index::hashed_unique<mempoolentry_txid, SaltedTxidHasher>,
             // sorted by fee rate
             boost::multi_index::ordered_non_unique<
                 boost::multi_index::tag<descendant_score>,
@@ -477,7 +465,7 @@ private:
     void UpdateChild(txiter entry, txiter child, bool add);
 
 public:
-    std::map<COutPoint, CInPoint> mapNextTx;
+    indirectmap<COutPoint, const CTransaction*> mapNextTx;
     std::map<uint256, std::pair<double, CAmount> > mapDeltas;
 
     /** Create a new CTxMemPool.
@@ -511,6 +499,7 @@ public:
                         std::list<CTransaction>& conflicts, bool fCurrentEstimate = true);
     void clear();
     void _clear(); //lock free
+    bool CompareDepthAndScore(const uint256& hasha, const uint256& hashb);
     void queryHashes(std::vector<uint256>& vtxid);
     void pruneSpent(const uint256& hash, CCoins &coins);
     unsigned int GetTransactionsUpdated() const;
@@ -600,6 +589,7 @@ public:
     }
 
     bool lookup(uint256 hash, CTransaction& result) const;
+    bool lookup(uint256 hash, CTransaction& result, int64_t& time) const;
     bool lookupFeeRate(const uint256& hash, CFeeRate& feeRate) const;
 
     /** Estimate fee rate needed to get into the next nBlocks
@@ -672,10 +662,10 @@ private:
 class CCoinsViewMemPool : public CCoinsViewBacked
 {
 protected:
-    CTxMemPool &mempool;
+    const CTxMemPool& mempool;
 
 public:
-    CCoinsViewMemPool(CCoinsView *baseIn, CTxMemPool &mempoolIn);
+    CCoinsViewMemPool(CCoinsView* baseIn, const CTxMemPool& mempoolIn);
     bool GetCoins(const uint256 &txid, CCoins &coins) const;
     bool HaveCoins(const uint256 &txid) const;
 };

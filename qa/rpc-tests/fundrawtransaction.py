@@ -1,5 +1,5 @@
-#!/usr/bin/env python2
-# Copyright (c) 2014-2015 The Bitcoin Core developers
+#!/usr/bin/env python3
+# Copyright (c) 2014-2016 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -9,12 +9,13 @@ from test_framework.util import *
 # Create one-input, one-output, no-fee transaction:
 class RawTransactionsTest(BitcoinTestFramework):
 
-    def setup_chain(self):
-        print("Initializing test directory "+self.options.tmpdir)
-        initialize_chain_clean(self.options.tmpdir, 4)
+    def __init__(self):
+        super().__init__()
+        self.setup_clean_chain = True
+        self.num_nodes = 4
 
     def setup_network(self, split=False):
-        self.nodes = start_nodes(4, self.options.tmpdir)
+        self.nodes = start_nodes(self.num_nodes, self.options.tmpdir)
 
         connect_nodes_bi(self.nodes,0,1)
         connect_nodes_bi(self.nodes,1,2)
@@ -25,7 +26,7 @@ class RawTransactionsTest(BitcoinTestFramework):
         self.sync_all()
 
     def run_test(self):
-        print "Mining blocks..."
+        print("Mining blocks...")
 
         min_relay_tx_fee = self.nodes[0].getnetworkinfo()['relayfee']
         # This test is not meant to test fee estimation and we'd like
@@ -198,7 +199,7 @@ class RawTransactionsTest(BitcoinTestFramework):
         try:
             self.nodes[2].fundrawtransaction(rawtx, {'foo': 'bar'})
             raise AssertionError("Accepted invalid option foo")
-        except JSONRPCException,e:
+        except JSONRPCException as e:
             assert("Unexpected key foo" in e.error['message'])
 
 
@@ -223,7 +224,7 @@ class RawTransactionsTest(BitcoinTestFramework):
         try:
             self.nodes[2].fundrawtransaction(rawtx, {'changeAddress': 'foobar'})
             raise AssertionError("Accepted invalid bitcoin address")
-        except JSONRPCException,e:
+        except JSONRPCException as e:
             assert("changeAddress must be a valid bitcoin address" in e.error['message'])
 
 
@@ -521,7 +522,7 @@ class RawTransactionsTest(BitcoinTestFramework):
         stop_nodes(self.nodes)
         wait_bitcoinds()
 
-        self.nodes = start_nodes(4, self.options.tmpdir)
+        self.nodes = start_nodes(self.num_nodes, self.options.tmpdir)
         # This test is not meant to test fee estimation and we'd like
         # to be sure all txs are sent at a consistent desired feerate
         for node in self.nodes:
@@ -677,6 +678,14 @@ class RawTransactionsTest(BitcoinTestFramework):
         assert(signedtx["complete"])
         self.nodes[0].sendrawtransaction(signedtx["hex"])
 
+        inputs = []
+        outputs = {self.nodes[2].getnewaddress() : 1}
+        rawtx = self.nodes[3].createrawtransaction(inputs, outputs)
+        result = self.nodes[3].fundrawtransaction(rawtx, )
+        result2 = self.nodes[3].fundrawtransaction(rawtx, {"feeRate": 2000})
+        result3 = self.nodes[3].fundrawtransaction(rawtx, {"feeRate": 10000})
+        assert_equal(result['fee']*2, result2['fee'])
+        assert_equal(result['fee']*10, result3['fee'])
 
 if __name__ == '__main__':
     RawTransactionsTest().main()
