@@ -394,8 +394,6 @@ public:
     bool InMempool() const;
     bool IsTrusted() const;
 
-    bool WriteToDisk(CWalletDB *pwalletdb);
-
     int64_t GetTxTime() const;
     int GetRequestCount() const;
 
@@ -414,10 +412,11 @@ public:
     int i;
     int nDepth;
     bool fSpendable;
+    bool fSolvable;
 
-    COutput(const CWalletTx *txIn, int iIn, int nDepthIn, bool fSpendableIn)
+    COutput(const CWalletTx *txIn, int iIn, int nDepthIn, bool fSpendableIn, bool fSolvableIn)
     {
-        tx = txIn; i = iIn; nDepth = nDepthIn; fSpendable = fSpendableIn;
+        tx = txIn; i = iIn; nDepth = nDepthIn; fSpendable = fSpendableIn; fSolvable = fSolvableIn;
     }
 
     std::string ToString() const;
@@ -719,6 +718,8 @@ public:
      * @return next transaction order id
      */
     int64_t IncOrderPosNext(CWalletDB *pwalletdb = NULL);
+    bool AccountMove(std::string strFrom, std::string strTo, CAmount nAmount, std::string strComment = "");
+    bool GetAccountPubkey(CPubKey &pubKey, std::string strAccount, bool bForceNew = false);
 
     void MarkDirty();
     bool AddToWallet(const CWalletTx& wtxIn, bool fFromLoadWallet, CWalletDB* pwalletdb);
@@ -739,7 +740,7 @@ public:
      * Insert additional inputs into the transaction by
      * calling CreateTransaction();
      */
-    bool FundTransaction(CMutableTransaction& tx, CAmount& nFeeRet, int& nChangePosInOut, std::string& strFailReason, bool includeWatching, bool lockUnspents, const CTxDestination& destChange = CNoDestination());
+    bool FundTransaction(CMutableTransaction& tx, CAmount& nFeeRet, bool overrideEstimatedFeeRate, const CFeeRate& specificFeeRate, int& nChangePosInOut, std::string& strFailReason, bool includeWatching, bool lockUnspents, const CTxDestination& destChange = CNoDestination());
 
     /**
      * Create a new transaction paying the recipients with a set of coins
@@ -777,6 +778,8 @@ public:
     std::set< std::set<CTxDestination> > GetAddressGroupings();
     std::map<CTxDestination, CAmount> GetAddressBalances();
 
+    CAmount GetAccountBalance(const std::string& strAccount, int nMinDepth, const isminefilter& filter);
+    CAmount GetAccountBalance(CWalletDB& walletdb, const std::string& strAccount, int nMinDepth, const isminefilter& filter);
     std::set<CTxDestination> GetAccountAddresses(const std::string& strAccount) const;
 
     isminetype IsMine(const CTxIn& txin) const;
@@ -884,6 +887,8 @@ public:
 
     /* Wallets parameter interaction */
     static bool ParameterInteraction();
+
+    bool BackupWallet(const std::string& strDest);
 };
 
 /** A key allocated from the key pool. */
