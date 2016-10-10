@@ -167,13 +167,16 @@ public:
 
     virtual bool AddCryptedKey(const CPubKey &vchPubKey, const std::vector<unsigned char> &vchCryptedSecret);
     bool AddKeyPubKey(const CKey& key, const CPubKey &pubkey);
-    bool HaveKey(const CKeyID &address) const
+    bool HaveKey(const CKeyID &address, bool needcompressed = false) const
     {
         {
             LOCK(cs_KeyStore);
             if (!IsCrypted())
-                return CBasicKeyStore::HaveKey(address);
-            return mapCryptedKeys.count(address) > 0;
+                return CBasicKeyStore::HaveKey(address, needcompressed);
+            auto it = mapCryptedKeys.find(address);
+            if (it != mapCryptedKeys.end()) {
+                return (!needcompressed || it->second.first.IsCompressed());
+            }
         }
         return false;
     }

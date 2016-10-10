@@ -1,5 +1,5 @@
 // Copyright (c) 2010 Satoshi Nakamoto
-// Copyright (c) 2009-2015 The Bitcoin Core developers
+// Copyright (c) 2009-2016 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -1026,12 +1026,14 @@ public:
     bool operator()(const CKeyID &keyID) {
         CPubKey pubkey;
         if (pwalletMain && pwalletMain->GetPubKey(keyID, pubkey)) {
-            CScript basescript;
-            basescript << ToByteVector(pubkey) << OP_CHECKSIG;
-            CScript witscript = GetScriptForWitness(basescript);
-            pwalletMain->AddCScript(witscript);
-            result = CScriptID(witscript);
-            return true;
+            if (pubkey.IsCompressed()) {
+                CScript basescript;
+                basescript << ToByteVector(pubkey) << OP_CHECKSIG;
+                CScript witscript = GetScriptForWitness(basescript);
+                pwalletMain->AddCScript(witscript);
+                result = CScriptID(witscript);
+                return true;
+            }
         }
         return false;
     }
@@ -1045,10 +1047,12 @@ public:
                 result = scriptID;
                 return true;
             }
-            CScript witscript = GetScriptForWitness(subscript);
-            pwalletMain->AddCScript(witscript);
-            result = CScriptID(witscript);
-            return true;
+            if (IsMine(*pwalletMain, subscript, SIGVERSION_WITNESS_V0)) {
+                CScript witscript = GetScriptForWitness(subscript);
+                pwalletMain->AddCScript(witscript);
+                result = CScriptID(witscript);
+                return true;
+            }
         }
         return false;
     }
@@ -1090,7 +1094,7 @@ UniValue addwitnessaddress(const UniValue& params, bool fHelp)
     CTxDestination dest = address.Get();
     bool ret = boost::apply_visitor(w, dest);
     if (!ret) {
-        throw JSONRPCError(RPC_WALLET_ERROR, "Public key or redeemscript not known to wallet");
+        throw JSONRPCError(RPC_WALLET_ERROR, "Public key or redeemscript not known to wallet, or the key is uncompressed");
     }
 
     pwalletMain->SetAddressBook(w.result, "", "receive");

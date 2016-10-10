@@ -29,7 +29,8 @@ public:
     virtual bool AddKey(const CKey &key);
 
     //! Check whether a key corresponding to a given address is present in the store.
-    virtual bool HaveKey(const CKeyID &address) const =0;
+    // Note that HaveKey can return true even if GetKey fails (because the key is encrypted, for example).
+    virtual bool HaveKey(const CKeyID &address, bool needcompressed = false) const =0;
     virtual bool GetKey(const CKeyID &address, CKey& keyOut) const =0;
     virtual void GetKeys(std::set<CKeyID> &setAddress) const =0;
     virtual bool GetPubKey(const CKeyID &address, CPubKey& vchPubKeyOut) const =0;
@@ -63,14 +64,16 @@ protected:
 public:
     bool AddKeyPubKey(const CKey& key, const CPubKey &pubkey);
     bool GetPubKey(const CKeyID &address, CPubKey& vchPubKeyOut) const;
-    bool HaveKey(const CKeyID &address) const
+    bool HaveKey(const CKeyID &address, bool needcompressed = false) const
     {
-        bool result;
         {
             LOCK(cs_KeyStore);
-            result = (mapKeys.count(address) > 0);
+            auto it = mapKeys.find(address);
+            if (it != mapKeys.end()) {
+                return (!needcompressed || it->second.IsCompressed());
+            }
         }
-        return result;
+        return false;
     }
     void GetKeys(std::set<CKeyID> &setAddress) const
     {

@@ -9,7 +9,8 @@
 
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import *
-from test_framework.mininode import sha256, ripemd160
+from test_framework.mininode import sha256, ripemd160, CTransaction, CTxIn, COutPoint, CTxOut
+from test_framework.script import CScript, OP_HASH160, OP_CHECKSIG, OP_0, hash160, OP_EQUAL
 
 NODE_0 = 0
 NODE_1 = 1
@@ -241,6 +242,107 @@ class SegWitTest(BitcoinTestFramework):
         except JSONRPCException:
             # This is an acceptable outcome
             pass
+
+        print("Verify behaviour of addwitnessaddress and listunspent")
+        # Import a compressed key and an uncompressed key, generate some multisig addresses
+        self.nodes[0].importprivkey("92e6XLo5jVAVwrQKPNTs93oQco8f8sDNBcpv73Dsrs397fQtFQn")
+        uncompressed_address = ["mvozP4UwyGD2mGZU4D2eMvMLPB9WkMmMQu"]
+        self.nodes[0].importprivkey("cSEjNvNPtXJvm73v9jjaJXMqEzcoKidaVs8VPeoqV5rSpJTK54Rt")
+        compressed_address = ["mhc6haiMVa5Drgdref1GLMpwQ7a3BNpV56"]
+        assert (self.nodes[0].validateaddress(uncompressed_address[0])['iscompressed'] == False)
+        assert (self.nodes[0].validateaddress(compressed_address[0])['iscompressed'] == True)
+        uncompressed_address.append(self.nodes[0].addmultisigaddress(1, [uncompressed_address[0]]))
+        uncompressed_address.append(self.nodes[0].addmultisigaddress(2, [uncompressed_address[0], compressed_address[0]]))
+        uncompressed_address.append(self.nodes[0].addmultisigaddress(2, [compressed_address[0], uncompressed_address[0]]))
+        uncompressed_address.append(self.nodes[0].addmultisigaddress(2, [uncompressed_address[0], uncompressed_address[0]]))
+        uncompressed_address.append(self.nodes[0].addmultisigaddress(3, [uncompressed_address[0], compressed_address[0], compressed_address[0]]))
+        uncompressed_address.append(self.nodes[0].addmultisigaddress(3, [compressed_address[0], uncompressed_address[0], compressed_address[0]]))
+        uncompressed_address.append(self.nodes[0].addmultisigaddress(3, [compressed_address[0], compressed_address[0], uncompressed_address[0]]))
+        uncompressed_address.append(self.nodes[0].addmultisigaddress(3, [uncompressed_address[0], uncompressed_address[0], uncompressed_address[0]]))
+        compressed_address.append(self.nodes[0].addmultisigaddress(1, [compressed_address[0]]))
+        compressed_address.append(self.nodes[0].addmultisigaddress(2, [compressed_address[0], compressed_address[0]]))
+        compressed_address.append(self.nodes[0].addmultisigaddress(3, [compressed_address[0], compressed_address[0], compressed_address[0]]))
+        unknown_address = ["mtKKyoHabkk6e4ppT7NaM7THqPUt7AzPrT", "2NDP3jLWAFT8NDAiUa9qiE6oBt2awmMq7Dx"]
+
+        seen_before_add_script = []     # These outputs should be seen even before addwitnessaddress
+        seen_after_add_script = []      # These outputs should be seen after addwitnessaddress
+        unseen_script = []              # These outputs should never be seen
+
+        for i in compressed_address:
+            v = self.nodes[0].validateaddress(i)
+            if (v['isscript']):
+                p2wsh = CScript([OP_0, sha256(hex_str_to_bytes(v['hex']))])
+                p2sh_p2wsh = CScript([OP_HASH160, hash160(p2wsh), OP_EQUAL])
+                seen_before_add_script.append(CScript(hex_str_to_bytes(v['scriptPubKey']))) # normal P2SH with compressed keys should always be seen
+                seen_after_add_script.append(p2wsh) # Bare P2WSH derived from a known P2SH with compressed keys should be seen after addwitnessaddress (protection against premature matching)
+                seen_after_add_script.append(p2sh_p2wsh) # P2SH-P2WSH should be seen after addwitnessaddress
+            else:
+                pubkey = hex_str_to_bytes(v['pubkey'])
+                p2wpkh = CScript([OP_0, hash160(pubkey)])
+                p2sh_p2wpkh = CScript([OP_HASH160, hash160(p2wpkh), OP_EQUAL])
+                seen_before_add_script.append(CScript(hex_str_to_bytes(v['scriptPubKey']))) # normal P2PKH should always be seen
+                seen_before_add_script.append(CScript([pubkey, OP_CHECKSIG])) # normal P2PK should always be seen
+                seen_after_add_script.append(CScript(p2wpkh)) # Bare P2WPKH of a known compressed key should be seen after addwitnessaddress (protection against premature matching)
+                seen_after_add_script.append(p2sh_p2wpkh) # P2SH-P2WPKH should be seen after addwitnessaddress
+
+        for i in uncompressed_address:
+            v = self.nodes[0].validateaddress(i)
+            if (v['isscript']):
+                p2wsh = CScript([OP_0, sha256(hex_str_to_bytes(v['hex']))])
+                p2sh_p2wsh = CScript([OP_HASH160, hash160(p2wsh), OP_EQUAL])
+                seen_before_add_script.append(CScript(hex_str_to_bytes(v['scriptPubKey']))) # normal P2SH with uncompressed keys should always be seen
+                unseen_script.append(p2wsh)  # Bare P2WSH derived from a known P2SH with uncompressed keys should never be seen
+                unseen_script.append(p2sh_p2wsh) # P2SH-P2WSH with uncompressed keys should never be seen
+            else:
+                pubkey = hex_str_to_bytes(v['pubkey'])
+                p2wpkh = CScript([OP_0, hash160(pubkey)])
+                p2sh_p2wpkh = CScript([OP_HASH160, hash160(p2wpkh), OP_EQUAL])
+                seen_before_add_script.append(CScript(hex_str_to_bytes(v['scriptPubKey'])))
+                seen_before_add_script.append(CScript([pubkey, OP_CHECKSIG]))
+                unseen_script.append(p2wpkh)  # Bare P2WPKH of a known uncompressed key should never be seen
+                unseen_script.append(p2sh_p2wpkh) # P2SH-P2WPKH with uncompressed keys should never be seen
+
+        self.mine_and_test_listunspent(seen_before_add_script, True)
+        self.mine_and_test_listunspent(seen_after_add_script + unseen_script, False)
+
+        # addwitnessaddress should refuse to return a witness address if an uncompressed key is used or the address is
+        # not in the wallet
+        for i in uncompressed_address + unknown_address:
+            try:
+                self.nodes[0].addwitnessaddress(i)
+            except JSONRPCException as exp:
+                assert_equal(exp.error["message"], "Public key or redeemscript not known to wallet, or the key is uncompressed")
+            else:
+                assert(False)
+
+        for i in compressed_address:
+            witaddress = self.nodes[0].addwitnessaddress(i)
+            # addwitnessaddress should return the same address if it is a known P2SH-P2WSH address
+            assert_equal(witaddress, self.nodes[0].addwitnessaddress(witaddress))
+
+        self.mine_and_test_listunspent(seen_before_add_script + seen_after_add_script, True)
+        self.mine_and_test_listunspent(unseen_script, False)
+
+    def mine_and_test_listunspent(self, script_list, seen):
+        utxo = find_unspent(self.nodes[0], 50)
+        tx = CTransaction()
+        tx.vin.append(CTxIn(COutPoint(int('0x'+utxo['txid'],0), utxo['vout'])))
+        for i in script_list:
+            tx.vout.append(CTxOut(0, i))
+        tx.rehash()
+        signresults = self.nodes[0].signrawtransaction(bytes_to_hex_str(tx.serialize_without_witness()))['hex']
+        txid = self.nodes[0].sendrawtransaction(signresults, True)
+        self.nodes[0].generate(1)
+        sync_blocks(self.nodes)
+        count = 0
+        for i in self.nodes[0].listunspent():
+            if (i['txid'] == txid):
+                count += 1
+        if (seen):
+            assert_equal(count, len(script_list))
+        else:
+            assert_equal(count, 0)
+
 
 if __name__ == '__main__':
     SegWitTest().main()

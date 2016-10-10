@@ -17,25 +17,25 @@ using namespace std;
 
 typedef vector<unsigned char> valtype;
 
-unsigned int HaveKeys(const vector<valtype>& pubkeys, const CKeyStore& keystore)
+static unsigned int HaveKeys(const vector<valtype>& pubkeys, const CKeyStore& keystore, bool needcompressed)
 {
     unsigned int nResult = 0;
     BOOST_FOREACH(const valtype& pubkey, pubkeys)
     {
         CKeyID keyID = CPubKey(pubkey).GetID();
-        if (keystore.HaveKey(keyID))
+        if (keystore.HaveKey(keyID, needcompressed))
             ++nResult;
     }
     return nResult;
 }
 
-isminetype IsMine(const CKeyStore &keystore, const CTxDestination& dest)
+isminetype IsMine(const CKeyStore &keystore, const CTxDestination& dest, SigVersion sigversion)
 {
     CScript script = GetScriptForDestination(dest);
-    return IsMine(keystore, script);
+    return IsMine(keystore, script, sigversion);
 }
 
-isminetype IsMine(const CKeyStore &keystore, const CScript& scriptPubKey)
+isminetype IsMine(const CKeyStore &keystore, const CScript& scriptPubKey, SigVersion sigversion)
 {
     vector<valtype> vSolutions;
     txnouttype whichType;
@@ -53,13 +53,21 @@ isminetype IsMine(const CKeyStore &keystore, const CScript& scriptPubKey)
         break;
     case TX_PUBKEY:
         keyID = CPubKey(vSolutions[0]).GetID();
-        if (keystore.HaveKey(keyID))
+        if (keystore.HaveKey(keyID, sigversion != SIGVERSION_BASE))
             return ISMINE_SPENDABLE;
         break;
-    case TX_PUBKEYHASH:
     case TX_WITNESS_V0_KEYHASH:
+        if (!keystore.HaveCScript(CScriptID(CScript() << OP_0 << vSolutions[0]))) {
+            // We do not support bare witness outputs unless the P2SH version of it would be
+            // acceptable as well. This protects against matching before segwit activates or
+            // uncompressed pubkey matching. This also applies to the P2WSH case.
+            break;
+        }
+        sigversion = SIGVERSION_WITNESS_V0;
+        // Fall through: pretend as if we had seen a P2PKH inside a P2WSH.
+    case TX_PUBKEYHASH:
         keyID = CKeyID(uint160(vSolutions[0]));
-        if (keystore.HaveKey(keyID))
+        if (keystore.HaveKey(keyID, sigversion != SIGVERSION_BASE))
             return ISMINE_SPENDABLE;
         break;
     case TX_SCRIPTHASH:
@@ -75,12 +83,15 @@ isminetype IsMine(const CKeyStore &keystore, const CScript& scriptPubKey)
     }
     case TX_WITNESS_V0_SCRIPTHASH:
     {
+        if (!keystore.HaveCScript(CScriptID(CScript() << OP_0 << vSolutions[0]))) {
+            break;
+        }
         uint160 hash;
         CRIPEMD160().Write(&vSolutions[0][0], vSolutions[0].size()).Finalize(hash.begin());
         CScriptID scriptID = CScriptID(hash);
         CScript subscript;
         if (keystore.GetCScript(scriptID, subscript)) {
-            isminetype ret = IsMine(keystore, subscript);
+            isminetype ret = IsMine(keystore, subscript, SIGVERSION_WITNESS_V0);
             if (ret == ISMINE_SPENDABLE)
                 return ret;
         }
@@ -95,7 +106,7 @@ isminetype IsMine(const CKeyStore &keystore, const CScript& scriptPubKey)
         // them) enable spend-out-from-under-you attacks, especially
         // in shared-wallet situations.
         vector<valtype> keys(vSolutions.begin()+1, vSolutions.begin()+vSolutions.size()-1);
-        if (HaveKeys(keys, keystore) == keys.size())
+        if (HaveKeys(keys, keystore, sigversion != SIGVERSION_BASE) == keys.size())
             return ISMINE_SPENDABLE;
         break;
     }
