@@ -1041,18 +1041,20 @@ public:
     bool operator()(const CScriptID &scriptID) {
         CScript subscript;
         if (pwalletMain && pwalletMain->GetCScript(scriptID, subscript)) {
+            isminetype typ;
+            typ = IsMine(*pwalletMain, subscript, SIGVERSION_WITNESS_V0);
+            if (typ != ISMINE_SPENDABLE && typ != ISMINE_WATCH_SOLVABLE)
+                return false;
             int witnessversion;
             std::vector<unsigned char> witprog;
             if (subscript.IsWitnessProgram(witnessversion, witprog)) {
                 result = scriptID;
                 return true;
             }
-            if (IsMine(*pwalletMain, subscript, SIGVERSION_WITNESS_V0)) {
-                CScript witscript = GetScriptForWitness(subscript);
-                pwalletMain->AddCScript(witscript);
-                result = CScriptID(witscript);
-                return true;
-            }
+            CScript witscript = GetScriptForWitness(subscript);
+            pwalletMain->AddCScript(witscript);
+            result = CScriptID(witscript);
+            return true;
         }
         return false;
     }

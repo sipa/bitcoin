@@ -53,6 +53,8 @@ isminetype IsMine(const CKeyStore &keystore, const CScript& scriptPubKey, SigVer
         break;
     case TX_PUBKEY:
         keyID = CPubKey(vSolutions[0]).GetID();
+        if (sigversion != SIGVERSION_BASE && vSolutions[0].size() != 33)
+            return ISMINE_NO;
         if (keystore.HaveKey(keyID, sigversion != SIGVERSION_BASE))
             return ISMINE_SPENDABLE;
         break;
@@ -67,6 +69,11 @@ isminetype IsMine(const CKeyStore &keystore, const CScript& scriptPubKey, SigVer
         // Fall through: pretend as if we had seen a P2PKH inside a P2WSH.
     case TX_PUBKEYHASH:
         keyID = CKeyID(uint160(vSolutions[0]));
+        if (sigversion != SIGVERSION_BASE) {
+            CPubKey pubkey;
+            if (keystore.GetPubKey(keyID, pubkey) && !pubkey.IsCompressed())
+                return ISMINE_NO;
+        }
         if (keystore.HaveKey(keyID, sigversion != SIGVERSION_BASE))
             return ISMINE_SPENDABLE;
         break;
@@ -76,7 +83,7 @@ isminetype IsMine(const CKeyStore &keystore, const CScript& scriptPubKey, SigVer
         CScript subscript;
         if (keystore.GetCScript(scriptID, subscript)) {
             isminetype ret = IsMine(keystore, subscript);
-            if (ret == ISMINE_SPENDABLE)
+            if (ret == ISMINE_SPENDABLE || ret == ISMINE_NO)
                 return ret;
         }
         break;
@@ -92,7 +99,7 @@ isminetype IsMine(const CKeyStore &keystore, const CScript& scriptPubKey, SigVer
         CScript subscript;
         if (keystore.GetCScript(scriptID, subscript)) {
             isminetype ret = IsMine(keystore, subscript, SIGVERSION_WITNESS_V0);
-            if (ret == ISMINE_SPENDABLE)
+            if (ret == ISMINE_SPENDABLE || ret == ISMINE_NO)
                 return ret;
         }
         break;
@@ -106,6 +113,12 @@ isminetype IsMine(const CKeyStore &keystore, const CScript& scriptPubKey, SigVer
         // them) enable spend-out-from-under-you attacks, especially
         // in shared-wallet situations.
         vector<valtype> keys(vSolutions.begin()+1, vSolutions.begin()+vSolutions.size()-1);
+        if (sigversion != SIGVERSION_BASE) {
+            for (size_t i = 0; i < keys.size(); i++) {
+                if (keys[i].size() != 33)
+                    return ISMINE_NO;
+            }
+        }
         if (HaveKeys(keys, keystore, sigversion != SIGVERSION_BASE) == keys.size())
             return ISMINE_SPENDABLE;
         break;

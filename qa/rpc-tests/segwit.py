@@ -10,7 +10,7 @@
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import *
 from test_framework.mininode import sha256, ripemd160, CTransaction, CTxIn, COutPoint, CTxOut
-from test_framework.script import CScript, OP_HASH160, OP_CHECKSIG, OP_0, hash160, OP_EQUAL
+from test_framework.script import CScript, OP_HASH160, OP_CHECKSIG, OP_0, hash160, OP_EQUAL, OP_DUP, OP_EQUALVERIFY
 
 NODE_0 = 0
 NODE_1 = 1
@@ -246,68 +246,205 @@ class SegWitTest(BitcoinTestFramework):
         print("Verify behaviour of addwitnessaddress and listunspent")
         # Import a compressed key and an uncompressed key, generate some multisig addresses
         self.nodes[0].importprivkey("92e6XLo5jVAVwrQKPNTs93oQco8f8sDNBcpv73Dsrs397fQtFQn")
-        uncompressed_address = ["mvozP4UwyGD2mGZU4D2eMvMLPB9WkMmMQu"]
+        uncompressed_spendable_address = ["mvozP4UwyGD2mGZU4D2eMvMLPB9WkMmMQu"]
         self.nodes[0].importprivkey("cSEjNvNPtXJvm73v9jjaJXMqEzcoKidaVs8VPeoqV5rSpJTK54Rt")
-        compressed_address = ["mhc6haiMVa5Drgdref1GLMpwQ7a3BNpV56"]
-        assert (self.nodes[0].validateaddress(uncompressed_address[0])['iscompressed'] == False)
-        assert (self.nodes[0].validateaddress(compressed_address[0])['iscompressed'] == True)
-        uncompressed_address.append(self.nodes[0].addmultisigaddress(1, [uncompressed_address[0]]))
-        uncompressed_address.append(self.nodes[0].addmultisigaddress(2, [uncompressed_address[0], compressed_address[0]]))
-        uncompressed_address.append(self.nodes[0].addmultisigaddress(2, [compressed_address[0], uncompressed_address[0]]))
-        uncompressed_address.append(self.nodes[0].addmultisigaddress(2, [uncompressed_address[0], uncompressed_address[0]]))
-        uncompressed_address.append(self.nodes[0].addmultisigaddress(3, [uncompressed_address[0], compressed_address[0], compressed_address[0]]))
-        uncompressed_address.append(self.nodes[0].addmultisigaddress(3, [compressed_address[0], uncompressed_address[0], compressed_address[0]]))
-        uncompressed_address.append(self.nodes[0].addmultisigaddress(3, [compressed_address[0], compressed_address[0], uncompressed_address[0]]))
-        uncompressed_address.append(self.nodes[0].addmultisigaddress(3, [uncompressed_address[0], uncompressed_address[0], uncompressed_address[0]]))
-        compressed_address.append(self.nodes[0].addmultisigaddress(1, [compressed_address[0]]))
-        compressed_address.append(self.nodes[0].addmultisigaddress(2, [compressed_address[0], compressed_address[0]]))
-        compressed_address.append(self.nodes[0].addmultisigaddress(3, [compressed_address[0], compressed_address[0], compressed_address[0]]))
+        compressed_spendable_address = ["mhc6haiMVa5Drgdref1GLMpwQ7a3BNpV56"]
+        assert ((self.nodes[0].validateaddress(uncompressed_spendable_address[0])['iscompressed'] == False))
+        assert ((self.nodes[0].validateaddress(compressed_spendable_address[0])['iscompressed'] == True))
+
+        self.nodes[0].importpubkey("033A1F833F58D60E725A3BB3EA28D0ED4C0EE955130044DAC7DC4E3A7380640A9C")
+        compressed_solvable_address = ["mmthm53DWuHt1Pn3L2188B82V9cbaYS3Jh"]
+        self.nodes[0].importpubkey("04AD299EC23EEE72765FCF3D072797E01420C6DB0D924B13E905F0DC87630257413CDC5B62CCC15C10F20D3CE7B11CD81A164A71DDFDEE6229D48B4E9240BBD8E1")
+        uncompressed_solvable_address = ["motjpmSATrH5AVpinJd3VtcK34Mh3cKyfv"]
+
+        uncompressed_spendable_address.append(self.nodes[0].addmultisigaddress(2, [uncompressed_spendable_address[0], compressed_spendable_address[0]]))
+        uncompressed_spendable_address.append(self.nodes[0].addmultisigaddress(2, [compressed_spendable_address[0], uncompressed_spendable_address[0]]))
+        uncompressed_spendable_address.append(self.nodes[0].addmultisigaddress(2, [uncompressed_spendable_address[0], uncompressed_spendable_address[0]]))
+        uncompressed_spendable_address.append(self.nodes[0].addmultisigaddress(3, [uncompressed_spendable_address[0], compressed_spendable_address[0], compressed_spendable_address[0]]))
+        uncompressed_spendable_address.append(self.nodes[0].addmultisigaddress(3, [compressed_spendable_address[0], uncompressed_spendable_address[0], compressed_spendable_address[0]]))
+        uncompressed_spendable_address.append(self.nodes[0].addmultisigaddress(3, [compressed_spendable_address[0], compressed_spendable_address[0], uncompressed_spendable_address[0]]))
+        uncompressed_spendable_address.append(self.nodes[0].addmultisigaddress(3, [uncompressed_spendable_address[0], uncompressed_spendable_address[0], uncompressed_spendable_address[0]]))
+        compressed_spendable_address.append(self.nodes[0].addmultisigaddress(2, [compressed_spendable_address[0], compressed_spendable_address[0]]))
+        compressed_spendable_address.append(self.nodes[0].addmultisigaddress(3, [compressed_spendable_address[0], compressed_spendable_address[0], compressed_spendable_address[0]]))
+        uncompressed_solvable_address.append(self.nodes[0].addmultisigaddress(3, [compressed_spendable_address[0], compressed_solvable_address[0], uncompressed_solvable_address[0]]))
+        compressed_solvable_address.append(self.nodes[0].addmultisigaddress(2, [compressed_spendable_address[0], compressed_solvable_address[0]]))
+        uncompressed_solvable_address.append(self.nodes[0].addmultisigaddress(2, [compressed_solvable_address[0], uncompressed_solvable_address[0]]))
         unknown_address = ["mtKKyoHabkk6e4ppT7NaM7THqPUt7AzPrT", "2NDP3jLWAFT8NDAiUa9qiE6oBt2awmMq7Dx"]
 
-        seen_before_add_script = []     # These outputs should be seen even before addwitnessaddress
-        seen_after_add_script = []      # These outputs should be seen after addwitnessaddress
-        unseen_script = []              # These outputs should never be seen
+        spendable_anytime = []                      # These outputs should be seen anytime after importprivkey and addmultisigaddress
+        spendable_after_importaddress = []          # These outputs should be seen after importaddress
+        watchonly_after_importaddress=[]            # These outputs should be seen after importaddress but not spendable
+        spendable_after_addwitnessaddress = []      # These outputs should be seen after addwitnessaddress
+        watchonly_anytime = []                      # These outputs should be watchonly after importpubkey
+        unseen_anytime = []                         # These outputs should never be seen
 
-        for i in compressed_address:
+        for i in compressed_spendable_address:
             v = self.nodes[0].validateaddress(i)
             if (v['isscript']):
-                p2wsh = CScript([OP_0, sha256(hex_str_to_bytes(v['hex']))])
+                bare = hex_str_to_bytes(v['hex'])
+                p2wsh = CScript([OP_0, sha256(bare)])
                 p2sh_p2wsh = CScript([OP_HASH160, hash160(p2wsh), OP_EQUAL])
-                seen_before_add_script.append(CScript(hex_str_to_bytes(v['scriptPubKey']))) # normal P2SH with compressed keys should always be seen
-                seen_after_add_script.append(p2wsh) # Bare P2WSH derived from a known P2SH with compressed keys should be seen after addwitnessaddress (protection against premature matching)
-                seen_after_add_script.append(p2sh_p2wsh) # P2SH-P2WSH should be seen after addwitnessaddress
+                spendable_anytime.append(CScript(bare)) # bare multisig with compressed keys should always be spendable
+                spendable_anytime.append(CScript(hex_str_to_bytes(v['scriptPubKey']))) # normal P2SH with compressed keys should always be spendable
+                spendable_after_importaddress.append(p2wsh)  # P2WSH is spendable after direct importaddress
+                spendable_after_importaddress.append(p2sh_p2wsh) # P2WSH is spendable after direct importaddress
             else:
                 pubkey = hex_str_to_bytes(v['pubkey'])
                 p2wpkh = CScript([OP_0, hash160(pubkey)])
                 p2sh_p2wpkh = CScript([OP_HASH160, hash160(p2wpkh), OP_EQUAL])
-                seen_before_add_script.append(CScript(hex_str_to_bytes(v['scriptPubKey']))) # normal P2PKH should always be seen
-                seen_before_add_script.append(CScript([pubkey, OP_CHECKSIG])) # normal P2PK should always be seen
-                seen_after_add_script.append(CScript(p2wpkh)) # Bare P2WPKH of a known compressed key should be seen after addwitnessaddress (protection against premature matching)
-                seen_after_add_script.append(p2sh_p2wpkh) # P2SH-P2WPKH should be seen after addwitnessaddress
+                p2pk = CScript([pubkey, OP_CHECKSIG])
+                p2pkh = CScript(hex_str_to_bytes(v['scriptPubKey']))
+                p2sh_p2pk = CScript([OP_HASH160, hash160(p2pk), OP_EQUAL])
+                p2sh_p2pkh = CScript([OP_HASH160, hash160(p2pkh), OP_EQUAL])
+                p2wsh_p2pk = CScript([OP_0, sha256(p2pk)])
+                p2wsh_p2pkh = CScript([OP_0, sha256(p2pkh)])
+                p2sh_p2wsh_p2pk = CScript([OP_HASH160, hash160(p2wsh_p2pk), OP_EQUAL])
+                p2sh_p2wsh_p2pkh = CScript([OP_HASH160, hash160(p2wsh_p2pkh), OP_EQUAL])
+                spendable_anytime.append(p2pkh) # normal P2PKH should always be seen
+                spendable_anytime.append(p2pk) # normal P2PK should always be seen
+                spendable_after_importaddress.append(p2wpkh)  # All scripts with compressed key should be spendable
+                spendable_after_importaddress.append(p2sh_p2wpkh)
+                spendable_after_importaddress.append(p2sh_p2pk)
+                spendable_after_importaddress.append(p2sh_p2pkh)
+                spendable_after_importaddress.append(p2wsh_p2pk)
+                spendable_after_importaddress.append(p2wsh_p2pkh)
+                spendable_after_importaddress.append(p2sh_p2wsh_p2pk)
+                spendable_after_importaddress.append(p2sh_p2wsh_p2pkh)
 
-        for i in uncompressed_address:
+        for i in uncompressed_spendable_address:
             v = self.nodes[0].validateaddress(i)
             if (v['isscript']):
-                p2wsh = CScript([OP_0, sha256(hex_str_to_bytes(v['hex']))])
+                bare = hex_str_to_bytes(v['hex'])
+                p2wsh = CScript([OP_0, sha256(bare)])
                 p2sh_p2wsh = CScript([OP_HASH160, hash160(p2wsh), OP_EQUAL])
-                seen_before_add_script.append(CScript(hex_str_to_bytes(v['scriptPubKey']))) # normal P2SH with uncompressed keys should always be seen
-                unseen_script.append(p2wsh)  # Bare P2WSH derived from a known P2SH with uncompressed keys should never be seen
-                unseen_script.append(p2sh_p2wsh) # P2SH-P2WSH with uncompressed keys should never be seen
+                spendable_anytime.append(CScript(bare)) # bare multisig with uncompressed keys should always be spendable
+                spendable_anytime.append(CScript(hex_str_to_bytes(v['scriptPubKey']))) # normal P2SH with uncompressed keys should always be spendable
+                unseen_anytime.append(p2wsh)  # Bare P2WSH derived from a known P2SH with uncompressed keys should never be seen
+                unseen_anytime.append(p2sh_p2wsh) # P2SH-P2WSH with uncompressed keys should never be seen
             else:
                 pubkey = hex_str_to_bytes(v['pubkey'])
                 p2wpkh = CScript([OP_0, hash160(pubkey)])
                 p2sh_p2wpkh = CScript([OP_HASH160, hash160(p2wpkh), OP_EQUAL])
-                seen_before_add_script.append(CScript(hex_str_to_bytes(v['scriptPubKey'])))
-                seen_before_add_script.append(CScript([pubkey, OP_CHECKSIG]))
-                unseen_script.append(p2wpkh)  # Bare P2WPKH of a known uncompressed key should never be seen
-                unseen_script.append(p2sh_p2wpkh) # P2SH-P2WPKH with uncompressed keys should never be seen
+                p2pk = CScript([pubkey, OP_CHECKSIG])
+                p2pkh = CScript(hex_str_to_bytes(v['scriptPubKey']))
+                p2sh_p2pk = CScript([OP_HASH160, hash160(p2pk), OP_EQUAL])
+                p2sh_p2pkh = CScript([OP_HASH160, hash160(p2pkh), OP_EQUAL])
+                p2wsh_p2pk = CScript([OP_0, sha256(p2pk)])
+                p2wsh_p2pkh = CScript([OP_0, sha256(p2pkh)])
+                p2sh_p2wsh_p2pk = CScript([OP_HASH160, hash160(p2wsh_p2pk), OP_EQUAL])
+                p2sh_p2wsh_p2pkh = CScript([OP_HASH160, hash160(p2wsh_p2pkh), OP_EQUAL])
+                spendable_anytime.append(p2pkh) # Pre-segwit uncompressed key should always be spendable
+                spendable_anytime.append(p2pk)
+                spendable_after_importaddress.append(p2sh_p2pk)
+                spendable_after_importaddress.append(p2sh_p2pkh)
+                unseen_anytime.append(p2wpkh)  # Segwit uncompressed key should never be seen
+                unseen_anytime.append(p2sh_p2wpkh)
+                unseen_anytime.append(p2wsh_p2pk)
+                unseen_anytime.append(p2wsh_p2pkh)
+                unseen_anytime.append(p2sh_p2wsh_p2pk)
+                unseen_anytime.append(p2sh_p2wsh_p2pkh)
 
-        self.mine_and_test_listunspent(seen_before_add_script, True)
-        self.mine_and_test_listunspent(seen_after_add_script + unseen_script, False)
+        for i in compressed_solvable_address:
+            v = self.nodes[0].validateaddress(i)
+            if (v['isscript']):
+                bare = hex_str_to_bytes(v['hex'])
+                p2wsh = CScript([OP_0, sha256(bare)])
+                p2sh_p2wsh = CScript([OP_HASH160, hash160(p2wsh), OP_EQUAL])
+                watchonly_after_importaddress.append(CScript(bare)) # Compressed keys multisig should be seen after importaddress
+                watchonly_after_importaddress.append(CScript(hex_str_to_bytes(v['scriptPubKey'])))
+                watchonly_after_importaddress.append(p2wsh)
+                watchonly_after_importaddress.append(p2sh_p2wsh)
+            else:
+                pubkey = hex_str_to_bytes(v['pubkey'])
+                p2wpkh = CScript([OP_0, hash160(pubkey)])
+                p2sh_p2wpkh = CScript([OP_HASH160, hash160(p2wpkh), OP_EQUAL])
+                p2pk = CScript([pubkey, OP_CHECKSIG])
+                p2pkh = CScript(hex_str_to_bytes(v['scriptPubKey']))
+                p2sh_p2pk = CScript([OP_HASH160, hash160(p2pk), OP_EQUAL])
+                p2sh_p2pkh = CScript([OP_HASH160, hash160(p2pkh), OP_EQUAL])
+                p2wsh_p2pk = CScript([OP_0, sha256(p2pk)])
+                p2wsh_p2pkh = CScript([OP_0, sha256(p2pkh)])
+                p2sh_p2wsh_p2pk = CScript([OP_HASH160, hash160(p2wsh_p2pk), OP_EQUAL])
+                p2sh_p2wsh_p2pkh = CScript([OP_HASH160, hash160(p2wsh_p2pkh), OP_EQUAL])
+                watchonly_anytime.append(p2pkh) # P2PK and P2PKH should always be seen after importpubkey
+                watchonly_anytime.append(p2pk)
+                watchonly_after_importaddress.append(p2wpkh)  # P2SH or P2WSH compressed keys should be seen after importaddress
+                watchonly_after_importaddress.append(p2sh_p2wpkh)
+                watchonly_after_importaddress.append(p2sh_p2pk)
+                watchonly_after_importaddress.append(p2sh_p2pkh)
+                watchonly_after_importaddress.append(p2wsh_p2pk)
+                watchonly_after_importaddress.append(p2wsh_p2pkh)
+                watchonly_after_importaddress.append(p2sh_p2wsh_p2pk)
+                watchonly_after_importaddress.append(p2sh_p2wsh_p2pkh)
+
+        for i in uncompressed_solvable_address:
+            v = self.nodes[0].validateaddress(i)
+            if (v['isscript']):
+                bare = hex_str_to_bytes(v['hex'])
+                p2wsh = CScript([OP_0, sha256(bare)])
+                p2sh_p2wsh = CScript([OP_HASH160, hash160(p2wsh), OP_EQUAL])
+                watchonly_after_importaddress.append(CScript(bare)) # Pre-segwit uncompressed keys multisig should be seen after importaddress
+                watchonly_after_importaddress.append(CScript(hex_str_to_bytes(v['scriptPubKey'])))
+                unseen_anytime.append(p2wsh)  # P2WSH uncompressed keys multisig should never be seen
+                unseen_anytime.append(p2sh_p2wsh)
+            else:
+                pubkey = hex_str_to_bytes(v['pubkey'])
+                p2wpkh = CScript([OP_0, hash160(pubkey)])
+                p2sh_p2wpkh = CScript([OP_HASH160, hash160(p2wpkh), OP_EQUAL])
+                p2pk = CScript([pubkey, OP_CHECKSIG])
+                p2pkh = CScript(hex_str_to_bytes(v['scriptPubKey']))
+                p2sh_p2pk = CScript([OP_HASH160, hash160(p2pk), OP_EQUAL])
+                p2sh_p2pkh = CScript([OP_HASH160, hash160(p2pkh), OP_EQUAL])
+                p2wsh_p2pk = CScript([OP_0, sha256(p2pk)])
+                p2wsh_p2pkh = CScript([OP_0, sha256(p2pkh)])
+                p2sh_p2wsh_p2pk = CScript([OP_HASH160, hash160(p2wsh_p2pk), OP_EQUAL])
+                p2sh_p2wsh_p2pkh = CScript([OP_HASH160, hash160(p2wsh_p2pkh), OP_EQUAL])
+                watchonly_anytime.append(p2pkh) # P2PK and P2PKH should always be seen after importpubkey
+                watchonly_anytime.append(p2pk)
+                watchonly_after_importaddress.append(p2sh_p2pk) # P2SH should always be seen after importaddress
+                watchonly_after_importaddress.append(p2sh_p2pkh)
+                unseen_anytime.append(p2wpkh)  # P2WSH uncompressed keys single sig should never be seen
+                unseen_anytime.append(p2sh_p2wpkh)
+                unseen_anytime.append(p2wsh_p2pk)
+                unseen_anytime.append(p2wsh_p2pkh)
+                unseen_anytime.append(p2sh_p2wsh_p2pk)
+                unseen_anytime.append(p2sh_p2wsh_p2pkh)
+
+        self.mine_and_test_listunspent(spendable_anytime, 2)
+        self.mine_and_test_listunspent(watchonly_anytime, 1)
+        self.mine_and_test_listunspent(spendable_after_importaddress + spendable_after_addwitnessaddress + watchonly_after_importaddress + unseen_anytime, 0)
+
+        importlist = []
+        for i in compressed_spendable_address + uncompressed_spendable_address + compressed_solvable_address + uncompressed_solvable_address:
+            v = self.nodes[0].validateaddress(i)
+            if (v['isscript']):
+                bare = hex_str_to_bytes(v['hex'])
+                importlist.append(bytes_to_hex_str(bare))
+                importlist.append(bytes_to_hex_str(CScript([OP_0, sha256(bare)])))
+            else:
+                pubkey = hex_str_to_bytes(v['pubkey'])
+                p2pk = CScript([pubkey, OP_CHECKSIG])
+                p2pkh = CScript([OP_DUP, OP_HASH160, hash160(pubkey), OP_EQUALVERIFY, OP_CHECKSIG])
+                importlist.append(bytes_to_hex_str(p2pk))
+                importlist.append(bytes_to_hex_str(p2pkh))
+                importlist.append(bytes_to_hex_str(CScript([OP_0, hash160(pubkey)])))
+                importlist.append(bytes_to_hex_str(CScript([OP_0, sha256(p2pk)])))
+                importlist.append(bytes_to_hex_str(CScript([OP_0, sha256(p2pkh)])))
+
+
+        for i in importlist:
+            try:
+                self.nodes[0].importaddress(i,"",False,True)
+            except JSONRPCException as exp:
+                assert_equal(exp.error["message"], "The wallet already contains the private key for this address or script")
+
+        self.mine_and_test_listunspent(spendable_anytime + spendable_after_importaddress, 2)
+        self.mine_and_test_listunspent(watchonly_anytime + watchonly_after_importaddress, 1)
+        self.mine_and_test_listunspent(spendable_after_addwitnessaddress + unseen_anytime, 0)
 
         # addwitnessaddress should refuse to return a witness address if an uncompressed key is used or the address is
         # not in the wallet
-        for i in uncompressed_address + unknown_address:
+        for i in uncompressed_spendable_address + uncompressed_solvable_address + unknown_address:
             try:
                 self.nodes[0].addwitnessaddress(i)
             except JSONRPCException as exp:
@@ -315,18 +452,20 @@ class SegWitTest(BitcoinTestFramework):
             else:
                 assert(False)
 
-        for i in compressed_address:
+        for i in compressed_spendable_address + compressed_solvable_address:
             witaddress = self.nodes[0].addwitnessaddress(i)
             # addwitnessaddress should return the same address if it is a known P2SH-P2WSH address
             assert_equal(witaddress, self.nodes[0].addwitnessaddress(witaddress))
 
-        self.mine_and_test_listunspent(seen_before_add_script + seen_after_add_script, True)
-        self.mine_and_test_listunspent(unseen_script, False)
+        self.mine_and_test_listunspent(spendable_anytime + spendable_after_importaddress, 2)
+        self.mine_and_test_listunspent(watchonly_anytime + watchonly_after_importaddress, 1)
+        self.mine_and_test_listunspent(spendable_after_addwitnessaddress + unseen_anytime, 0)
 
-    def mine_and_test_listunspent(self, script_list, seen):
+    def mine_and_test_listunspent(self, script_list, ismine):
         utxo = find_unspent(self.nodes[0], 50)
         tx = CTransaction()
         tx.vin.append(CTxIn(COutPoint(int('0x'+utxo['txid'],0), utxo['vout'])))
+        tx.vout.append(CTxOut(0, CScript()))
         for i in script_list:
             tx.vout.append(CTxOut(0, i))
         tx.rehash()
@@ -334,14 +473,20 @@ class SegWitTest(BitcoinTestFramework):
         txid = self.nodes[0].sendrawtransaction(signresults, True)
         self.nodes[0].generate(1)
         sync_blocks(self.nodes)
-        count = 0
+        watchcount = 0
+        spendcount = 0
         for i in self.nodes[0].listunspent():
             if (i['txid'] == txid):
-                count += 1
-        if (seen):
-            assert_equal(count, len(script_list))
+                watchcount += 1
+                if (i['spendable'] == True):
+                    spendcount += 1
+        if (ismine == 2):
+            assert_equal(spendcount, len(script_list))
+        elif (ismine == 1):
+            assert_equal(watchcount, len(script_list))
+            assert_equal(spendcount, 0)
         else:
-            assert_equal(count, 0)
+            assert_equal(watchcount, 0)
 
 
 if __name__ == '__main__':
