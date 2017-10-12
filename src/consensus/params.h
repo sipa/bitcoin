@@ -27,7 +27,7 @@ enum DeploymentPos
 struct BIP9Deployment {
     /** Bit position to select the particular bit in nVersion. */
     int bit;
-    /** Start MedianTime for version bits miner confirmation. Can be a date in the past */
+    /** Start MedianTime for version bits miner confirmation. Can be a date in the past. Negative numbers mean hardcoded height. */
     int64_t nStartTime;
     /** Timeout/expiry MedianTime for the deployment attempt. */
     int64_t nTimeout;
