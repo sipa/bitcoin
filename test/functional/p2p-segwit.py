@@ -111,7 +111,7 @@ class SegWitTest(BitcoinTestFramework):
     def set_test_params(self):
         self.setup_clean_chain = True
         self.num_nodes = 3
-        self.extra_args = [["-whitelist=127.0.0.1"], ["-whitelist=127.0.0.1", "-acceptnonstdtxn=0"], ["-whitelist=127.0.0.1", "-vbparams=segwit:0:0"]]
+        self.extra_args = [["-whitelist=127.0.0.1", "-vbparams=segwit:0:999999999999"], ["-whitelist=127.0.0.1", "-acceptnonstdtxn=0", "-vbparams=segwit:0:999999999999"], ["-whitelist=127.0.0.1", "-vbparams=segwit:0:0"]]
 
     def setup_network(self):
         self.setup_nodes()
@@ -1493,7 +1493,7 @@ class SegWitTest(BitcoinTestFramework):
 
         # Restart with the new binary
         self.stop_node(node_id)
-        self.start_node(node_id, extra_args=[])
+        self.start_node(node_id, extra_args=["-vbparams=segwit:0:999999999999"])
         connect_nodes(self.nodes[0], node_id)
 
         sync_blocks(self.nodes)
