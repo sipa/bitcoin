@@ -162,7 +162,7 @@ BOOST_AUTO_TEST_CASE(versionbits_test)
         // DEFINED -> STARTED -> FAILED
                            .Reset().TestDefined().TestStateSinceHeight(0)
                            .Mine(1, TestTime(1), 0).TestDefined().TestStateSinceHeight(0)
-                           .Mine(1000, TestTime(10000) - 1, 0x100).TestDefined().TestStateSinceHeight(0) // One second more and it would be defined
+                           .Mine(1000, TestTime(10000) - 1, 0x100).TestDefined().TestStateSinceHeight(0) // One second more and it would be started
                            .Mine(2000, TestTime(10000), 0x100).TestStarted().TestStateSinceHeight(2000) // So that's what happens the next period
                            .Mine(2051, TestTime(10010), 0).TestStarted().TestStateSinceHeight(2000) // 51 old blocks
                            .Mine(2950, TestTime(10020), 0x100).TestStarted().TestStateSinceHeight(2000) // 899 new blocks
@@ -172,7 +172,7 @@ BOOST_AUTO_TEST_CASE(versionbits_test)
         // DEFINED -> STARTED -> FAILED while threshold reached
                            .Reset().TestDefined().TestStateSinceHeight(0)
                            .Mine(1, TestTime(1), 0).TestDefined().TestStateSinceHeight(0)
-                           .Mine(1000, TestTime(10000) - 1, 0x101).TestDefined().TestStateSinceHeight(0) // One second more and it would be defined
+                           .Mine(1000, TestTime(10000) - 1, 0x101).TestDefined().TestStateSinceHeight(0) // One second more and it would be started
                            .Mine(2000, TestTime(10000), 0x101).TestStarted().TestStateSinceHeight(2000) // So that's what happens the next period
                            .Mine(2999, TestTime(30000), 0x100).TestStarted().TestStateSinceHeight(2000) // 999 new blocks
                            .Mine(3000, TestTime(30000), 0x100).TestFailed().TestStateSinceHeight(3000) // 1 new block (so 1000 out of the past 1000 are new)
@@ -184,7 +184,7 @@ BOOST_AUTO_TEST_CASE(versionbits_test)
         // DEFINED -> STARTED -> LOCKEDIN at the last minute -> ACTIVE
                            .Reset().TestDefined()
                            .Mine(1, TestTime(1), 0).TestDefined().TestStateSinceHeight(0)
-                           .Mine(1000, TestTime(10000) - 1, 0x101).TestDefined().TestStateSinceHeight(0) // One second more and it would be defined
+                           .Mine(1000, TestTime(10000) - 1, 0x101).TestDefined().TestStateSinceHeight(0) // One second more and it would be started
                            .Mine(2000, TestTime(10000), 0x101).TestStarted().TestStateSinceHeight(2000) // So that's what happens the next period
                            .Mine(2050, TestTime(10010), 0x200).TestStarted().TestStateSinceHeight(2000) // 50 old blocks
                            .Mine(2950, TestTime(10020), 0x100).TestStarted().TestStateSinceHeight(2000) // 900 new blocks
