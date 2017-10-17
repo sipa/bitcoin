@@ -31,7 +31,11 @@ struct BIP9Deployment {
     int64_t nStartTime;
     /** Timeout/expiry MedianTime for the deployment attempt. */
     int64_t nTimeout;
+
+    static const int64_t NO_TIMEOUT = 999999999999ULL;
+    static const int64_t MAX_FIXED_HEIGHT = 4294967296LL;
 };
+
 
 /**
  * Parameters that influence chain consensus.

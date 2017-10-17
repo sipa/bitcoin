@@ -32,6 +32,16 @@ public:
     int GetStateSinceHeightFor(const CBlockIndex* pindexPrev) const { return AbstractThresholdConditionChecker::GetStateSinceHeightFor(pindexPrev, paramsDummy, cache); }
 };
 
+class TestFixedHeightConditionChecker : public TestConditionChecker
+{
+public:
+    const static int Never = 9999999;
+    int activation_height;
+    int64_t BeginTime(const Consensus::Params& params) const override { return -activation_height; }
+    TestFixedHeightConditionChecker(int height) : activation_height(height) { }
+    TestFixedHeightConditionChecker() : activation_height(Never) { }
+};
+
 #define CHECKERS 6
 
 class VersionBitsTester
@@ -43,26 +53,33 @@ class VersionBitsTester
     // The first one performs all checks, the second only 50%, the third only 25%, etc...
     // This is to test whether lack of cached information leads to the same results.
     TestConditionChecker checker[CHECKERS];
+    // Another 6 that assume fixed height activation
+    TestFixedHeightConditionChecker checker_fixed[CHECKERS];
 
     // Test counter (to identify failures)
     int num;
 
 public:
-    VersionBitsTester() : num(0) {}
+    VersionBitsTester(int height) : num(0) {
+        for (unsigned int  i = 0; i < CHECKERS; i++) {
+            checker_fixed[i] = TestFixedHeightConditionChecker(height);
+        }
+    }
 
-    VersionBitsTester& Reset() {
+    VersionBitsTester& Reset(int height) {
         for (unsigned int i = 0; i < vpblock.size(); i++) {
             delete vpblock[i];
         }
         for (unsigned int  i = 0; i < CHECKERS; i++) {
             checker[i] = TestConditionChecker();
+            checker_fixed[i] = TestFixedHeightConditionChecker(height);
         }
         vpblock.clear();
         return *this;
     }
 
     ~VersionBitsTester() {
-         Reset();
+         Reset(TestFixedHeightConditionChecker::Never);
     }
 
     VersionBitsTester& Mine(unsigned int height, int32_t nTime, int32_t nVersion) {
@@ -81,7 +98,9 @@ public:
     VersionBitsTester& TestStateSinceHeight(int height) {
         for (int i = 0; i < CHECKERS; i++) {
             if (InsecureRandBits(i) == 0) {
+                const int height_fixed = (checker_fixed[i].activation_height <= height ? height : 0);
                 BOOST_CHECK_MESSAGE(checker[i].GetStateSinceHeightFor(vpblock.empty() ? nullptr : vpblock.back()) == height, strprintf("Test %i for StateSinceHeight", num));
+                BOOST_CHECK_MESSAGE(checker_fixed[i].GetStateSinceHeightFor(vpblock.empty() ? nullptr : vpblock.back()) == height_fixed, strprintf("Test %i for StateSinceHeight (fixed height)", num));
             }
         }
         num++;
@@ -92,6 +111,7 @@ public:
         for (int i = 0; i < CHECKERS; i++) {
             if (InsecureRandBits(i) == 0) {
                 BOOST_CHECK_MESSAGE(checker[i].GetStateFor(vpblock.empty() ? nullptr : vpblock.back()) == THRESHOLD_DEFINED, strprintf("Test %i for DEFINED", num));
+                BOOST_CHECK_MESSAGE(checker_fixed[i].GetStateFor(vpblock.empty() ? nullptr : vpblock.back()) == THRESHOLD_DEFINED, strprintf("Test %i for DEFINED (fixed height)", num));
             }
         }
         num++;
@@ -102,6 +122,7 @@ public:
         for (int i = 0; i < CHECKERS; i++) {
             if (InsecureRandBits(i) == 0) {
                 BOOST_CHECK_MESSAGE(checker[i].GetStateFor(vpblock.empty() ? nullptr : vpblock.back()) == THRESHOLD_STARTED, strprintf("Test %i for STARTED", num));
+                BOOST_CHECK_MESSAGE(checker_fixed[i].GetStateFor(vpblock.empty() ? nullptr : vpblock.back()) == THRESHOLD_DEFINED, strprintf("Test %i for STARTED (fixed height)", num));
             }
         }
         num++;
@@ -112,6 +133,7 @@ public:
         for (int i = 0; i < CHECKERS; i++) {
             if (InsecureRandBits(i) == 0) {
                 BOOST_CHECK_MESSAGE(checker[i].GetStateFor(vpblock.empty() ? nullptr : vpblock.back()) == THRESHOLD_LOCKED_IN, strprintf("Test %i for LOCKED_IN", num));
+                BOOST_CHECK_MESSAGE(checker_fixed[i].GetStateFor(vpblock.empty() ? nullptr : vpblock.back()) == THRESHOLD_DEFINED, strprintf("Test %i for LOCKED_IN (fixed height)", num));
             }
         }
         num++;
@@ -122,6 +144,7 @@ public:
         for (int i = 0; i < CHECKERS; i++) {
             if (InsecureRandBits(i) == 0) {
                 BOOST_CHECK_MESSAGE(checker[i].GetStateFor(vpblock.empty() ? nullptr : vpblock.back()) == THRESHOLD_ACTIVE, strprintf("Test %i for ACTIVE", num));
+                BOOST_CHECK_MESSAGE(checker_fixed[i].GetStateFor(vpblock.empty() ? nullptr : vpblock.back()) == THRESHOLD_ACTIVE, strprintf("Test %i for ACTIVE (fixed height)", num));
             }
         }
         num++;
@@ -132,6 +155,7 @@ public:
         for (int i = 0; i < CHECKERS; i++) {
             if (InsecureRandBits(i) == 0) {
                 BOOST_CHECK_MESSAGE(checker[i].GetStateFor(vpblock.empty() ? nullptr : vpblock.back()) == THRESHOLD_FAILED, strprintf("Test %i for FAILED", num));
+                BOOST_CHECK_MESSAGE(checker_fixed[i].GetStateFor(vpblock.empty() ? nullptr : vpblock.back()) == THRESHOLD_DEFINED, strprintf("Test %i for FAILED (fixed height)", num));
             }
         }
         num++;
@@ -147,7 +171,7 @@ BOOST_AUTO_TEST_CASE(versionbits_test)
 {
     for (int i = 0; i < 64; i++) {
         // DEFINED -> FAILED
-        VersionBitsTester().TestDefined().TestStateSinceHeight(0)
+        VersionBitsTester(TestFixedHeightConditionChecker::Never).TestDefined().TestStateSinceHeight(0)
                            .Mine(1, TestTime(1), 0x100).TestDefined().TestStateSinceHeight(0)
                            .Mine(11, TestTime(11), 0x100).TestDefined().TestStateSinceHeight(0)
                            .Mine(989, TestTime(989), 0x100).TestDefined().TestStateSinceHeight(0)
@@ -160,9 +184,9 @@ BOOST_AUTO_TEST_CASE(versionbits_test)
                            .Mine(3000, TestTime(30005), 0x100).TestFailed().TestStateSinceHeight(1000)
 
         // DEFINED -> STARTED -> FAILED
-                           .Reset().TestDefined().TestStateSinceHeight(0)
+                           .Reset(TestFixedHeightConditionChecker::Never).TestDefined().TestStateSinceHeight(0)
                            .Mine(1, TestTime(1), 0).TestDefined().TestStateSinceHeight(0)
-                           .Mine(1000, TestTime(10000) - 1, 0x100).TestDefined().TestStateSinceHeight(0) // One second more and it would be defined
+                           .Mine(1000, TestTime(10000) - 1, 0x100).TestDefined().TestStateSinceHeight(0) // One second more and it would be started
                            .Mine(2000, TestTime(10000), 0x100).TestStarted().TestStateSinceHeight(2000) // So that's what happens the next period
                            .Mine(2051, TestTime(10010), 0).TestStarted().TestStateSinceHeight(2000) // 51 old blocks
                            .Mine(2950, TestTime(10020), 0x100).TestStarted().TestStateSinceHeight(2000) // 899 new blocks
@@ -170,9 +194,9 @@ BOOST_AUTO_TEST_CASE(versionbits_test)
                            .Mine(4000, TestTime(20010), 0x100).TestFailed().TestStateSinceHeight(3000)
 
         // DEFINED -> STARTED -> FAILED while threshold reached
-                           .Reset().TestDefined().TestStateSinceHeight(0)
+                           .Reset(TestFixedHeightConditionChecker::Never).TestDefined().TestStateSinceHeight(0)
                            .Mine(1, TestTime(1), 0).TestDefined().TestStateSinceHeight(0)
-                           .Mine(1000, TestTime(10000) - 1, 0x101).TestDefined().TestStateSinceHeight(0) // One second more and it would be defined
+                           .Mine(1000, TestTime(10000) - 1, 0x101).TestDefined().TestStateSinceHeight(0) // One second more and it would be started
                            .Mine(2000, TestTime(10000), 0x101).TestStarted().TestStateSinceHeight(2000) // So that's what happens the next period
                            .Mine(2999, TestTime(30000), 0x100).TestStarted().TestStateSinceHeight(2000) // 999 new blocks
                            .Mine(3000, TestTime(30000), 0x100).TestFailed().TestStateSinceHeight(3000) // 1 new block (so 1000 out of the past 1000 are new)
@@ -182,9 +206,9 @@ BOOST_AUTO_TEST_CASE(versionbits_test)
                            .Mine(24000, TestTime(40000), 0).TestFailed().TestStateSinceHeight(3000)
 
         // DEFINED -> STARTED -> LOCKEDIN at the last minute -> ACTIVE
-                           .Reset().TestDefined()
+                           .Reset(4000).TestDefined()
                            .Mine(1, TestTime(1), 0).TestDefined().TestStateSinceHeight(0)
-                           .Mine(1000, TestTime(10000) - 1, 0x101).TestDefined().TestStateSinceHeight(0) // One second more and it would be defined
+                           .Mine(1000, TestTime(10000) - 1, 0x101).TestDefined().TestStateSinceHeight(0) // One second more and it would be started
                            .Mine(2000, TestTime(10000), 0x101).TestStarted().TestStateSinceHeight(2000) // So that's what happens the next period
                            .Mine(2050, TestTime(10010), 0x200).TestStarted().TestStateSinceHeight(2000) // 50 old blocks
                            .Mine(2950, TestTime(10020), 0x100).TestStarted().TestStateSinceHeight(2000) // 900 new blocks
@@ -196,7 +220,7 @@ BOOST_AUTO_TEST_CASE(versionbits_test)
                            .Mine(24000, TestTime(40000), 0).TestActive().TestStateSinceHeight(4000)
 
         // DEFINED multiple periods -> STARTED multiple periods -> FAILED
-                           .Reset().TestDefined().TestStateSinceHeight(0)
+                           .Reset(TestFixedHeightConditionChecker::Never).TestDefined().TestStateSinceHeight(0)
                            .Mine(999, TestTime(999), 0).TestDefined().TestStateSinceHeight(0)
                            .Mine(1000, TestTime(1000), 0).TestDefined().TestStateSinceHeight(0)
                            .Mine(2000, TestTime(2000), 0).TestDefined().TestStateSinceHeight(0)
@@ -248,7 +272,7 @@ BOOST_AUTO_TEST_CASE(versionbits_computeblockversion)
     // In the first chain, test that the bit is set by CBV until it has failed.
     // In the second chain, test the bit is set by CBV while STARTED and
     // LOCKED-IN, and then no longer set while ACTIVE.
-    VersionBitsTester firstChain, secondChain;
+    VersionBitsTester firstChain(6048), secondChain(6048);
 
     // Start generating blocks before nStartTime
     int64_t nTime = nStartTime - 1;
