@@ -1,9 +1,19 @@
-#ifndef WALLETMODELTRANSACTION_H
-#define WALLETMODELTRANSACTION_H
+// Copyright (c) 2011-2014 The Bitcoin Core developers
+// Distributed under the MIT software license, see the accompanying
+// file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include "walletmodel.h"
+#ifndef BITCOIN_QT_WALLETMODELTRANSACTION_H
+#define BITCOIN_QT_WALLETMODELTRANSACTION_H
+
+#include <qt/walletmodel.h>
+
+#include <QObject>
 
 class SendCoinsRecipient;
+
+class CReserveKey;
+class CWallet;
+class CWalletTx;
 
 /** Data model for a walletmodel transaction. */
 class WalletModelTransaction
@@ -12,26 +22,26 @@ public:
     explicit WalletModelTransaction(const QList<SendCoinsRecipient> &recipients);
     ~WalletModelTransaction();
 
-    QList<SendCoinsRecipient> getRecipients();
+    QList<SendCoinsRecipient> getRecipients() const;
 
-    CWalletTx *getTransaction();
+    CWalletTx *getTransaction() const;
+    unsigned int getTransactionSize();
 
-    void setTransactionFee(qint64 newFee);
-    qint64 getTransactionFee();
+    void setTransactionFee(const CAmount& newFee);
+    CAmount getTransactionFee() const;
 
-    qint64 getTotalTransactionAmount();
+    CAmount getTotalTransactionAmount() const;
 
     void newPossibleKeyChange(CWallet *wallet);
     CReserveKey *getPossibleKeyChange();
 
+    void reassignAmounts(int nChangePosRet); // needed for the subtract-fee-from-amount feature
+
 private:
-    const QList<SendCoinsRecipient> recipients;
+    QList<SendCoinsRecipient> recipients;
     CWalletTx *walletTransaction;
-    CReserveKey *keyChange;
-    qint64 fee;
-
-public slots:
-
+    std::unique_ptr<CReserveKey> keyChange;
+    CAmount fee;
 };
 
-#endif // WALLETMODELTRANSACTION_H
+#endif // BITCOIN_QT_WALLETMODELTRANSACTION_H
