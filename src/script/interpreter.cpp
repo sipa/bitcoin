@@ -1432,6 +1432,44 @@ static bool ExecuteWitnessScript(std::vector<valtype>::const_iterator begin, std
     return true;
 }
 
+/** Consensus-critical analogue of CScript::IsPayToScriptHash. */
+static bool IsPayToScriptHash(const Span<const unsigned char>& script)
+{
+    return script.size() == 23 &&
+           script[0] == OP_HASH160 &&
+           script[1] == 0x14 &&
+           script[22] == OP_EQUAL;
+}
+
+/** Consensus-critical analogue of CScript::IsWitnessProgram. */
+static bool IsWitnessProgram(const Span<const unsigned char>& script, int& version, Span<const unsigned char>& program)
+{
+    if (script.size() < 4 || script.size() > 42) return false;
+    if (script[0] != OP_0 && (script[0] < OP_1 || script[0] > OP_16)) return false;
+    if ((ptrdiff_t)(script[1] + 2) == script.size()) {
+        version = CScript::DecodeOP_N((opcodetype)script[0]);
+        program = script.subspan(2);
+        return true;
+    }
+    return false;
+}
+
+/** Consensus-critical analogue of CScript::IsPushOnly. */
+static bool IsPushOnly(const Span<const unsigned char>& script)
+{
+    Span<const unsigned char> pc = script;
+    while (pc.size() > 0) {
+        opcodetype opcode;
+        if (!GetScriptOp(pc, opcode, nullptr)) return false;
+        // Note that IsPushOnly() *does* consider OP_RESERVED to be a
+        // push-type opcode, however execution of OP_RESERVED fails, so
+        // it's not relevant to P2SH/BIP62 as the scriptSig would fail prior to
+        // the P2SH special validation code being executed.
+        if (opcode > OP_16) return false;
+    }
+    return true;
+}
+
 static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, const std::vector<unsigned char>& program, unsigned int flags, const BaseSignatureChecker& checker, ScriptError* serror)
 {
     CScript scriptPubKey;
