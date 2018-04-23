@@ -1420,7 +1420,7 @@ bool GenericTransactionSignatureChecker<T>::CheckSequence(const CScriptNum& nSeq
 template class GenericTransactionSignatureChecker<CTransaction>;
 template class GenericTransactionSignatureChecker<CMutableTransaction>;
 
-static bool ExecuteWitnessScript(std::vector<valtype>::const_iterator begin, std::vector<valtype>::const_iterator end, const CScript& scriptPubKey, unsigned int flags, SigVersion sigversion, const BaseSignatureChecker& checker, ScriptError* serror)
+static bool ExecuteWitnessScript(std::vector<valtype>::const_iterator begin, std::vector<valtype>::const_iterator end, const Span<const unsigned char>& script, unsigned int flags, SigVersion sigversion, const BaseSignatureChecker& checker, ScriptError* serror)
 {
     std::vector<valtype> stack{begin, end};
 
@@ -1430,7 +1430,7 @@ static bool ExecuteWitnessScript(std::vector<valtype>::const_iterator begin, std
     }
 
     // Run the script interpreter.
-    if (!EvalScript(stack, scriptPubKey, flags, checker, sigversion, serror)) return false;
+    if (!EvalScript(stack, script, flags, checker, sigversion, serror)) return false;
 
     // Scripts inside witness implicitly require cleanstack behaviour
     if (stack.size() != 1) return set_error(serror, SCRIPT_ERR_CLEANSTACK);
@@ -1476,30 +1476,27 @@ static bool IsPushOnly(const Span<const unsigned char>& script)
     return true;
 }
 
-static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, const std::vector<unsigned char>& program, unsigned int flags, const BaseSignatureChecker& checker, ScriptError* serror)
+static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, const Span<const unsigned char>& program, unsigned int flags, const BaseSignatureChecker& checker, ScriptError* serror)
 {
-    CScript scriptPubKey;
-
     if (witversion == 0) {
         if (program.size() == WITNESS_V0_SCRIPTHASH_SIZE) {
             // Version 0 segregated witness program: SHA256(CScript) inside the program, CScript + inputs in witness
             if (witness.stack.size() == 0) {
                 return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WITNESS_EMPTY);
             }
-            scriptPubKey = CScript(witness.stack.back().begin(), witness.stack.back().end());
             uint256 hashScriptPubKey;
-            CSHA256().Write(&scriptPubKey[0], scriptPubKey.size()).Finalize(hashScriptPubKey.begin());
+            CSHA256().Write(witness.stack.back().data(), witness.stack.back().size()).Finalize(hashScriptPubKey.begin());
             if (memcmp(hashScriptPubKey.begin(), program.data(), 32)) {
                 return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
             }
-            return ExecuteWitnessScript(witness.stack.begin(), witness.stack.end() - 1, scriptPubKey, flags, SigVersion::WITNESS_V0, checker, serror);
+            return ExecuteWitnessScript(witness.stack.begin(), witness.stack.end() - 1, MakeSpan(witness.stack.back()), flags, SigVersion::WITNESS_V0, checker, serror);
         } else if (program.size() == WITNESS_V0_KEYHASH_SIZE) {
             // Special case for pay-to-pubkeyhash; signature + pubkey in witness
             if (witness.stack.size() != 2) {
                 return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH); // 2 items in witness
             }
-            scriptPubKey << OP_DUP << OP_HASH160 << program << OP_EQUALVERIFY << OP_CHECKSIG;
-            return ExecuteWitnessScript(witness.stack.begin(), witness.stack.end(), scriptPubKey, flags, SigVersion::WITNESS_V0, checker, serror);
+            auto script = CScript() << OP_DUP << OP_HASH160 << program << OP_EQUALVERIFY << OP_CHECKSIG;
+            return ExecuteWitnessScript(witness.stack.begin(), witness.stack.end(), {script.data(), script.size()}, flags, SigVersion::WITNESS_V0, checker, serror);
         } else {
             return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WRONG_LENGTH);
         }
@@ -1513,7 +1510,7 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
     // There is intentionally no return statement here, to be able to use "control reaches end of non-void function" warnings to detect gaps in the logic above.
 }
 
-bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness* witness, unsigned int flags, const BaseSignatureChecker& checker, ScriptError* serror)
+bool VerifyScript(const Span<const unsigned char>& scriptSig, const Span<const unsigned char>& scriptPubKey, const CScriptWitness* witness, unsigned int flags, const BaseSignatureChecker& checker, ScriptError* serror)
 {
     static const CScriptWitness emptyWitness;
     if (witness == nullptr) {
@@ -1523,7 +1520,7 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
 
     set_error(serror, SCRIPT_ERR_UNKNOWN_ERROR);
 
-    if ((flags & SCRIPT_VERIFY_SIGPUSHONLY) != 0 && !scriptSig.IsPushOnly()) {
+    if ((flags & SCRIPT_VERIFY_SIGPUSHONLY) != 0 && !IsPushOnly(scriptSig)) {
         return set_error(serror, SCRIPT_ERR_SIG_PUSHONLY);
     }
 
@@ -1545,9 +1542,9 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
 
     // Bare witness programs
     int witnessversion;
-    std::vector<unsigned char> witnessprogram;
+    Span<const unsigned char> witnessprogram;
     if (flags & SCRIPT_VERIFY_WITNESS) {
-        if (scriptPubKey.IsWitnessProgram(witnessversion, witnessprogram)) {
+        if (IsWitnessProgram(scriptPubKey, witnessversion, witnessprogram)) {
             hadWitness = true;
             if (scriptSig.size() != 0) {
                 // The scriptSig must be _exactly_ CScript(), otherwise we reintroduce malleability.
@@ -1563,10 +1560,10 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
     }
 
     // Additional validation for spend-to-script-hash transactions:
-    if ((flags & SCRIPT_VERIFY_P2SH) && scriptPubKey.IsPayToScriptHash())
+    if ((flags & SCRIPT_VERIFY_P2SH) && IsPayToScriptHash(scriptPubKey))
     {
         // scriptSig must be literals-only or validation fails
-        if (!scriptSig.IsPushOnly())
+        if (!IsPushOnly(scriptSig))
             return set_error(serror, SCRIPT_ERR_SIG_PUSHONLY);
 
         // Restore stack.
@@ -1577,8 +1574,8 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
         // an empty stack and the EvalScript above would return false.
         assert(!stack.empty());
 
-        const valtype& pubKeySerialized = stack.back();
-        CScript pubKey2(pubKeySerialized.begin(), pubKeySerialized.end());
+        const valtype pubKeySerialized = std::move(stack.back());
+        Span<const unsigned char> pubKey2 = MakeSpan(pubKeySerialized);
         popstack(stack);
 
         if (!EvalScript(stack, pubKey2, flags, checker, SigVersion::BASE, serror))
@@ -1591,9 +1588,10 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
 
         // P2SH witness program
         if (flags & SCRIPT_VERIFY_WITNESS) {
-            if (pubKey2.IsWitnessProgram(witnessversion, witnessprogram)) {
+            if (IsWitnessProgram(pubKey2, witnessversion, witnessprogram)) {
                 hadWitness = true;
-                if (scriptSig != CScript() << std::vector<unsigned char>(pubKey2.begin(), pubKey2.end())) {
+                const CScript expected_scriptsig = CScript() << pubKey2;
+                if (scriptSig != MakeSpan(expected_scriptsig)) {
                     // The scriptSig must be _exactly_ a single push of the redeemScript. Otherwise we
                     // reintroduce malleability.
                     return set_error(serror, SCRIPT_ERR_WITNESS_MALLEATED_P2SH);
@@ -1632,6 +1630,11 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
     }
 
     return set_success(serror);
+}
+
+bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness* witness, unsigned int flags, const BaseSignatureChecker& checker, ScriptError* serror)
+{
+    return VerifyScript(MakeSpan(scriptSig), MakeSpan(scriptPubKey), witness, flags, checker, serror);
 }
 
 size_t static WitnessSigOps(int witversion, const std::vector<unsigned char>& witprogram, const CScriptWitness& witness)
