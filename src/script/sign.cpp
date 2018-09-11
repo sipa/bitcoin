@@ -277,6 +277,13 @@ bool SignPSBTInput(const SigningProvider& provider, const CMutableTransaction& t
     if (require_witness_sig && !sigdata.witness) return false;
     input.FromSignatureData(sigdata);
 
+    if (sigdata.witness) {
+        // Convert the non-witness utxo to witness
+        if (input.witness_utxo.IsNull() && input.non_witness_utxo) {
+            input.witness_utxo = input.non_witness_utxo->vout[tx.vin[index].prevout.n];
+        }
+    }
+
     // If both UTXO types are present, drop the unnecessary one.
     if (input.non_witness_utxo && !input.witness_utxo.IsNull()) {
         if (sigdata.witness) {
