@@ -34,6 +34,7 @@ Output descriptors currently support:
 - `sh(wsh(multi(1,03f28773c2d975288bc7d1d205c3748651b075fbc6610e58cddeeddf8f19405aa8,03499fdf9e895e719cfd64e67f07d38e3226aa7b63678949e6e49b241a60e823e4,02d7924d4f7d43ea965a465ae3095ff41131e5946f3c85f79e44adbcf8e27e080e)))` represents a P2SH-P2WSH *1-of-3* multisig.
 - `pk(xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8NqtwybGhePY2gZ29ESFjqJoCu1Rupje8YtGqsefD265TMg7usUDFdp6W1EGMcet8)` refers to a single P2PK output, using the public key part from the specified xpub.
 - `pkh(xpub68Gmy5EdvgibQVfPdqkBBCHxA5htiqg55crXYuXoQRKfDBFA1WEjWgP6LHhwBZeNK1VTsfTFUHCdrfp1bgwQ9xv5ski8PX9rL2dZXvgGDnw/1'/2)` refers to a single P2PKH output, using child key *1'/2* of the specified xpub.
+- `pkh([d34db33f/44'/0'/0']xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL/1/*)` refers to a chain of P2PKH outputs, but additionally specifies that the specified xpub is a child of a master with fingerprint `d34db33f`, and derived using path `44'/0'/0'`.
 - `wsh(multi(1,xpub661MyMwAqRbcFW31YEwpkMuc5THy2PSt5bDMsktWQcFF8syAmRUapSCGu8ED9W6oDMSgv6Zz8idoc4a6mr8BDzTJY47LJhkJ8UB7WEGuduB/1/0/*,xpub69H7F5d8KSRgmmdJg2KhpAK8SR3DjMwAdkxj3ZuxV27CprR9LgpeyGmXUbC6wb7ERfvrnKZjXoUmmDznezpbZb7ap6r1D3tgFxHmwMkQTPH/1/0/*))` refers to a chain of *1-of-2* P2WSH multisig outputs, using public keys taken from two HD chains with corresponding derivation paths.
 
 ## Reference
@@ -52,14 +53,20 @@ Descriptors consist of several types of expressions. The top level expression is
 - `raw(HEX)` (top level only): the script whose hex encoding is HEX.
 
 `KEY` expressions:
-- Hex encoded public keys (66 characters starting with `02` or `03`, or 130 characters starting with `04`).
-  - Inside `wpkh` and `wsh`, only compressed public keys are permitted.
-- [WIF](https://en.bitcoin.it/wiki/Wallet_import_format) encoded private keys may be specified instead of the corresponding public key, with the same meaning.
--`xpub` encoded extended public key or `xprv` encoded private key (as defined in [BIP 32](https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki)).
-  - Followed by zero or more `/NUM` unhardened and `/NUM'` hardened BIP32 derivation steps.
-  - Optionally followed by a single `/*` or `/*'` final step to denote all (direct) unhardened or hardened children.
-  - The usage of hardened derivation steps requires providing the private key.
-  - Instead of a `'`, the suffix `h` can be used to denote hardened derivation.
+- Optionally, key origin information, consisting of:
+  - An open bracket `[`
+  - 8 hex characters for the fingerprint
+  - Followed by zero or more "/NUM" or "/NUM'" path elements to indicate unhardened or hardened derivation steps between the fingerprint and the key that follows
+  - A closing bracket `]`
+- Followed by the actual key, which is either:
+  - Hex encoded public keys (66 characters starting with `02` or `03`, or 130 characters starting with `04`).
+    - Inside `wpkh` and `wsh`, only compressed public keys are permitted.
+  - [WIF](https://en.bitcoin.it/wiki/Wallet_import_format) encoded private keys may be specified instead of the corresponding public key, with the same meaning.
+  -`xpub` encoded extended public key or `xprv` encoded private key (as defined in [BIP 32](https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki)).
+    - Followed by zero or more `/NUM` unhardened and `/NUM'` hardened BIP32 derivation steps.
+    - Optionally followed by a single `/*` or `/*'` final step to denote all (direct) unhardened or hardened children.
+    - The usage of hardened derivation steps requires providing the private key.
+- Anywhere a `'` suffix is permitted to denote hardened derivation, the suffix `h` can be used instead.
 
 `ADDR` expressions are any type of supported address:
 - P2PKH addresses (base58, of the form `1...`). Note that P2PKH addresses in descriptors cannot be used for P2PK outputs (use the `pk` function instead).
@@ -106,6 +113,33 @@ child keys instead.
 Whenever a public key is described using a hardened derivation step, the
 script cannot be computed without access to the corresponding private
 key.
+
+### Key origin identification
+
+In order to describe scripts whose signing keys reside on another device,
+it may be necessary to identify the master key and derivation path an
+xpub was derived with.
+
+For example, when following BIP44, it would be useful to describe a
+change chain directly as `xpub.../44'/0'/0'/1/i` where `xpub...`
+corresponds with the master key `m`. Unfortunately, since there are
+hardened derivation steps that follow the xpub, this descriptor does not
+let you compute scripts without access to the corresponding private keys.
+Instead, it should be written as `xpub.../1/*`, where xpub corresponds to
+`m/44'/0'/0'`.
+
+When interacting with a hardware device, it may be necessary to include
+the entire path from the master down. BIP174 standardizes this by
+providing the master key *fingerprint* (first 32 bit of the Hash160 of
+the master pubkey), plus all derivation steps. To support constructing
+these, we permit providing this key origin information inside the
+descriptor language, even though it does not affect the actual
+scriptPubKeys it refers to.
+
+Every public key can be prefixed by an 8-character hexadecimal
+fingerprint plus optional derivation steps (hardened and unhardened)
+surrounded by brackets, identifying the master and derivation path the key or xpub
+that follows was derived with.
 
 ### Including private keys
 
