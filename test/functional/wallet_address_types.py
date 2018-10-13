@@ -52,6 +52,7 @@ Test that the nodes generate the correct change address type:
 
 from decimal import Decimal
 import itertools
+import re
 
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
@@ -95,21 +96,27 @@ class AddressTypeTest(BitcoinTestFramework):
         else:
             return [self.nodes[i].getunconfirmedbalance() for i in range(4)]
 
+    def remove_origin(self, desc):
+        return re.sub('\[.*?\]', '', desc)
+
     def test_address(self, node, address, multisig, typ):
         """Run sanity checks on an address."""
         info = self.nodes[node].getaddressinfo(address)
+        assert('descriptor' in info)
         assert(self.nodes[node].validateaddress(address)['isvalid'])
         if not multisig and typ == 'legacy':
             # P2PKH
             assert(not info['isscript'])
             assert(not info['iswitness'])
             assert('pubkey' in info)
+            assert_equal(self.remove_origin(info['descriptor']), "pkh(%s)" % info['pubkey'])
         elif not multisig and typ == 'p2sh-segwit':
             # P2SH-P2WPKH
             assert(info['isscript'])
             assert(not info['iswitness'])
             assert_equal(info['script'], 'witness_v0_keyhash')
             assert('pubkey' in info)
+            assert_equal(self.remove_origin(info['descriptor']), "sh(wpkh(%s))" % info['pubkey'])
         elif not multisig and typ == 'bech32':
             # P2WPKH
             assert(not info['isscript'])
@@ -117,12 +124,14 @@ class AddressTypeTest(BitcoinTestFramework):
             assert_equal(info['witness_version'], 0)
             assert_equal(len(info['witness_program']), 40)
             assert('pubkey' in info)
+            assert_equal(self.remove_origin(info['descriptor']), "wpkh(%s)" % info['pubkey'])
         elif typ == 'legacy':
             # P2SH-multisig
             assert(info['isscript'])
             assert_equal(info['script'], 'multisig')
             assert(not info['iswitness'])
             assert('pubkeys' in info)
+            assert_equal(self.remove_origin(info['descriptor']), "sh(multi(2,%s,%s))" % (info['pubkeys'][0], info['pubkeys'][1]))
         elif typ == 'p2sh-segwit':
             # P2SH-P2WSH-multisig
             assert(info['isscript'])
@@ -134,6 +143,7 @@ class AddressTypeTest(BitcoinTestFramework):
             assert_equal(info['embedded']['witness_version'], 0)
             assert_equal(len(info['embedded']['witness_program']), 64)
             assert('pubkeys' in info['embedded'])
+            assert_equal(self.remove_origin(info['descriptor']), "sh(wsh(multi(2,%s,%s)))" % (info['embedded']['pubkeys'][0], info['embedded']['pubkeys'][1]))
         elif typ == 'bech32':
             # P2WSH-multisig
             assert(info['isscript'])
@@ -142,6 +152,7 @@ class AddressTypeTest(BitcoinTestFramework):
             assert_equal(info['witness_version'], 0)
             assert_equal(len(info['witness_program']), 64)
             assert('pubkeys' in info)
+            assert_equal(self.remove_origin(info['descriptor']), "wsh(multi(2,%s,%s))" % (info['pubkeys'][0], info['pubkeys'][1]))
         else:
             # Unknown type
             assert(False)
@@ -198,6 +209,7 @@ class AddressTypeTest(BitcoinTestFramework):
             self.log.debug("Old balances are {}".format(old_balances))
             to_send = (old_balances[from_node] / 101).quantize(Decimal("0.00000001"))
             sends = {}
+            descriptors = {}
 
             self.log.debug("Prepare sends")
             for n, to_node in enumerate(range(from_node, from_node + 4)):
@@ -228,6 +240,7 @@ class AddressTypeTest(BitcoinTestFramework):
 
                 # Output entry
                 sends[address] = to_send * 10 * (1 + n)
+                descriptors[to_node] = (address, self.nodes[to_node].getaddressinfo(address)['descriptor'])
 
             self.log.debug("Sending: {}".format(sends))
             self.nodes[from_node].sendmany("", sends)
@@ -252,6 +265,14 @@ class AddressTypeTest(BitcoinTestFramework):
             for n, to_node in enumerate(range(from_node + 1, from_node + 4)):
                 to_node %= 4
                 assert_equal(new_balances[to_node], old_balances[to_node] + to_send * 10 * (2 + n))
+                found = False
+                # Verify that the receiving wallet contains a UTXO with the expected address, and expected descriptor
+                for utxo in self.nodes[to_node].listunspent():
+                    if utxo['address'] == descriptors[to_node][0]:
+                        assert_equal(utxo['descriptor'], descriptors[to_node][1])
+                        found = True
+                        break
+                assert found
 
         # Get one p2sh/segwit address from node2 and two bech32 addresses from node3:
         to_address_p2sh = self.nodes[2].getnewaddress()
