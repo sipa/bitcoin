@@ -536,11 +536,11 @@ std::unique_ptr<PubkeyProvider> ParsePubkeyInner(const Span<const char>& sp, boo
 /** Parse a public key including origin information (if enabled). */
 std::unique_ptr<PubkeyProvider> ParsePubkey(const Span<const char>& sp, bool permit_uncompressed, FlatSigningProvider& out)
 {
-    auto colon_split = Split(sp, ']');
-    if (colon_split.size() > 2) return nullptr;
-    if (colon_split.size() == 1) return ParsePubkeyInner(colon_split[0], permit_uncompressed, out);
-    if (colon_split[0].size() < 1 || colon_split[0][0] != '[') return nullptr;
-    auto slash_split = Split(colon_split[0].subspan(1), '/');
+    auto origin_split = Split(sp, ']');
+    if (origin_split.size() > 2) return nullptr;
+    if (origin_split.size() == 1) return ParsePubkeyInner(origin_split[0], permit_uncompressed, out);
+    if (origin_split[0].size() < 1 || origin_split[0][0] != '[') return nullptr;
+    auto slash_split = Split(origin_split[0].subspan(1), '/');
     if (slash_split[0].size() != 8) return nullptr;
     std::string fpr_hex = std::string(slash_split[0].begin(), slash_split[0].end());
     if (!IsHex(fpr_hex)) return nullptr;
@@ -550,7 +550,7 @@ std::unique_ptr<PubkeyProvider> ParsePubkey(const Span<const char>& sp, bool per
     assert(fpr_bytes.size() == 4);
     std::copy(fpr_bytes.begin(), fpr_bytes.end(), info.fingerprint);
     if (!ParseKeyPath(slash_split, info.path)) return nullptr;
-    auto provider = ParsePubkeyInner(colon_split[1], permit_uncompressed, out);
+    auto provider = ParsePubkeyInner(origin_split[1], permit_uncompressed, out);
     if (!provider) return nullptr;
     return MakeUnique<OriginPubkeyProvider>(std::move(info), std::move(provider));
 }
