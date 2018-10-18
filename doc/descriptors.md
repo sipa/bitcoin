@@ -55,8 +55,8 @@ Descriptors consist of several types of expressions. The top level expression is
 `KEY` expressions:
 - Optionally, key origin information, consisting of:
   - An open bracket `[`
-  - 8 hex characters for the fingerprint
-  - Followed by zero or more "/NUM" or "/NUM'" path elements to indicate unhardened or hardened derivation steps between the fingerprint and the key that follows
+  - Exactly 8 hex characters for the fingerprint of the key where the derivation starts (see BIP32 for details)
+  - Followed by zero or more "/NUM" or "/NUM'" path elements to indicate unhardened or hardened derivation steps between the fingerprint and the key or xpub/xprv root that follows
   - A closing bracket `]`
 - Followed by the actual key, which is either:
   - Hex encoded public keys (66 characters starting with `02` or `03`, or 130 characters starting with `04`).
@@ -121,7 +121,7 @@ it may be necessary to identify the master key and derivation path an
 xpub was derived with.
 
 For example, when following BIP44, it would be useful to describe a
-change chain directly as `xpub.../44'/0'/0'/1/i` where `xpub...`
+change chain directly as `xpub.../44'/0'/0'/1/*` where `xpub...`
 corresponds with the master key `m`. Unfortunately, since there are
 hardened derivation steps that follow the xpub, this descriptor does not
 let you compute scripts without access to the corresponding private keys.
