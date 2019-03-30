@@ -469,6 +469,7 @@ BOOST_AUTO_TEST_CASE(test_big_witness_transaction)
     for (int i=0; i<20; i++)
         threadGroup.create_thread(std::bind(&CCheckQueue<CScriptCheck>::Thread, std::ref(scriptcheckqueue)));
 
+    std::vector<CTxOut> outputs;
     std::vector<Coin> coins;
     for(uint32_t i = 0; i < mtx.vin.size(); i++) {
         Coin coin;
@@ -476,12 +477,14 @@ BOOST_AUTO_TEST_CASE(test_big_witness_transaction)
         coin.fCoinBase = false;
         coin.out.nValue = 1000;
         coin.out.scriptPubKey = scriptPubKey;
+        outputs.push_back(coin.out);
         coins.emplace_back(std::move(coin));
     }
+    std::shared_ptr<const std::vector<CTxOut>> outputs_ptr = std::make_shared<const std::vector<CTxOut>>(std::move(outputs));
 
     for(uint32_t i = 0; i < mtx.vin.size(); i++) {
         std::vector<CScriptCheck> vChecks;
-        CScriptCheck check(coins[tx.vin[i].prevout.n].out, tx, i, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS, false, &txdata);
+        CScriptCheck check(outputs_ptr, tx, i, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS, false, &txdata);
         vChecks.push_back(CScriptCheck());
         check.swap(vChecks.back());
         control.Add(vChecks);
