@@ -154,23 +154,27 @@ BOOST_AUTO_TEST_CASE(tx_valid)
             BOOST_CHECK_MESSAGE(CheckTransaction(tx, state), strTest);
             BOOST_CHECK(state.IsValid());
 
-            PrecomputedTransactionData txdata(tx);
-            for (unsigned int i = 0; i < tx.vin.size(); i++)
-            {
-                if (!mapprevOutScriptPubKeys.count(tx.vin[i].prevout))
-                {
+            std::vector<CTxOut> outputs;
+            outputs.resize(tx.vin.size());
+            for (unsigned int i = 0; i < tx.vin.size(); i++) {
+                if (!mapprevOutScriptPubKeys.count(tx.vin[i].prevout)) {
                     BOOST_ERROR("Bad test: " << strTest);
                     break;
                 }
-
-                CAmount amount = 0;
+                outputs[i].scriptPubKey = mapprevOutScriptPubKeys[tx.vin[i].prevout];
                 if (mapprevOutValues.count(tx.vin[i].prevout)) {
-                    amount = mapprevOutValues[tx.vin[i].prevout];
+                    outputs[i].nValue = mapprevOutValues[tx.vin[i].prevout];
                 }
+            }
+
+            PrecomputedTransactionData txdata(tx);
+            for (unsigned int i = 0; i < tx.vin.size(); i++)
+            {
+
                 unsigned int verify_flags = ParseScriptFlags(test[2].get_str());
                 const CScriptWitness *witness = &tx.vin[i].scriptWitness;
                 BOOST_CHECK_MESSAGE(VerifyScript(tx.vin[i].scriptSig, mapprevOutScriptPubKeys[tx.vin[i].prevout],
-                                                 witness, verify_flags, TransactionSignatureChecker(&tx, i, amount, txdata), &err),
+                                                 witness, verify_flags, TransactionSignatureChecker(&tx, i, outputs, txdata), &err),
                                     strTest);
                 BOOST_CHECK_MESSAGE(err == SCRIPT_ERR_OK, ScriptErrorString(err));
             }
@@ -240,23 +244,26 @@ BOOST_AUTO_TEST_CASE(tx_invalid)
             CValidationState state;
             fValid = CheckTransaction(tx, state) && state.IsValid();
 
-            PrecomputedTransactionData txdata(tx);
-            for (unsigned int i = 0; i < tx.vin.size() && fValid; i++)
-            {
-                if (!mapprevOutScriptPubKeys.count(tx.vin[i].prevout))
-                {
+            std::vector<CTxOut> outputs;
+            outputs.resize(tx.vin.size());
+            for (unsigned int i = 0; i < tx.vin.size(); i++) {
+                if (!mapprevOutScriptPubKeys.count(tx.vin[i].prevout)) {
                     BOOST_ERROR("Bad test: " << strTest);
                     break;
                 }
-
-                unsigned int verify_flags = ParseScriptFlags(test[2].get_str());
-                CAmount amount = 0;
+                outputs[i].scriptPubKey = mapprevOutScriptPubKeys[tx.vin[i].prevout];
                 if (mapprevOutValues.count(tx.vin[i].prevout)) {
-                    amount = mapprevOutValues[tx.vin[i].prevout];
+                    outputs[i].nValue = mapprevOutValues[tx.vin[i].prevout];
                 }
+            }
+
+            PrecomputedTransactionData txdata(tx);
+            for (unsigned int i = 0; i < tx.vin.size() && fValid; i++)
+            {
+                unsigned int verify_flags = ParseScriptFlags(test[2].get_str());
                 const CScriptWitness *witness = &tx.vin[i].scriptWitness;
                 fValid = VerifyScript(tx.vin[i].scriptSig, mapprevOutScriptPubKeys[tx.vin[i].prevout],
-                                      witness, verify_flags, TransactionSignatureChecker(&tx, i, amount, txdata), &err);
+                                      witness, verify_flags, TransactionSignatureChecker(&tx, i, outputs, txdata), &err);
             }
             BOOST_CHECK_MESSAGE(!fValid, strTest);
             BOOST_CHECK_MESSAGE(err != SCRIPT_ERR_OK, ScriptErrorString(err));
@@ -386,7 +393,7 @@ static void CheckWithFlag(const CTransactionRef& output, const CMutableTransacti
 {
     ScriptError error;
     CTransaction inputi(input);
-    bool ret = VerifyScript(inputi.vin[0].scriptSig, output->vout[0].scriptPubKey, &inputi.vin[0].scriptWitness, flags, TransactionSignatureChecker(&inputi, 0, output->vout[0].nValue), &error);
+    bool ret = VerifyScript(inputi.vin[0].scriptSig, output->vout[0].scriptPubKey, &inputi.vin[0].scriptWitness, flags, TransactionSignatureChecker(&inputi, 0, output->vout), &error);
     assert(ret == success);
 }
 

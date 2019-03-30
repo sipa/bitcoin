@@ -103,7 +103,7 @@ class MutableTransactionSignatureCreator : public BaseSignatureCreator {
     const CMutableTransaction* txTo;
     unsigned int nIn;
     int nHashType;
-    CAmount amount;
+    std::vector<CTxOut> m_outputs;
     const MutableTransactionSignatureChecker checker;
 
 public:
