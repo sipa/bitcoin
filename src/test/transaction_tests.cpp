@@ -167,7 +167,8 @@ BOOST_AUTO_TEST_CASE(tx_valid)
                 }
             }
 
-            PrecomputedTransactionData txdata(tx);
+            PrecomputedTransactionData txdata;
+            txdata.Init(tx, outputs);
             for (unsigned int i = 0; i < tx.vin.size(); i++)
             {
 
@@ -257,7 +258,8 @@ BOOST_AUTO_TEST_CASE(tx_invalid)
                 }
             }
 
-            PrecomputedTransactionData txdata(tx);
+            PrecomputedTransactionData txdata;
+            txdata.Init(tx, outputs);
             for (unsigned int i = 0; i < tx.vin.size() && fValid; i++)
             {
                 unsigned int verify_flags = ParseScriptFlags(test[2].get_str());
@@ -468,7 +470,7 @@ BOOST_AUTO_TEST_CASE(test_big_witness_transaction)
     CTransaction tx(deserialize, ssout);
 
     // check all inputs concurrently, with the cache
-    PrecomputedTransactionData txdata(tx);
+    PrecomputedTransactionData txdata;
     boost::thread_group threadGroup;
     CCheckQueue<CScriptCheck> scriptcheckqueue(128);
     CCheckQueueControl<CScriptCheck> control(&scriptcheckqueue);
@@ -487,6 +489,7 @@ BOOST_AUTO_TEST_CASE(test_big_witness_transaction)
         outputs.push_back(coin.out);
         coins.emplace_back(std::move(coin));
     }
+    txdata.Init(tx, outputs);
     std::shared_ptr<const std::vector<CTxOut>> outputs_ptr = std::make_shared<const std::vector<CTxOut>>(std::move(outputs));
 
     for(uint32_t i = 0; i < mtx.vin.size(); i++) {

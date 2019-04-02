@@ -125,7 +125,7 @@ struct PrecomputedTransactionData
     bool ready = false;
 
     template <class T>
-    explicit PrecomputedTransactionData(const T& tx);
+    void Init(const T& tx, const std::vector<CTxOut>& outputs_spent);
 };
 
 enum class SigVersion

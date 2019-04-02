@@ -1215,7 +1215,7 @@ uint256 GetOutputsHash(const T& txTo)
 } // namespace
 
 template <class T>
-PrecomputedTransactionData::PrecomputedTransactionData(const T& txTo)
+void PrecomputedTransactionData::Init(const T& txTo, const std::vector<CTxOut>& outputs_spent)
 {
     // Cache is calculated only for transactions with witness
     if (txTo.HasWitness()) {
@@ -1227,8 +1227,8 @@ PrecomputedTransactionData::PrecomputedTransactionData(const T& txTo)
 }
 
 // explicit instantiation
-template PrecomputedTransactionData::PrecomputedTransactionData(const CTransaction& txTo);
-template PrecomputedTransactionData::PrecomputedTransactionData(const CMutableTransaction& txTo);
+template void PrecomputedTransactionData::Init(const CTransaction& txTo, const std::vector<CTxOut>&);
+template void PrecomputedTransactionData::Init(const CMutableTransaction& txTo, const std::vector<CTxOut>&);
 
 template <class T>
 uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn, int nHashType, const std::vector<CTxOut>& outputs, SigVersion sigversion, const PrecomputedTransactionData* cache)
