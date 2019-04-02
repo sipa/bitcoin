@@ -138,7 +138,9 @@ BOOST_AUTO_TEST_CASE(sighash_test)
 
         uint256 sh, sho;
         sho = SignatureHashOld(scriptCode, CTransaction(txTo), nIn, nHashType);
-        sh = SignatureHash(scriptCode, txTo, nIn, nHashType, 0, SigVersion::BASE);
+        std::vector<CTxOut> outputs(txTo.vin.size());
+        outputs[nIn].nValue = 0;
+        sh = SignatureHash(scriptCode, txTo, nIn, nHashType, outputs, SigVersion::BASE);
         #if defined(PRINT_SIGHASH_JSON)
         CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
         ss << txTo;
@@ -204,7 +206,9 @@ BOOST_AUTO_TEST_CASE(sighash_from_data)
           continue;
         }
 
-        sh = SignatureHash(scriptCode, *tx, nIn, nHashType, 0, SigVersion::BASE);
+        std::vector<CTxOut> outputs(tx->vin.size());
+        outputs[nIn].nValue = 0;
+        sh = SignatureHash(scriptCode, *tx, nIn, nHashType, outputs, SigVersion::BASE);
         BOOST_CHECK_MESSAGE(sh.GetHex() == sigHashHex, strTest);
     }
 }
