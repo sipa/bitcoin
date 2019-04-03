@@ -1404,9 +1404,15 @@ uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn
 }
 
 template <class T>
-bool GenericTransactionSignatureChecker<T>::VerifySignature(const std::vector<unsigned char>& vchSig, const CPubKey& pubkey, const uint256& sighash) const
+bool GenericTransactionSignatureChecker<T>::VerifyECDSASignature(const std::vector<unsigned char>& vchSig, const CPubKey& pubkey, const uint256& sighash) const
 {
     return pubkey.Verify(sighash, vchSig);
+}
+
+template <class T>
+bool GenericTransactionSignatureChecker<T>::VerifySchnorrSignature(const std::vector<unsigned char>& sig, const XOnlyPubKey& pubkey, const uint256& sighash) const
+{
+    return pubkey.VerifySchnorr(sighash, sig);
 }
 
 template <class T>
@@ -1425,10 +1431,32 @@ bool GenericTransactionSignatureChecker<T>::CheckSig(const std::vector<unsigned 
 
     uint256 sighash = SignatureHash(scriptCode, *txTo, nIn, nHashType, amount, sigversion, this->txdata);
 
-    if (!VerifySignature(vchSig, pubkey, sighash))
+    if (!VerifyECDSASignature(vchSig, pubkey, sighash))
         return false;
 
     return true;
+}
+
+template <class T>
+bool GenericTransactionSignatureChecker<T>::CheckSigSchnorr(const std::vector<unsigned char>& sig_in, const std::vector<unsigned char>& pubkey_in, SigVersion sigversion) const
+{
+    std::vector<unsigned char> sig(sig_in);
+    if (sig.empty()) return false;
+
+    if (pubkey_in.size() != 32) return false;
+    XOnlyPubKey pubkey{uint256(pubkey_in)};
+
+    uint8_t hashtype = SIGHASH_TAPDEFAULT;
+    if (sig.size() == 65) {
+        hashtype = sig.back();
+        if (hashtype == SIGHASH_TAPDEFAULT) return false;
+        sig.pop_back();
+    }
+    if (sig.size() != 64) return false;
+    uint256 sighash;
+    bool ret = SignatureHashSchnorr(sighash, *txTo, nIn, hashtype, sigversion, *this->txdata);
+    if (!ret) return false;
+    return VerifySchnorrSignature(sig, pubkey, sighash);
 }
 
 template <class T>
