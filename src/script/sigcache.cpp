@@ -35,9 +35,17 @@ public:
     }
 
     void
-    ComputeEntry(uint256& entry, const uint256 &hash, const std::vector<unsigned char>& vchSig, const CPubKey& pubkey)
+    ComputeEntryECDSA(uint256& entry, const uint256 &hash, const std::vector<unsigned char>& vchSig, const CPubKey& pubkey)
     {
-        CSHA256().Write(nonce.begin(), 32).Write(hash.begin(), 32).Write(&pubkey[0], pubkey.size()).Write(&vchSig[0], vchSig.size()).Finalize(entry.begin());
+        unsigned char st = 'E';
+        CSHA256().Write(nonce.begin(), 32).Write(hash.begin(), 32).Write(&pubkey[0], pubkey.size()).Write(&st, 1).Write(&vchSig[0], vchSig.size()).Finalize(entry.begin());
+    }
+
+    void
+    ComputeEntrySchnorr(uint256& entry, const uint256 &hash, const std::vector<unsigned char>& sig, const XOnlyPubKey& pubkey)
+    {
+        unsigned char st = 'S';
+        CSHA256().Write(nonce.begin(), 32).Write(hash.begin(), 32).Write(&pubkey[0], pubkey.size()).Write(&st, 1).Write(&sig[0], sig.size()).Finalize(entry.begin());
     }
 
     bool
@@ -79,15 +87,25 @@ void InitSignatureCache()
             (nElems*sizeof(uint256)) >>20, (nMaxCacheSize*2)>>20, nElems);
 }
 
-bool CachingTransactionSignatureChecker::VerifySignature(const std::vector<unsigned char>& vchSig, const CPubKey& pubkey, const uint256& sighash) const
+bool CachingTransactionSignatureChecker::VerifyECDSASignature(const std::vector<unsigned char>& vchSig, const CPubKey& pubkey, const uint256& sighash) const
 {
     uint256 entry;
-    signatureCache.ComputeEntry(entry, sighash, vchSig, pubkey);
+    signatureCache.ComputeEntryECDSA(entry, sighash, vchSig, pubkey);
     if (signatureCache.Get(entry, !store))
         return true;
-    if (!TransactionSignatureChecker::VerifySignature(vchSig, pubkey, sighash))
+    if (!TransactionSignatureChecker::VerifyECDSASignature(vchSig, pubkey, sighash))
         return false;
     if (store)
         signatureCache.Set(entry);
+    return true;
+}
+
+bool CachingTransactionSignatureChecker::VerifySchnorrSignature(const std::vector<unsigned char>& sig, const XOnlyPubKey& pubkey, const uint256& sighash) const
+{
+    uint256 entry;
+    signatureCache.ComputeEntrySchnorr(entry, sighash, sig, pubkey);
+    if (signatureCache.Get(entry, !store)) return true;
+    if (!TransactionSignatureChecker::VerifySchnorrSignature(sig, pubkey, sighash)) return false;
+    if (store) signatureCache.Set(entry);
     return true;
 }
