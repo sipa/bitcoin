@@ -203,6 +203,19 @@ public:
     bool Derive(CPubKey& pubkeyChild, ChainCode &ccChild, unsigned int nChild, const ChainCode& cc) const;
 };
 
+class XOnlyPubKey {
+private:
+    uint256 m_keydata;
+
+public:
+    XOnlyPubKey(const uint256& in) : m_keydata(in) {}
+
+    bool VerifySchnorr(const uint256& hash, const std::vector<unsigned char>& vchSig) const;
+
+    const unsigned char& operator[](int pos) const { return *(m_keydata.begin() + pos); }
+    size_t size() const { return 32; }
+};
+
 struct CExtPubKey {
     unsigned char nDepth;
     unsigned char vchFingerprint[4];
