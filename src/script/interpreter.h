@@ -140,10 +140,18 @@ struct PrecomputedTransactionData
     explicit PrecomputedTransactionData(const T& tx);
 };
 
+struct TapscriptData
+{
+    uint256 m_tapscript_hash;
+    int16_t m_codeseparator_pos;
+};
+
 enum class SigVersion
 {
     BASE = 0,
     WITNESS_V0 = 1,
+    TAPROOT = 2,
+    TAPSCRIPT = 3,
 };
 
 /** Signature hash sizes */
@@ -151,7 +159,7 @@ static constexpr size_t WITNESS_V0_SCRIPTHASH_SIZE = 32;
 static constexpr size_t WITNESS_V0_KEYHASH_SIZE = 20;
 
 template <class T>
-uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn, int nHashType, const CAmount& amount, SigVersion sigversion, const PrecomputedTransactionData* cache = nullptr);
+uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn, int nHashType, const CAmount& amount, SigVersion sigversion, const PrecomputedTransactionData* cache = nullptr, const TapscriptData* tapscript_data = nullptr);
 
 class BaseSignatureChecker
 {
