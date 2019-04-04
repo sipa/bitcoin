@@ -300,7 +300,11 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
         return set_error(serror, SCRIPT_ERR_SCRIPT_SIZE);
     int nOpCount = 0;
     bool fRequireMinimal = (flags & SCRIPT_VERIFY_MINIMALDATA) != 0;
-
+    int16_t opcode_pos = -1;
+    TapscriptData tapscript_data;
+    tapscript_data.m_codeseparator_pos = opcode_pos;
+    if (sigversion == SigVersion::TAPSCRIPT)
+        CSHA256().Write(&script[0], script.size()).Finalize(tapscript_data.m_tapscript_hash.begin());
     try
     {
         while (pc < pend)
@@ -314,6 +318,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                 return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
             if (vchPushValue.size() > MAX_SCRIPT_ELEMENT_SIZE)
                 return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
+            ++opcode_pos;
 
             // Note how OP_RESERVED does not count towards the opcode limit.
             if (opcode > OP_16 && ++nOpCount > MAX_OPS_PER_SCRIPT)
@@ -908,6 +913,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
 
                     // Hash starts after the code separator
                     pbegincodehash = pc;
+                    tapscript_data.m_codeseparator_pos = opcode_pos;
                 }
                 break;
 
@@ -1266,7 +1272,7 @@ template PrecomputedTransactionData::PrecomputedTransactionData(const CTransacti
 template PrecomputedTransactionData::PrecomputedTransactionData(const CMutableTransaction& txTo);
 
 template <class T>
-uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn, int nHashType, const CAmount& amount, SigVersion sigversion, const PrecomputedTransactionData* cache)
+uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn, int nHashType, const CAmount& amount, SigVersion sigversion, const PrecomputedTransactionData* cache, const TapscriptData* tapscript_data)
 {
     assert(nIn < txTo.vin.size());
 
@@ -1314,6 +1320,81 @@ uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn
         ss << nHashType;
 
         return ss.GetHash();
+    }
+
+    if (sigversion == SigVersion::TAPROOT || sigversion == SigVersion::TAPSCRIPT) {
+        assert(cache && cache->ready && cache->m_amounts_spent_ready);
+        CHashWriter ss(SER_GETHASH, 0);
+
+        // This part could be optimized by initialising SHA256 with a constant midstate.
+        uint256 tag;
+        CSHA256().Write((unsigned char*)"TapSighash", 10).Finalize(tag.begin());
+        ss << tag << tag;
+
+        // Epoch
+        unsigned char epoch = 0;
+        ss << epoch;
+
+        // Hash type
+        assert((nHashType >= 0 && nHashType <= 3) || (nHashType >= 0x81 && nHashType <= 0x83));
+        unsigned char hash_type = static_cast<unsigned char>(nHashType);
+        ss << hash_type;
+
+        // Transaction level data
+        ss << txTo.nVersion;
+        ss << txTo.nLockTime;
+
+        if (!(hash_type & SIGHASH_ANYONECANPAY)) {
+            ss << cache->m_prevouts_hash;
+            ss << cache->m_amounts_spent_hash;
+            ss << cache->m_sequences_hash;
+        }
+        if ((hash_type & 3) != SIGHASH_SINGLE && (hash_type & 3) != SIGHASH_NONE) {
+            ss << cache->m_outputs_hash;
+        }
+
+        // Data about the input/prevout being spent
+        const CScript& scriptPubKey = cache->m_spent_outputs[nIn].scriptPubKey;
+        unsigned char spend_type = scriptPubKey.IsPayToScriptHash() ? 1 : 0;
+        const std::vector<std::vector<unsigned char> >* witstack = &txTo.vin[nIn].scriptWitness.stack;
+        if (witstack && witstack->size() > 1 && witstack->back().size() > 0 && witstack->back()[0] == 0xff)
+            spend_type |= 2;
+        if (sigversion == SigVersion::TAPSCRIPT)
+            spend_type |= 4;
+
+        ss << spend_type;
+        ss << scriptPubKey;
+
+        if (hash_type & SIGHASH_ANYONECANPAY) {
+            ss << txTo.vin[nIn].prevout;
+            ss << cache->m_spent_outputs[nIn].nValue;
+            ss << txTo.vin[nIn].nSequence;
+        } else {
+            const uint16_t input_index = static_cast<uint16_t>(nIn);
+            ss << input_index;
+        }
+        if (spend_type & 2) {
+            uint256 sha_annex;
+            CSHA256().Write(&witstack->back()[0], witstack->back().size()).Finalize(sha_annex.begin());
+            ss << sha_annex;
+        }
+
+        // Data about the output(s)
+        if ((hash_type & 3) == SIGHASH_SINGLE) {
+            assert(nIn < txTo.vout.size());
+            CHashWriter sha_single_output(SER_GETHASH, 0);
+            sha_single_output << txTo.vout[nIn];
+            ss << sha_single_output.GetSHA256();
+        }
+
+        // Additional data for tapscript
+        if (sigversion == SigVersion::TAPSCRIPT) {
+            assert(tapscript_data);
+            ss << tapscript_data->m_tapscript_hash;
+            ss << tapscript_data->m_codeseparator_pos;
+        }
+
+        return ss.GetSHA256();
     }
 
     static const uint256 one(uint256S("0000000000000000000000000000000000000000000000000000000000000001"));
