@@ -25,6 +25,10 @@ enum
     SIGHASH_NONE = 2,
     SIGHASH_SINGLE = 3,
     SIGHASH_ANYONECANPAY = 0x80,
+
+    SIGHASH_TAPDEFAULT = 0,
+    SIGHASH_TAPOUTPUTMASK = 3,
+    SIGHASH_TAPINPUTMASK = 0x80,
 };
 
 /** Script verification flags.
@@ -121,6 +125,11 @@ bool CheckSignatureEncoding(const std::vector<unsigned char> &vchSig, unsigned i
 
 struct PrecomputedTransactionData
 {
+    //! Single-SHA256 versions
+    uint256 m_prevouts_hash, m_sequences_hash, m_outputs_hash, m_amounts_spent_hash;
+    bool m_amounts_spent_ready = false;
+
+    //! Double-SHA256 versions
     uint256 hashPrevouts, hashSequence, hashOutputs;
     bool ready = false;
     std::vector<CTxOut> m_spent_outputs;
@@ -138,6 +147,7 @@ enum class SigVersion
 {
     BASE = 0,
     WITNESS_V0 = 1,
+    TAPROOT = 2,
 };
 
 /** Signature hash sizes */
@@ -146,6 +156,9 @@ static constexpr size_t WITNESS_V0_KEYHASH_SIZE = 20;
 
 template <class T>
 uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn, int nHashType, const CAmount& amount, SigVersion sigversion, const PrecomputedTransactionData* cache = nullptr);
+
+template <class T>
+bool SignatureHashTap(uint256& hash_out, const T& tx_to, unsigned int in_pos, uint8_t hash_type, SigVersion sigversion, const PrecomputedTransactionData& cache);
 
 class BaseSignatureChecker
 {
