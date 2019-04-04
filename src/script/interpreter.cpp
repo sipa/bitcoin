@@ -1266,6 +1266,80 @@ template PrecomputedTransactionData::PrecomputedTransactionData(const CTransacti
 template PrecomputedTransactionData::PrecomputedTransactionData(const CMutableTransaction& txTo);
 
 template <class T>
+bool SignatureHashTap(uint256& hash_out, const T& tx_to, unsigned int in_pos, int hashtype, SigVersion sigversion, const PrecomputedTransactionData& cache)
+{
+    assert(in_pos < tx_to.vin.size());
+
+    if (sigversion == SigVersion::TAPROOT) {
+        assert(cache.ready && cache.m_amounts_spent_ready);
+        CHashWriter ss(SER_GETHASH, 0);
+
+        // This part could be optimized by initialising SHA256 with a constant midstate.
+        uint256 tag;
+        CSHA256().Write((unsigned char*)"TapSighash", 10).Finalize(tag.begin());
+        ss << tag << tag;
+
+        // Epoch
+        unsigned char epoch = 0;
+        ss << epoch;
+
+        // Hash type
+        if ((hashtype < 0 || hashtype > 3) && (hashtype < 0x81 || hashtype > 0x83)) return false;
+        unsigned char hash_type = static_cast<unsigned char>(hashtype);
+        ss << hash_type;
+
+        // Transaction level data
+        ss << tx_to.nVersion;
+        ss << tx_to.nLockTime;
+
+        if (!(hash_type & SIGHASH_ANYONECANPAY)) {
+            ss << cache.m_prevouts_hash;
+            ss << cache.m_amounts_spent_hash;
+            ss << cache.m_sequences_hash;
+        }
+        if ((hash_type & 3) != SIGHASH_SINGLE && (hash_type & 3) != SIGHASH_NONE) {
+            ss << cache.m_outputs_hash;
+        }
+
+        // Data about the input/prevout being spent
+        const CScript& scriptPubKey = cache.m_spent_outputs[in_pos].scriptPubKey;
+        unsigned char spend_type = scriptPubKey.IsPayToScriptHash() ? 1 : 0;
+        const std::vector<std::vector<unsigned char> >* witstack = &tx_to.vin[in_pos].scriptWitness.stack;
+        if (witstack && witstack->size() > 1 && witstack->back().size() > 0 && witstack->back()[0] == 0xff) {
+            spend_type |= 2;
+        }
+
+        ss << spend_type;
+        ss << scriptPubKey;
+
+        if (hash_type & SIGHASH_ANYONECANPAY) {
+            ss << tx_to.vin[in_pos].prevout;
+            ss << cache.m_spent_outputs[in_pos].nValue;
+            ss << tx_to.vin[in_pos].nSequence;
+        } else {
+            const uint16_t input_index = static_cast<uint16_t>(in_pos);
+            ss << input_index;
+        }
+        if (spend_type & 2) {
+            ss << (CHashWriter(SER_GETHASH, 0) << witstack->back()).GetSHA256();
+        }
+
+        // Data about the output(s)
+        if ((hash_type & 3) == SIGHASH_SINGLE) {
+            if (in_pos >= tx_to.vout.size()) return false;
+            CHashWriter sha_single_output(SER_GETHASH, 0);
+            sha_single_output << tx_to.vout[in_pos];
+            ss << sha_single_output.GetSHA256();
+        }
+
+        hash_out = ss.GetSHA256();
+        return true;
+    }
+
+    assert(false);
+}
+
+template <class T>
 uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn, int nHashType, const CAmount& amount, SigVersion sigversion, const PrecomputedTransactionData* cache)
 {
     assert(nIn < txTo.vin.size());
@@ -1356,15 +1430,31 @@ bool GenericTransactionSignatureChecker<T>::CheckSig(const std::vector<unsigned 
     std::vector<unsigned char> vchSig(vchSigIn);
     if (vchSig.empty())
         return false;
-    int nHashType = vchSig.back();
-    vchSig.pop_back();
-
-    uint256 sighash = SignatureHash(scriptCode, *txTo, nIn, nHashType, amount, sigversion, this->txdata);
-
-    if (!VerifySignature(vchSig, pubkey, sighash, SignatureType::ECDSA))
-        return false;
-
-    return true;
+    switch (sigversion) {
+    case SigVersion::BASE:
+    case SigVersion::WITNESS_V0:
+        {
+            int nHashType = vchSig.back();
+            vchSig.pop_back();
+            uint256 sighash = SignatureHash(scriptCode, *txTo, nIn, nHashType, amount, sigversion, this->txdata);
+            return VerifySignature(vchSig, pubkey, sighash, SignatureType::ECDSA);
+        }
+    case SigVersion::TAPROOT:
+        {
+            int hashtype = 0;
+            if (vchSig.size() == 65) {
+                hashtype = vchSig.back();
+                vchSig.pop_back();
+            }
+            if (vchSig.size() != 64) return false;
+            uint256 sighash;
+            bool ret = SignatureHashTap(sighash, *txTo, nIn, hashtype, sigversion, *this->txdata);
+            if (!ret) return false;
+            return VerifySignature(vchSig, pubkey, sighash, SignatureType::SCHNORR);
+        }
+    default:
+        assert(false);
+    }
 }
 
 template <class T>
