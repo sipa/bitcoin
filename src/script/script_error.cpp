@@ -71,6 +71,8 @@ const char* ScriptErrorString(const ScriptError serror)
             return "NOPx reserved for soft-fork upgrades";
         case SCRIPT_ERR_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM:
             return "Witness version reserved for soft-fork upgrades";
+        case SCRIPT_ERR_DISCOURAGE_UPGRADABLE_PUBKEYTYPE:
+            return "Public version reserved for soft-fork upgrades";
         case SCRIPT_ERR_PUBKEYTYPE:
             return "Public key is neither compressed or uncompressed";
         case SCRIPT_ERR_CLEANSTACK:
@@ -93,6 +95,14 @@ const char* ScriptErrorString(const ScriptError serror)
             return "Using OP_CODESEPARATOR in non-witness script";
         case SCRIPT_ERR_SIG_FINDANDDELETE:
             return "Signature is found in scriptCode";
+        case SCRIPT_ERR_CHECKDLSVERIFY:
+            return "Script failed an OP_CHECKDLSVERIFY operation";
+        case SCRIPT_ERR_SIG_DLS_SIZE:
+            return "Invalid discrete logarithm signature size";
+        case SCRIPT_ERR_WEIGHT_DLS_RATIO:
+            return "Too many passing OP_CHECKDLS* relative to input witness size";
+        case SCRIPT_ERR_SIG_UNMATCHED_SINGLE:
+            return "Using SIGHASH_SINGLE without a matching output";
         case SCRIPT_ERR_UNKNOWN_ERROR:
         case SCRIPT_ERR_ERROR_COUNT:
         default: break;

@@ -186,35 +186,47 @@ bool static IsLowDERSignature(const valtype &vchSig, ScriptError* serror) {
     return true;
 }
 
-bool static IsDefinedHashtypeSignature(const valtype &vchSig) {
-    if (vchSig.size() == 0) {
-        return false;
-    }
-    unsigned char nHashType = vchSig[vchSig.size() - 1] & (~(SIGHASH_ANYONECANPAY));
-    if (nHashType < SIGHASH_ALL || nHashType > SIGHASH_SINGLE)
-        return false;
-
-    return true;
+bool static IsDefinedHashtype(const unsigned char &hash_type) {
+    if (hash_type >= SIGHASH_ALL && hash_type <= SIGHASH_SINGLE)
+        return true;
+    if (hash_type >= (SIGHASH_ALL|SIGHASH_ANYONECANPAY) && hash_type <= (SIGHASH_SINGLE|SIGHASH_ANYONECANPAY))
+        return true;
+    return false;
 }
 
-bool CheckSignatureEncoding(const std::vector<unsigned char> &vchSig, unsigned int flags, ScriptError* serror) {
+bool CheckSignatureEncoding(const std::vector<unsigned char> &vchSig, unsigned int flags, const SigVersion &sigversion, ScriptError* serror) {
     // Empty signature. Not strictly DER encoded, but allowed to provide a
     // compact way to provide an invalid signature for use with CHECK(MULTI)SIG
     if (vchSig.size() == 0) {
         return true;
+    }
+    if (sigversion >= SigVersion::TAPROOT) {
+        if (vchSig.size() == 64)
+            return true;
+        if (vchSig.size() == 65) {
+            if (IsDefinedHashtype(vchSig.back()))
+                return true;
+            return set_error(serror, SCRIPT_ERR_SIG_HASHTYPE);
+        }
+        return set_error(serror, SCRIPT_ERR_SIG_DLS_SIZE);
     }
     if ((flags & (SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_LOW_S | SCRIPT_VERIFY_STRICTENC)) != 0 && !IsValidSignatureEncoding(vchSig)) {
         return set_error(serror, SCRIPT_ERR_SIG_DER);
     } else if ((flags & SCRIPT_VERIFY_LOW_S) != 0 && !IsLowDERSignature(vchSig, serror)) {
         // serror is set
         return false;
-    } else if ((flags & SCRIPT_VERIFY_STRICTENC) != 0 && !IsDefinedHashtypeSignature(vchSig)) {
+    } else if ((flags & SCRIPT_VERIFY_STRICTENC) != 0 && !IsDefinedHashtype(vchSig.back())) {
         return set_error(serror, SCRIPT_ERR_SIG_HASHTYPE);
     }
     return true;
 }
 
 bool static CheckPubKeyEncoding(const valtype &vchPubKey, unsigned int flags, const SigVersion &sigversion, ScriptError* serror) {
+    if (sigversion >= SigVersion::TAPROOT) {
+        if (IsCompressedPubKey(vchPubKey))
+            return true;
+        return set_error(serror, SCRIPT_ERR_WITNESS_PUBKEYTYPE);
+    }
     if ((flags & SCRIPT_VERIFY_STRICTENC) != 0 && !IsCompressedOrUncompressedPubKey(vchPubKey)) {
         return set_error(serror, SCRIPT_ERR_PUBKEYTYPE);
     }
@@ -920,6 +932,9 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                 case OP_CHECKSIG:
                 case OP_CHECKSIGVERIFY:
                 {
+                    if (sigversion >= SigVersion::TAPROOT)
+                        return set_error(serror, SCRIPT_ERR_DISABLED_OPCODE);
+
                     // (sig pubkey -- bool)
                     if (stack.size() < 2)
                         return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
@@ -937,7 +952,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                             return set_error(serror, SCRIPT_ERR_SIG_FINDANDDELETE);
                     }
 
-                    if (!CheckSignatureEncoding(vchSig, flags, serror) || !CheckPubKeyEncoding(vchPubKey, flags, sigversion, serror)) {
+                    if (!CheckSignatureEncoding(vchSig, flags, sigversion, serror) || !CheckPubKeyEncoding(vchPubKey, flags, sigversion, serror)) {
                         //serror is set
                         return false;
                     }
@@ -962,6 +977,9 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                 case OP_CHECKMULTISIG:
                 case OP_CHECKMULTISIGVERIFY:
                 {
+                    if (sigversion >= SigVersion::TAPROOT)
+                        return set_error(serror, SCRIPT_ERR_DISABLED_OPCODE);
+
                     // ([sig ...] num_of_signatures [pubkey ...] num_of_pubkeys -- bool)
 
                     int i = 1;
@@ -1013,7 +1031,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                         // Note how this makes the exact order of pubkey/signature evaluation
                         // distinguishable by CHECKMULTISIG NOT if the STRICTENC flag is set.
                         // See the script_(in)valid tests for details.
-                        if (!CheckSignatureEncoding(vchSig, flags, serror) || !CheckPubKeyEncoding(vchPubKey, flags, sigversion, serror)) {
+                        if (!CheckSignatureEncoding(vchSig, flags, sigversion, serror) || !CheckPubKeyEncoding(vchPubKey, flags, sigversion, serror)) {
                             // serror is set
                             return false;
                         }
@@ -1065,6 +1083,68 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                             popstack(stack);
                         else
                             return set_error(serror, SCRIPT_ERR_CHECKMULTISIGVERIFY);
+                    }
+                }
+                break;
+
+                case OP_CHECKDLS:
+                case OP_CHECKDLSVERIFY:
+                case OP_CHECKDLSADD:
+                {
+                    if (sigversion <= SigVersion::WITNESS_V0)
+                        return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
+
+                    if (opcode == OP_CHECKDLSADD) {
+                        // (dls x pubkey -- out)
+                        // OP_CHECKDLSADD is a shorthand for OP_ROT OP_SWAP OP_CHECKDLS OP_ADD
+                        if (stack.size() < 3)
+                            return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                        swap(stacktop(-3), stacktop(-2)); // OP_ROT followed by OP_SWAP
+                    }
+
+                    // OP_CHECKDLS (dls pubkey -- bool)
+                    else if (stack.size() < 2)
+                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+                    valtype& sig    = stacktop(-2);
+                    valtype& pubkey = stacktop(-1);
+
+                    /*
+                     *  The following validation sequence is consensus critical. Please note how --
+                     *    upgradable public key versions precede other rules;
+                     *    the script execution fails when using empty signature with invalid public key;
+                     *    the script execution fails when using non-empty invalid signature.
+                     */
+                    bool fSuccess = true;
+                    if (pubkey.size() > 0 && (pubkey[0] <= 1 || pubkey[0] == 5 || pubkey[0] >= 8)) {
+                        if ((flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM) != 0)
+                            return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_PUBKEYTYPE);
+                        fSuccess = !sig.empty();
+                    }
+                    else if (!CheckSignatureEncoding(sig, flags, sigversion, serror) || !CheckPubKeyEncoding(pubkey, flags, sigversion, serror))
+                        return false; // serror is set.
+                    else if (sig.size() == 0)
+                        fSuccess = false;
+                    else if (!checker.CheckDLS(sig, pubkey, sigversion, tapscript_data))
+                        return false; //serror is set
+
+                    popstack(stack);
+                    popstack(stack);
+                    stack.push_back(fSuccess ? vchTrue : vchFalse);
+                    if (opcode == OP_CHECKDLSVERIFY) {
+                        if (fSuccess)
+                            popstack(stack);
+                        else
+                            return set_error(serror, SCRIPT_ERR_CHECKDLSVERIFY);
+                    }
+                    else if (opcode == OP_CHECKDLSADD) {
+                        // OP_ADD
+                        CScriptNum bn1(stacktop(-2), fRequireMinimal);
+                        CScriptNum bn2(stacktop(-1), fRequireMinimal);
+                        CScriptNum bn = bn1 + bn2;
+                        popstack(stack);
+                        popstack(stack);
+                        stack.push_back(bn.getvch());
                     }
                 }
                 break;
@@ -1336,8 +1416,8 @@ uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn
         ss << epoch;
 
         // Hash type
-        assert((nHashType >= 0 && nHashType <= 3) || (nHashType >= 0x81 && nHashType <= 0x83));
         unsigned char hash_type = static_cast<unsigned char>(nHashType);
+        assert(hash_type == 0 || IsDefinedHashtype(hash_type));
         ss << hash_type;
 
         // Transaction level data
@@ -1444,6 +1524,32 @@ bool GenericTransactionSignatureChecker<T>::CheckSig(const std::vector<unsigned 
 
     if (!VerifySignature(vchSig, pubkey, sighash, SignatureType::ECDSA))
         return false;
+
+    return true;
+}
+
+template <class T>
+bool GenericTransactionSignatureChecker<T>::CheckDLS(const std::vector<unsigned char>& sig_in, const std::vector<unsigned char>& pubkey_in, SigVersion sigversion, TapscriptData& tapscript_data, ScriptError* serror) const
+{
+    CPubKey pubkey(pubkey_in);
+    std::vector<unsigned char> sig(sig_in);
+    assert (!sig.empty());
+    int hash_type = 0;
+    if (sig.size() == 65) {
+        hash_type = sig.back();
+        sig.pop_back();
+        if ((hash_type & 3) == SIGHASH_SINGLE && nIn >= txTo->vout.size())
+            return set_error(serror, SCRIPT_ERR_SIG_UNMATCHED_SINGLE);
+    }
+
+    uint256 sighash = SignatureHash(CScript(), *txTo, nIn, hash_type, amount, sigversion, this->txdata, &tapscript_data);
+
+    if (!VerifySignature(sig, pubkey, sighash, SignatureType::SCHNORR))
+        return set_error(serror, SCRIPT_ERR_SIG_NULLFAIL);
+
+    // Please note how the first passing OP_CHECKDLS* is not counted
+    if (tapscript_data.m_dls_passed++ * MIN_WEIGHT_PER_DLS_PASSED > ::GetSerializeSize(txTo->vin[nIn].scriptWitness.stack, PROTOCOL_VERSION))
+        return set_error(serror, SCRIPT_ERR_WEIGHT_DLS_RATIO);
 
     return true;
 }
