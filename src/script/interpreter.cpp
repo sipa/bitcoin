@@ -1305,7 +1305,7 @@ bool SignatureHashTap(uint256& hash_out, const T& tx_to, unsigned int in_pos, in
         const CScript& scriptPubKey = cache.m_spent_outputs[in_pos].scriptPubKey;
         unsigned char spend_type = scriptPubKey.IsPayToScriptHash() ? 1 : 0;
         const std::vector<std::vector<unsigned char> >* witstack = &tx_to.vin[in_pos].scriptWitness.stack;
-        if (witstack && witstack->size() > 1 && witstack->back().size() > 0 && witstack->back()[0] == 0xff) {
+        if (witstack && witstack->size() > 1 && !witstack->back().empty() && witstack->back()[0] == 0xff) {
             spend_type |= 2;
         }
 
@@ -1573,6 +1573,57 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
         } else {
             return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WRONG_LENGTH);
         }
+    } else if ((flags & SCRIPT_VERIFY_TAPROOT) && witversion == 1 && program.size() == 33 && (program[0] & 0xfe) == 0) {
+        std::vector<unsigned char> pubkey = program;
+        pubkey[0] = 2 + (pubkey[0] & 1);
+        stack = witness.stack;
+        if (stack.size() == 0) return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WITNESS_EMPTY);
+        if (stack.size() >= 2 && !stack.back().empty() && stack.back()[0] == 0xff) {
+            // Drop annex
+            if (flags & SCRIPT_VERIFY_DISCOURAGE_UNKNOWN_ANNEX) return set_error(serror, SCRIPT_ERR_DISCOURAGE_UNKNOWN_ANNEX);
+            stack.pop_back();
+        }
+        if (stack.size() == 1) {
+            // Key path spending
+            if (!checker.CheckSig(stack[0], pubkey, /* scriptCode is ignored */ {}, SigVersion::TAPROOT)) {
+                return set_error(serror, SCRIPT_ERR_TAPROOT_INVALID_SIG);
+            }
+            return set_success(serror);
+        }
+        // Script path spending
+        auto control = std::move(stack.back());
+        stack.pop_back();
+        scriptPubKey = CScript(stack.back().begin(), stack.back().end());
+        stack.pop_back();
+        if (control.size() < 33 || control.size() > 33 + 32*32 || (control.size() % 32) != 1) {
+            return set_error(serror, SCRIPT_ERR_TAPROOT_WRONG_CONTROL_SIZE);
+        }
+        int path_len = (control.size() - 33) / 32;
+        std::vector<unsigned char> basekey(control.begin(), control.begin() + 33);
+        basekey[0] = 2 + (basekey[0] & 1);
+        CPubKey base(basekey.begin(), basekey.end());
+        CPubKey outpoint(pubkey.begin(), pubkey.end());
+        CHashWriter ss_leaf(SER_GETHASH, 0);
+        uint256 tag;
+        CSHA256().Write((unsigned char*)"TapLeaf", 7).Finalize(tag.begin());
+        ss_leaf << tag << tag << Span<const unsigned char>(control.data(), 33) << scriptPubKey;
+        uint256 k = ss_leaf.GetSHA256();
+        CSHA256().Write((unsigned char*)"TapBranch", 9).Finalize(tag.begin());
+        for (int i = 0; i < path_len; ++i) {
+            CHashWriter ss_branch(SER_GETHASH, 0);
+            ss_branch << tag << tag;
+            if (std::lexicographical_compare(k.begin(), k.end(), control.begin() + 33 + 32*i, control.begin() + 65 + 32*i)) {
+               ss_branch << k << Span<const unsigned char>(control.data() + 33 + 32*i, 32);
+            } else {
+               ss_branch << Span<const unsigned char>(control.data() + 33 + 32*i, 32) << k;
+            }
+            k = ss_branch.GetSHA256();
+        }
+        if (!outpoint.CheckPayToContract(base, k)) return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+        if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_TAPROOT_VERSION) {
+            return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_TAPROOT_VERSION);
+        }
+        return set_success(serror);
     } else if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM) {
         return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM);
     } else {
