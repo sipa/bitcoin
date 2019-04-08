@@ -215,8 +215,10 @@ public:
      * If the signature is not 64 bytes, or the public key is not fully valid, false is returned.
      */
     bool VerifySchnorr(const uint256& hash, const std::vector<unsigned char>& vchSig) const;
+    bool CheckPayToContract(const XOnlyPubKey& base, const uint256& hash, bool sign) const;
 
     const unsigned char& operator[](int pos) const { return *(m_keydata.begin() + pos); }
+    const unsigned char* data() const { return m_keydata.begin(); }
     size_t size() const { return 32; }
 };
 

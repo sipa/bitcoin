@@ -120,6 +120,18 @@ enum
     // Making OP_CODESEPARATOR and FindAndDelete fail any non-segwit scripts
     //
     SCRIPT_VERIFY_CONST_SCRIPTCODE = (1U << 16),
+
+    // Taproot validation
+    //
+    SCRIPT_VERIFY_TAPROOT = (1U << 17),
+
+    // Making unknown taproot leaf versions non-standard
+    //
+    SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_TAPROOT_VERSION = (1U << 18),
+
+    // Making the use of (unknown) annexes non-standard (currently no annexes are known)
+    //
+    SCRIPT_VERIFY_DISCOURAGE_UNKNOWN_ANNEX = (1U << 19),
 };
 
 bool CheckSignatureEncoding(const std::vector<unsigned char> &vchSig, unsigned int flags, ScriptError* serror);
@@ -146,14 +158,21 @@ struct PrecomputedTransactionData
 
 enum class SigVersion
 {
-    BASE = 0,
-    WITNESS_V0 = 1,
-    TAPROOT = 2,
+    BASE = 0,        //!< Bare scripts and P2SH redeemscripts
+    WITNESS_V0 = 1,  //!< Witness v0 (P2WPKH and P2WSH)
+    TAPROOT = 2,     //!< Witness v1 with non-P2SH 32 byte program (Taproot), key path spending
 };
 
 /** Signature hash sizes */
 static constexpr size_t WITNESS_V0_SCRIPTHASH_SIZE = 32;
 static constexpr size_t WITNESS_V0_KEYHASH_SIZE = 20;
+
+static constexpr uint8_t TAPROOT_LEAF_MASK = 0xfe;
+static constexpr size_t TAPROOT_PROGRAM_SIZE = 32;
+static constexpr size_t TAPROOT_CONTROL_BASE_SIZE = 33;
+static constexpr size_t TAPROOT_CONTROL_NODE_SIZE = 32;
+static constexpr size_t TAPROOT_CONTROL_MAX_NODE_COUNT = 128;
+static constexpr size_t TAPROOT_CONTROL_MAX_SIZE = TAPROOT_CONTROL_BASE_SIZE + TAPROOT_CONTROL_NODE_SIZE * TAPROOT_CONTROL_MAX_NODE_COUNT;
 
 template <class T>
 uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn, int nHashType, const CAmount& amount, SigVersion sigversion, const PrecomputedTransactionData* cache = nullptr);
