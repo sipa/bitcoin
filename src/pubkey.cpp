@@ -176,6 +176,16 @@ bool XOnlyPubKey::VerifySchnorr(const uint256 &hash, const std::vector<unsigned 
     return secp256k1_schnorrsig_verify(secp256k1_context_verify, &sig, hash.begin(), &pubkey);
 }
 
+bool XOnlyPubKey::CheckPayToContract(const XOnlyPubKey& base, const uint256& hash, bool negated) const
+{
+    secp256k1_xonly_pubkey base_point, output_point_x;
+    secp256k1_pubkey output_point;
+    if (!secp256k1_xonly_pubkey_parse(secp256k1_context_verify, &base_point, base.data())) return false;
+    if (!secp256k1_xonly_pubkey_parse(secp256k1_context_verify, &output_point_x, m_keydata.begin())) return false;
+    if (!secp256k1_xonly_pubkey_to_pubkey(secp256k1_context_verify, &output_point, &output_point_x, negated)) return false;
+    return secp256k1_xonly_pubkey_tweak_verify(secp256k1_context_verify, &output_point, &base_point, hash.begin());
+}
+
 bool CPubKey::Verify(const uint256 &hash, const std::vector<unsigned char>& vchSig) const {
     if (!IsValid())
         return false;
