@@ -211,8 +211,10 @@ public:
     XOnlyPubKey(const uint256& in) : m_keydata(in) {}
 
     bool VerifySchnorr(const uint256& hash, const std::vector<unsigned char>& vchSig) const;
+    bool CheckPayToContract(const XOnlyPubKey& base, const uint256& hash, bool sign) const;
 
     const unsigned char& operator[](int pos) const { return *(m_keydata.begin() + pos); }
+    const unsigned char* data() const { return m_keydata.begin(); }
     size_t size() const { return 32; }
 };
 
