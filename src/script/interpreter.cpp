@@ -1582,7 +1582,7 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
         if (stack.size() == 0) return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WITNESS_EMPTY);
         if (stack.size() >= 2 && witness.stack.back()[0] == 0xff) {
             // Drop annex
-            if (flags & SCRIPT_VERIFY_UNKNOWN_ANNEX) return set_error(serror, SCRIPT_ERR_DISCOURAGE_UNKNOWN_ANNEX);
+            if (flags & SCRIPT_VERIFY_DISCOURAGE_UNKNOWN_ANNEX) return set_error(serror, SCRIPT_ERR_DISCOURAGE_UNKNOWN_ANNEX);
             stack.pop_back();
         }
         if (stack.size() == 1) {
@@ -1608,7 +1608,7 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
         CHashWriter ss_leaf(SER_GETHASH, 0);
         uint256 tag;
         CSHA256().Write((unsigned char*)"TapLeaf", 7).Finalize(tag.begin());
-        ss_leaf << tag << tag << Span<const unsigned char>(control.data(), 33);
+        ss_leaf << tag << tag << Span<const unsigned char>(control.data(), 33) << Span<const unsigned char>(scriptPubKey.data(), scriptPubKey.size());
         uint256 k = ss_leaf.GetSHA256();
         CSHA256().Write((unsigned char*)"TapBranch", 9).Finalize(tag.begin());
         for (int i = 0; i < path_len; ++i) {
