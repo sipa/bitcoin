@@ -590,4 +590,6 @@ public:
     virtual ~CReserveScript() {}
 };
 
+bool IsOpSuccess(const opcodetype& opcode);
+
 #endif // BITCOIN_SCRIPT_SCRIPT_H

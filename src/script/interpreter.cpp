@@ -475,7 +475,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                         if (stack.size() < 1)
                             return set_error(serror, SCRIPT_ERR_UNBALANCED_CONDITIONAL);
                         valtype& vch = stacktop(-1);
-                        if (sigversion == SigVersion::WITNESS_V0 && (flags & SCRIPT_VERIFY_MINIMALIF)) {
+                        if (sigversion >= SigVersion::TAPSCRIPT || (sigversion == SigVersion::WITNESS_V0 && (flags & SCRIPT_VERIFY_MINIMALIF))) {
                             if (vch.size() > 1)
                                 return set_error(serror, SCRIPT_ERR_MINIMALIF);
                             if (vch.size() == 1 && vch[0] != 1)
@@ -1551,8 +1551,10 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
 {
     std::vector<std::vector<unsigned char> > stack;
     CScript scriptPubKey;
+    SigVersion sigversion;
 
     if (witversion == 0) {
+        sigversion = SigVersion::WITNESS_V0;
         if (program.size() == WITNESS_V0_SCRIPTHASH_SIZE) {
             // Version 0 segregated witness program: SHA256(CScript) inside the program, CScript + inputs in witness
             if (witness.stack.size() == 0) {
@@ -1622,10 +1624,28 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
             k = ss_branch.GetSHA256();
         }
         if (!outpoint.CheckPayToContract(base, k)) return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
-        if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_TAPROOT_VERSION) {
+        if ((control[0] & 0xfe) == 0xc0) {
+            sigversion = SigVersion::TAPSCRIPT;
+            CScript::const_iterator pc = scriptPubKey.begin();
+            while (pc < scriptPubKey.end()) {
+                opcodetype opcode;
+                if (!scriptPubKey.GetOp(pc, opcode)) {
+                    // Note how this condition would not be reached if an unknown OP_SUCCESSx was found
+                    return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
+                }
+                // New opcodes will be listed here. May use a different sigversion to modify existing opcodes.
+                if (IsOpSuccess(opcode)) {
+                    if (flags & SCRIPT_VERIFY_DISCOURAGE_OP_SUCCESS)
+                        return set_error(serror, SCRIPT_ERR_DISCOURAGE_OP_SUCCESS);
+                    return set_success(serror);
+                }
+            }
+        }
+        else if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_TAPROOT_VERSION) {
             return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_TAPROOT_VERSION);
         }
-        return set_success(serror);
+        else
+            return set_success(serror);
     } else if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM) {
         return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM);
     } else {
@@ -1639,7 +1659,7 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
             return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
     }
 
-    if (!EvalScript(stack, scriptPubKey, flags, checker, SigVersion::WITNESS_V0, serror)) {
+    if (!EvalScript(stack, scriptPubKey, flags, checker, sigversion, serror)) {
         return false;
     }
 

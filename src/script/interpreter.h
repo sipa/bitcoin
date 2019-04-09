@@ -126,6 +126,9 @@ enum
 
     // Making unknown taproot inner versions non-standard
     SCRIPT_VERIFY_DISCOURAGE_UNKNOWN_ANNEX = (1U << 19),
+
+    // Making unknown OP_SUCCESS non-standard
+    SCRIPT_VERIFY_DISCOURAGE_OP_SUCCESS = (1U << 20),
 };
 
 bool CheckSignatureEncoding(const std::vector<unsigned char> &vchSig, unsigned int flags, ScriptError* serror);
@@ -155,6 +158,7 @@ enum class SigVersion
     BASE = 0,
     WITNESS_V0 = 1,
     TAPROOT = 2,
+    TAPSCRIPT = 3,
 };
 
 /** Signature hash sizes */

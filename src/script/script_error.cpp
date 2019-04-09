@@ -75,6 +75,8 @@ const char* ScriptErrorString(const ScriptError serror)
             return "Taproot version reserved for soft-fork upgrades";
         case SCRIPT_ERR_DISCOURAGE_UNKNOWN_ANNEX:
             return "Unknown input annex reserved for soft-fork upgrades";
+        case SCRIPT_ERR_DISCOURAGE_OP_SUCCESS:
+            return "SUCCESSx reserved for soft-fork upgrades";
         case SCRIPT_ERR_PUBKEYTYPE:
             return "Public key is neither compressed or uncompressed";
         case SCRIPT_ERR_CLEANSTACK:
