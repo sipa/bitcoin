@@ -300,6 +300,9 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
         return set_error(serror, SCRIPT_ERR_SCRIPT_SIZE);
     int nOpCount = 0;
     bool fRequireMinimal = (flags & SCRIPT_VERIFY_MINIMALDATA) != 0;
+    uint32_t sigops_passed = 0;
+    int16_t opcode_pos = -1;
+    execdata.m_codeseparator_pos = opcode_pos;
 
     try
     {
@@ -314,6 +317,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                 return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
             if (vchPushValue.size() > MAX_SCRIPT_ELEMENT_SIZE)
                 return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
+            ++opcode_pos;
 
             // Note how OP_RESERVED does not count towards the opcode limit.
             if (opcode > OP_16 && ++nOpCount > MAX_OPS_PER_SCRIPT)
@@ -475,7 +479,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                         if (stack.size() < 1)
                             return set_error(serror, SCRIPT_ERR_UNBALANCED_CONDITIONAL);
                         valtype& vch = stacktop(-1);
-                        if (sigversion == SigVersion::WITNESS_V0 && (flags & SCRIPT_VERIFY_MINIMALIF)) {
+                        if (sigversion == SigVersion::TAPSCRIPT || (sigversion == SigVersion::WITNESS_V0 && (flags & SCRIPT_VERIFY_MINIMALIF))) {
                             if (vch.size() > 1)
                                 return set_error(serror, SCRIPT_ERR_MINIMALIF);
                             if (vch.size() == 1 && vch[0] != 1)
@@ -908,19 +912,34 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
 
                     // Hash starts after the code separator
                     pbegincodehash = pc;
+                    execdata.m_codeseparator_pos = opcode_pos;
                 }
                 break;
 
                 case OP_CHECKSIG:
                 case OP_CHECKSIGVERIFY:
+                case OP_CHECKSIGADD:
                 {
+                    if (opcode == OP_CHECKSIGADD && sigversion <= SigVersion::WITNESS_V0) {
+                        return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
+                    }
+                    int args = (opcode == OP_CHECKSIGADD) ? 3 : 2;
+
                     // (sig pubkey -- bool)
-                    if (stack.size() < 2)
+                    if (stack.size() < (size_t)args)
                         return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
 
-                    valtype& vchSig    = stacktop(-2);
+                    valtype& vchSig    = stacktop(-args);
                     valtype& vchPubKey = stacktop(-1);
+                    CScriptNum num(0);
+                    if (opcode == OP_CHECKSIGADD) num = CScriptNum(stacktop(-2), fRequireMinimal);
 
+                    bool fSuccess;
+
+                    switch (sigversion)
+                    {
+                    case SigVersion::BASE:
+                    case SigVersion::WITNESS_V0:
                     // Subset of script starting at the most recent codeseparator
                     execdata.m_scriptcode = CScript(pbegincodehash, pend);
 
@@ -935,27 +954,57 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                         //serror is set
                         return false;
                     }
-                    bool fSuccess = checker.CheckSig(vchSig, vchPubKey, execdata, sigversion);
+                    fSuccess = checker.CheckSig(vchSig, vchPubKey, execdata, sigversion);
 
                     if (!fSuccess && (flags & SCRIPT_VERIFY_NULLFAIL) && vchSig.size())
                         return set_error(serror, SCRIPT_ERR_SIG_NULLFAIL);
+                    break;
 
-                    popstack(stack);
-                    popstack(stack);
-                    stack.push_back(fSuccess ? vchTrue : vchFalse);
-                    if (opcode == OP_CHECKSIGVERIFY)
+                    case SigVersion::TAPSCRIPT:
                     {
-                        if (fSuccess)
-                            popstack(stack);
-                        else
-                            return set_error(serror, SCRIPT_ERR_CHECKSIGVERIFY);
+                        /*
+                         *  The following validation sequence is consensus critical. Please note how --
+                         *    upgradable public key versions precede other rules;
+                         *    the script execution fails when using empty signature with invalid public key;
+                         *    the script execution fails when using non-empty invalid signature.
+                         */
+                        fSuccess = !vchSig.empty();
+                        if (vchPubKey.empty() || vchPubKey[0] == 4 || vchPubKey[0] == 6 || vchPubKey[0] == 7) {
+                            return set_error(serror, SCRIPT_ERR_WITNESS_PUBKEYTYPE);
+                        } else if (vchPubKey[0] == 2 || vchPubKey[0] == 3) {
+                            if (!IsCompressedPubKey(vchPubKey)) return set_error(serror, SCRIPT_ERR_WITNESS_PUBKEYTYPE);
+                            if (fSuccess && !checker.CheckSig(vchSig, vchPubKey, execdata, sigversion)) {
+                                return set_error(serror, SCRIPT_ERR_SIG_NULLFAIL);
+                            }
+                        } else {
+                            if ((flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_PUBKEYTYPE) != 0) {
+                                return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_PUBKEYTYPE);
+                            }
+                        }
+                        // Note how the first passing signature is not counted.
+                        // Passing with upgradable public key version is also counted.
+                        assert(execdata.m_witness_weight_init);
+                        if (fSuccess && (sigops_passed++ * VALIDATION_WEIGHT_PER_SIGOP_PASSED > execdata.m_witness_weight)) {
+                            return set_error(serror, SCRIPT_ERR_TAPSCRIPT_VALIDATION_WEIGHT);
+                        }
                     }
+                    break;
+
+                    default: assert(false);
+                    }
+
+                    for (int i = 0; i < args; ++i) popstack(stack);
+                    if (opcode == OP_CHECKSIGVERIFY && !fSuccess) return set_error(serror, SCRIPT_ERR_CHECKSIGVERIFY);
+                    if (opcode == OP_CHECKSIG) stack.push_back(fSuccess ? vchTrue : vchFalse);
+                    if (opcode == OP_CHECKSIGADD) stack.push_back((num + (fSuccess ? 1 : 0)).getvch());
                 }
                 break;
 
                 case OP_CHECKMULTISIG:
                 case OP_CHECKMULTISIGVERIFY:
                 {
+                    if (sigversion == SigVersion::TAPSCRIPT) return set_error(serror, SCRIPT_ERR_DISABLED_OPCODE);
+
                     // ([sig ...] num_of_signatures [pubkey ...] num_of_pubkeys -- bool)
 
                     int i = 1;
@@ -1270,7 +1319,7 @@ bool SignatureHashTap(uint256& hash_out, const ScriptExecutionData& execdata, co
 {
     assert(in_pos < tx_to.vin.size());
 
-    if (sigversion == SigVersion::TAPROOT) {
+    if (sigversion == SigVersion::TAPROOT || sigversion == SigVersion::TAPSCRIPT) {
         assert(cache.ready && cache.m_amounts_spent_ready);
         CHashWriter ss(SER_GETHASH, 0);
 
@@ -1308,6 +1357,9 @@ bool SignatureHashTap(uint256& hash_out, const ScriptExecutionData& execdata, co
         if (execdata.m_annex_present) {
             spend_type |= 2;
         }
+        if (sigversion == SigVersion::TAPSCRIPT) {
+            spend_type |= 4;
+        }
 
         ss << spend_type;
         ss << scriptPubKey;
@@ -1330,6 +1382,13 @@ bool SignatureHashTap(uint256& hash_out, const ScriptExecutionData& execdata, co
             CHashWriter sha_single_output(SER_GETHASH, 0);
             sha_single_output << tx_to.vout[in_pos];
             ss << sha_single_output.GetSHA256();
+        }
+
+        // Additional data for tapscript
+        if (sigversion == SigVersion::TAPSCRIPT) {
+            assert(execdata.m_tapscript);
+            ss << execdata.m_tapscript_hash;
+            ss << execdata.m_codeseparator_pos;
         }
 
         hash_out = ss.GetSHA256();
@@ -1440,6 +1499,7 @@ bool GenericTransactionSignatureChecker<T>::CheckSig(const std::vector<unsigned 
             return VerifySignature(vchSig, pubkey, sighash, SignatureType::ECDSA);
         }
     case SigVersion::TAPROOT:
+    case SigVersion::TAPSCRIPT:
         {
             int hashtype = 0;
             if (vchSig.size() == 65) {
@@ -1549,9 +1609,11 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
 {
     std::vector<std::vector<unsigned char> > stack;
     CScript scriptPubKey;
+    SigVersion sigversion;
     ScriptExecutionData execdata;
 
     if (witversion == 0) {
+        sigversion = SigVersion::WITNESS_V0;
         if (program.size() == WITNESS_V0_SCRIPTHASH_SIZE) {
             // Version 0 segregated witness program: SHA256(CScript) inside the program, CScript + inputs in witness
             if (witness.stack.size() == 0) {
@@ -1626,10 +1688,32 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
             k = ss_branch.GetSHA256();
         }
         if (!outpoint.CheckPayToContract(base, k)) return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
-        if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_TAPROOT_VERSION) {
+        if ((control[0] & 0xfe) == 0xc0) {
+            sigversion = SigVersion::TAPSCRIPT;
+            CScript::const_iterator pc = scriptPubKey.begin();
+            while (pc < scriptPubKey.end()) {
+                opcodetype opcode;
+                if (!scriptPubKey.GetOp(pc, opcode)) {
+                    // Note how this condition would not be reached if an unknown OP_SUCCESSx was found
+                    return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
+                }
+                // New opcodes will be listed here. May use a different sigversion to modify existing opcodes.
+                if (IsOpSuccess(opcode)) {
+                    if (flags & SCRIPT_VERIFY_DISCOURAGE_OP_SUCCESS) {
+                        return set_error(serror, SCRIPT_ERR_DISCOURAGE_OP_SUCCESS);
+                    }
+                    return set_success(serror);
+                }
+            }
+            execdata.m_tapscript_hash = (CHashWriter(SER_GETHASH, 0) << scriptPubKey).GetSHA256();
+            execdata.m_tapscript = true;
+            execdata.m_witness_weight = ::GetSerializeSize(witness.stack, PROTOCOL_VERSION);
+            execdata.m_witness_weight_init = true;
+        } else if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_TAPROOT_VERSION) {
             return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_TAPROOT_VERSION);
+        } else {
+            return set_success(serror);
         }
-        return set_success(serror);
     } else if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM) {
         return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM);
     } else {
@@ -1643,7 +1727,7 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
             return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
     }
 
-    if (!EvalScript(stack, scriptPubKey, flags, checker, SigVersion::WITNESS_V0, serror, execdata)) {
+    if (!EvalScript(stack, scriptPubKey, flags, checker, sigversion, serror, execdata)) {
         return false;
     }
 

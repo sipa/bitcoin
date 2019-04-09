@@ -44,6 +44,10 @@ static const unsigned int LOCKTIME_THRESHOLD = 500000000; // Tue Nov  5 00:53:20
 // SEQUENCE_FINAL).
 static const uint32_t LOCKTIME_MAX = 0xFFFFFFFFU;
 
+// Validation weight per passing signature (tapscript only)
+// The first passing signature is not counted
+static const size_t VALIDATION_WEIGHT_PER_SIGOP_PASSED = 50;
+
 template <typename T>
 std::vector<unsigned char> ToByteVector(const T& in)
 {
@@ -186,6 +190,9 @@ enum opcodetype
     OP_NOP8 = 0xb7,
     OP_NOP9 = 0xb8,
     OP_NOP10 = 0xb9,
+
+    // taproot
+    OP_CHECKSIGADD = 0xba,
 
     OP_INVALIDOPCODE = 0xff,
 };
@@ -589,5 +596,7 @@ public:
     CReserveScript() {}
     virtual ~CReserveScript() {}
 };
+
+bool IsOpSuccess(const opcodetype& opcode);
 
 #endif // BITCOIN_SCRIPT_SCRIPT_H

@@ -126,6 +126,12 @@ enum
 
     // Making unknown taproot inner versions non-standard
     SCRIPT_VERIFY_DISCOURAGE_UNKNOWN_ANNEX = (1U << 19),
+
+    // Making unknown OP_SUCCESS non-standard
+    SCRIPT_VERIFY_DISCOURAGE_OP_SUCCESS = (1U << 20),
+
+    // Making unknown public key versions in tapscript non-standard
+    SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_PUBKEYTYPE = (1U << 21),
 };
 
 bool CheckSignatureEncoding(const std::vector<unsigned char> &vchSig, unsigned int flags, ScriptError* serror);
@@ -155,15 +161,23 @@ enum class SigVersion
     BASE = 0,
     WITNESS_V0 = 1,
     TAPROOT = 2,
+    TAPSCRIPT = 3,
 };
 
 struct ScriptExecutionData
 {
     CScript m_scriptcode;
 
+    bool m_tapscript = false;
+    uint256 m_tapscript_hash;
+    int16_t m_codeseparator_pos;
+
     bool m_annex_init = false;
     bool m_annex_present;
     uint256 m_annex_hash;
+
+    bool m_witness_weight_init = false;
+    size_t m_witness_weight;
 };
 
 /** Signature hash sizes */
