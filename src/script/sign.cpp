@@ -251,12 +251,12 @@ private:
 
 public:
     SignatureExtractorChecker(SignatureData& sigdata, BaseSignatureChecker& checker) : sigdata(sigdata), checker(checker) {}
-    bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const override;
+    bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion, const TapscriptData* tapscript_data = nullptr) const override;
 };
 
-bool SignatureExtractorChecker::CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const
+bool SignatureExtractorChecker::CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion, const TapscriptData* tapscript_data) const
 {
-    if (checker.CheckSig(scriptSig, vchPubKey, scriptCode, sigversion)) {
+    if (checker.CheckSig(scriptSig, vchPubKey, scriptCode, sigversion, tapscript_data)) {
         CPubKey pubkey(vchPubKey);
         sigdata.signatures.emplace(pubkey.GetID(), SigPair(pubkey, scriptSig));
         return true;
@@ -395,7 +395,7 @@ class DummySignatureChecker final : public BaseSignatureChecker
 {
 public:
     DummySignatureChecker() {}
-    bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const override { return true; }
+    bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion, const TapscriptData* tapscript_data = nullptr) const override { return true; }
 };
 const DummySignatureChecker DUMMY_CHECKER;
 

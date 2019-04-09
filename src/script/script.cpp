@@ -139,6 +139,9 @@ const char* GetOpName(opcodetype opcode)
     case OP_NOP9                   : return "OP_NOP9";
     case OP_NOP10                  : return "OP_NOP10";
 
+    // taproot
+    case OP_CHECKSIGADD            : return "OP_CHECKSIGADD";
+
     case OP_INVALIDOPCODE          : return "OP_INVALIDOPCODE";
 
     default:

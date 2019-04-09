@@ -129,6 +129,9 @@ enum
 
     // Making unknown OP_SUCCESS non-standard
     SCRIPT_VERIFY_DISCOURAGE_OP_SUCCESS = (1U << 20),
+
+    // Making unknown public key versions in tapscript non-standard
+    SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_PUBKEYTYPE = (1U << 21),
 };
 
 bool CheckSignatureEncoding(const std::vector<unsigned char> &vchSig, unsigned int flags, ScriptError* serror);
@@ -153,6 +156,12 @@ struct PrecomputedTransactionData
     explicit PrecomputedTransactionData(const T& tx);
 };
 
+struct TapscriptData
+{
+    uint256 m_tapscript_hash;
+    int16_t m_codeseparator_pos;
+};
+
 enum class SigVersion
 {
     BASE = 0,
@@ -169,12 +178,12 @@ template <class T>
 uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn, int nHashType, const CAmount& amount, SigVersion sigversion, const PrecomputedTransactionData* cache = nullptr);
 
 template <class T>
-bool SignatureHashTap(uint256& hash_out, const T& tx_to, unsigned int in_pos, int hashtype, SigVersion sigversion, const PrecomputedTransactionData& cache);
+bool SignatureHashTap(uint256& hash_out, const T& tx_to, unsigned int in_pos, int hashtype, SigVersion sigversion, const PrecomputedTransactionData& cache, const TapscriptData* tapscript_data = nullptr);
 
 class BaseSignatureChecker
 {
 public:
-    virtual bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const
+    virtual bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion, const TapscriptData* tapscript_data = nullptr) const
     {
         return false;
     }
@@ -185,6 +194,11 @@ public:
     }
 
     virtual bool CheckSequence(const CScriptNum& nSequence) const
+    {
+         return false;
+    }
+
+    virtual bool CheckValidationWeight(const size_t& weight) const
     {
          return false;
     }
@@ -212,9 +226,10 @@ protected:
 public:
     GenericTransactionSignatureChecker(const T* txToIn, unsigned int nInIn, const CAmount& amountIn) : txTo(txToIn), nIn(nInIn), amount(amountIn), txdata(nullptr) {}
     GenericTransactionSignatureChecker(const T* txToIn, unsigned int nInIn, const CAmount& amountIn, const PrecomputedTransactionData& txdataIn) : txTo(txToIn), nIn(nInIn), amount(amountIn), txdata(&txdataIn) {}
-    bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const override;
+    bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion, const TapscriptData* tapscript_data = nullptr) const override;
     bool CheckLockTime(const CScriptNum& nLockTime) const override;
     bool CheckSequence(const CScriptNum& nSequence) const override;
+    bool CheckValidationWeight(const size_t& weight) const override;
 };
 
 using TransactionSignatureChecker = GenericTransactionSignatureChecker<CTransaction>;
