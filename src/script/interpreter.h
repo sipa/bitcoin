@@ -173,6 +173,7 @@ struct ScriptExecutionData
     int16_t m_codeseparator_pos;
     bool m_annex = false;
     uint256 m_annex_hash;
+    size_t m_witness_weight;
 };
 
 /** Signature hash sizes */
@@ -203,11 +204,6 @@ public:
          return false;
     }
 
-    virtual bool CheckValidationWeight(uint32_t weight) const
-    {
-         return false;
-    }
-
     virtual ~BaseSignatureChecker() {}
 };
 
@@ -234,7 +230,6 @@ public:
     bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const ScriptExecutionData& execdata, SigVersion sigversion) const override;
     bool CheckLockTime(const CScriptNum& nLockTime) const override;
     bool CheckSequence(const CScriptNum& nSequence) const override;
-    bool CheckValidationWeight(uint32_t weight) const override;
 };
 
 using TransactionSignatureChecker = GenericTransactionSignatureChecker<CTransaction>;

@@ -985,7 +985,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                         }
                         // Note how the first passing signature is not counted.
                         // Passing with upgradable public key version is also counted.
-                        if (fSuccess && !checker.CheckValidationWeight(sigops_passed++ * VALIDATION_WEIGHT_PER_SIGOP_PASSED)) {
+                        if (fSuccess && (sigops_passed++ * VALIDATION_WEIGHT_PER_SIGOP_PASSED > execdata.m_witness_weight)) {
                             return set_error(serror, SCRIPT_ERR_TAPSCRIPT_VALIDATION_WEIGHT);
                         }
                     }
@@ -1602,12 +1602,6 @@ bool GenericTransactionSignatureChecker<T>::CheckSequence(const CScriptNum& nSeq
     return true;
 }
 
-template <class T>
-bool GenericTransactionSignatureChecker<T>::CheckValidationWeight(uint32_t weight) const
-{
-    return weight <= ::GetSerializeSize(txTo->vin[nIn].scriptWitness.stack, PROTOCOL_VERSION);
-}
-
 // explicit instantiation
 template class GenericTransactionSignatureChecker<CTransaction>;
 template class GenericTransactionSignatureChecker<CMutableTransaction>;
@@ -1711,6 +1705,7 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
             }
             execdata.m_tapscript_hash = (CHashWriter(SER_GETHASH, 0) << scriptPubKey).GetSHA256();
             execdata.m_tapscript = true;
+            execdata.m_witness_weight = ::GetSerializeSize(witness.stack, PROTOCOL_VERSION);
         } else if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_TAPROOT_VERSION) {
             return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_TAPROOT_VERSION);
         } else {
