@@ -1580,7 +1580,7 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
         pubkey[0] = 2 + (pubkey[0] & 1);
         stack = witness.stack;
         if (stack.size() == 0) return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WITNESS_EMPTY);
-        if (stack.size() >= 2 && witness.stack.back()[0] == 0xff) {
+        if (stack.size() >= 2 && !witness.stack.back().empty() && witness.stack.back()[0] == 0xff) {
             // Drop annex
             if (flags & SCRIPT_VERIFY_DISCOURAGE_UNKNOWN_ANNEX) return set_error(serror, SCRIPT_ERR_DISCOURAGE_UNKNOWN_ANNEX);
             stack.pop_back();
