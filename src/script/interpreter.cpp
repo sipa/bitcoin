@@ -1341,7 +1341,7 @@ bool SignatureHashTap(uint256& hash_out, const T& tx_to, unsigned int in_pos, in
 {
     assert(in_pos < tx_to.vin.size());
 
-    if (sigversion == SigVersion::TAPROOT) {
+    if (sigversion >= SigVersion::TAPROOT) {
         assert(cache.ready && cache.m_amounts_spent_ready);
         CHashWriter ss(SER_GETHASH, 0);
 
