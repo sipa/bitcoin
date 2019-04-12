@@ -278,7 +278,7 @@ int FindAndDelete(CScript& script, const CScript& b)
     return nFound;
 }
 
-bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& script, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* serror)
+bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& script, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* serror, ScriptExecutionData execdata)
 {
     static const CScriptNum bnZero(0);
     static const CScriptNum bnOne(1);
@@ -288,7 +288,6 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
     // static const valtype vchZero(0);
     static const valtype vchTrue(1, 1);
 
-    ScriptExecutionData execdata;
     CScript::const_iterator pc = script.begin();
     CScript::const_iterator pend = script.end();
     CScript::const_iterator pbegincodehash = script.begin();
@@ -1267,7 +1266,7 @@ template PrecomputedTransactionData::PrecomputedTransactionData(const CTransacti
 template PrecomputedTransactionData::PrecomputedTransactionData(const CMutableTransaction& txTo);
 
 template <class T>
-bool SignatureHashTap(uint256& hash_out, const T& tx_to, unsigned int in_pos, int hashtype, SigVersion sigversion, const PrecomputedTransactionData& cache)
+bool SignatureHashTap(uint256& hash_out, const ScriptExecutionData& execdata, const T& tx_to, unsigned int in_pos, int hashtype, SigVersion sigversion, const PrecomputedTransactionData& cache)
 {
     assert(in_pos < tx_to.vin.size());
 
@@ -1305,8 +1304,8 @@ bool SignatureHashTap(uint256& hash_out, const T& tx_to, unsigned int in_pos, in
         // Data about the input/prevout being spent
         const CScript& scriptPubKey = cache.m_spent_outputs[in_pos].scriptPubKey;
         unsigned char spend_type = scriptPubKey.IsPayToScriptHash() ? 1 : 0;
-        const std::vector<std::vector<unsigned char> >* witstack = &tx_to.vin[in_pos].scriptWitness.stack;
-        if (witstack && witstack->size() > 1 && !witstack->back().empty() && witstack->back()[0] == 0xff) {
+        assert(execdata.m_annex_init);
+        if (execdata.m_annex_present) {
             spend_type |= 2;
         }
 
@@ -1321,8 +1320,8 @@ bool SignatureHashTap(uint256& hash_out, const T& tx_to, unsigned int in_pos, in
             const uint16_t input_index = static_cast<uint16_t>(in_pos);
             ss << input_index;
         }
-        if (spend_type & 2) {
-            ss << (CHashWriter(SER_GETHASH, 0) << witstack->back()).GetSHA256();
+        if (execdata.m_annex_present) {
+            ss << execdata.m_annex_hash;
         }
 
         // Data about the output(s)
@@ -1449,7 +1448,7 @@ bool GenericTransactionSignatureChecker<T>::CheckSig(const std::vector<unsigned 
             }
             if (vchSig.size() != 64) return false;
             uint256 sighash;
-            bool ret = SignatureHashTap(sighash, *txTo, nIn, hashtype, sigversion, *this->txdata);
+            bool ret = SignatureHashTap(sighash, execdata, *txTo, nIn, hashtype, sigversion, *this->txdata);
             if (!ret) return false;
             return VerifySignature(vchSig, pubkey, sighash, SignatureType::SCHNORR);
         }
@@ -1550,6 +1549,7 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
 {
     std::vector<std::vector<unsigned char> > stack;
     CScript scriptPubKey;
+    ScriptExecutionData execdata;
 
     if (witversion == 0) {
         if (program.size() == WITNESS_V0_SCRIPTHASH_SIZE) {
@@ -1582,11 +1582,16 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
         if (stack.size() >= 2 && !stack.back().empty() && stack.back()[0] == 0xff) {
             // Drop annex
             if (flags & SCRIPT_VERIFY_DISCOURAGE_UNKNOWN_ANNEX) return set_error(serror, SCRIPT_ERR_DISCOURAGE_UNKNOWN_ANNEX);
+            execdata.m_annex_hash = (CHashWriter(SER_GETHASH, 0) << stack.back()).GetSHA256();
+            execdata.m_annex_present = true;
             stack.pop_back();
+        } else {
+            execdata.m_annex_present = false;
         }
+        execdata.m_annex_init = true;
         if (stack.size() == 1) {
             // Key path spending
-            if (!checker.CheckSig(stack[0], pubkey, ScriptExecutionData(), SigVersion::TAPROOT)) {
+            if (!checker.CheckSig(stack[0], pubkey, execdata, SigVersion::TAPROOT)) {
                 return set_error(serror, SCRIPT_ERR_TAPROOT_INVALID_SIG);
             }
             return set_success(serror);
@@ -1638,7 +1643,7 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
             return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
     }
 
-    if (!EvalScript(stack, scriptPubKey, flags, checker, SigVersion::WITNESS_V0, serror)) {
+    if (!EvalScript(stack, scriptPubKey, flags, checker, SigVersion::WITNESS_V0, serror, execdata)) {
         return false;
     }
 
