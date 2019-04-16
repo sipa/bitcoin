@@ -8,6 +8,7 @@ This file is modified from python-bitcoinlib.
 """
 
 from .messages import CTransaction, CTxOut, sha256, hash256, uint256_from_str, ser_uint256, ser_string
+from .key import TaggedHash, tweak_pubkey
 
 import hashlib
 import struct
@@ -15,8 +16,13 @@ import struct
 from .bignum import bn2vch
 
 MAX_SCRIPT_ELEMENT_SIZE = 520
+LOCKTIME_THRESHOLD = 500000000
+ANNEX_TAG = 0x50
 
 OPCODE_NAMES = {}
+
+LEAF_VERSION_TAPSCRIPT = 0xc0
+TAPROOT_VER = 0
 
 def hash160(s):
     return hashlib.new('ripemd160', sha256(s)).digest()
@@ -223,11 +229,8 @@ OP_NOP8 = CScriptOp(0xb7)
 OP_NOP9 = CScriptOp(0xb8)
 OP_NOP10 = CScriptOp(0xb9)
 
-# template matching params
-OP_SMALLINTEGER = CScriptOp(0xfa)
-OP_PUBKEYS = CScriptOp(0xfb)
-OP_PUBKEYHASH = CScriptOp(0xfd)
-OP_PUBKEY = CScriptOp(0xfe)
+# BIP 342 opcodes (Tapscript)
+OP_CHECKSIGADD = CScriptOp(0xba)
 
 OP_INVALIDOPCODE = CScriptOp(0xff)
 
@@ -343,10 +346,7 @@ OPCODE_NAMES.update({
     OP_NOP8 : 'OP_NOP8',
     OP_NOP9 : 'OP_NOP9',
     OP_NOP10 : 'OP_NOP10',
-    OP_SMALLINTEGER : 'OP_SMALLINTEGER',
-    OP_PUBKEYS : 'OP_PUBKEYS',
-    OP_PUBKEYHASH : 'OP_PUBKEYHASH',
-    OP_PUBKEY : 'OP_PUBKEY',
+    OP_CHECKSIGADD : 'OP_CHECKSIGADD',
     OP_INVALIDOPCODE : 'OP_INVALIDOPCODE',
 })
 
@@ -607,6 +607,11 @@ def FindAndDelete(script, sig):
         r += script[last_sop_idx:]
     return CScript(r)
 
+def IsPayToScriptHash(script):
+    return len(script) == 23 and script[0] == OP_HASH160 and script[1] == 20 and script[22] == OP_EQUAL
+
+def IsPayToTaproot(script):
+    return len(script) == 34 and script[0] == OP_1 and script[1] == 32
 
 def LegacySignatureHash(script, txTo, inIdx, hashtype):
     """Consensus-correct SignatureHash
@@ -702,3 +707,93 @@ def SegwitV0SignatureHash(script, txTo, inIdx, hashtype, amount):
     ss += struct.pack("<I", hashtype)
 
     return hash256(ss)
+
+def TaprootSignatureHash(txTo, spent_utxos, hash_type, input_index = 0, scriptpath = False, script = CScript(), codeseparator_pos = -1, annex = None, leaf_ver = LEAF_VERSION_TAPSCRIPT):
+    assert (len(txTo.vin) == len(spent_utxos))
+    assert((hash_type >= 0 and hash_type <= 3) or (hash_type >= 0x81 and hash_type <= 0x83))
+    assert (input_index < len(txTo.vin))
+    spk = spent_utxos[input_index].scriptPubKey
+    ss = bytes([0, hash_type]) # epoch, hash_type
+    ss += struct.pack("<i", txTo.nVersion)
+    ss += struct.pack("<I", txTo.nLockTime)
+    if not (hash_type & SIGHASH_ANYONECANPAY):
+        ss += sha256(b"".join(i.prevout.serialize() for i in txTo.vin))
+        ss += sha256(b"".join(struct.pack("<q", u.nValue) for u in spent_utxos))
+        ss += sha256(b"".join(struct.pack("<I", i.nSequence) for i in txTo.vin))
+    if (hash_type & 3) != SIGHASH_SINGLE and (hash_type & 3) != SIGHASH_NONE:
+        ss += sha256(b"".join(o.serialize() for o in txTo.vout))
+    spend_type = 0
+    assert(IsPayToTaproot(spk))
+    if annex is not None:
+        assert (annex[0] == ANNEX_TAG)
+        spend_type |= 1
+    if (scriptpath):
+        assert (len(script) > 0)
+        assert (codeseparator_pos >= -1)
+        spend_type |= 2
+    ss += bytes([spend_type])
+    ss += ser_string(spk)
+    if (hash_type & SIGHASH_ANYONECANPAY):
+        ss += txTo.vin[input_index].prevout.serialize()
+        ss += struct.pack("<q", spent_utxos[input_index].nValue)
+        ss += struct.pack("<I", txTo.vin[input_index].nSequence)
+    else:
+        ss += struct.pack("<I", input_index)
+    if (spend_type & 1):
+        ss += sha256(ser_string(annex))
+    if (hash_type & 3 == SIGHASH_SINGLE):
+        assert (input_index < len(txTo.vout))
+        ss += sha256(txTo.vout[input_index].serialize())
+    if (scriptpath):
+        ss += TaggedHash("TapLeaf", bytes([leaf_ver]) + ser_string(script))
+        ss += bytes([0])
+        ss += struct.pack("<i", codeseparator_pos)
+    assert len(ss) == 178 - ((hash_type & SIGHASH_ANYONECANPAY) != 0) * 52 - (hash_type & 3 == SIGHASH_NONE) * 32 + (annex is not None) * 32 + scriptpath * 37
+    return TaggedHash("TapSighash", ss)
+
+def taproot_tree_helper(scripts):
+    if len(scripts) == 1:
+        script = scripts[0]
+        if isinstance(script, list):
+            return taproot_tree_helper(script)
+        version = LEAF_VERSION_TAPSCRIPT
+        if isinstance(script, tuple):
+            version, script = script
+        assert isinstance(script, bytes)
+        h = TaggedHash("TapLeaf", bytes([version & 0xfe]) + ser_string(script))
+        return ([(version, script, bytes())], h)
+    split_pos = len(scripts) // 2
+    left, left_h = taproot_tree_helper(scripts[0:split_pos])
+    right, right_h = taproot_tree_helper(scripts[split_pos:])
+    left = [(version, script, control + right_h) for version, script, control in left]
+    right = [(version, script, control + left_h) for version, script, control in right]
+    if right_h < left_h:
+        right_h, left_h = left_h, right_h
+    h = TaggedHash("TapBranch", left_h + right_h)
+    return (left + right, h)
+
+def taproot_construct(pubkey, scripts=None):
+    """Construct a tree of Taproot spending conditions
+
+    pubkey: an ECPubKey object for the root pubkey
+    scripts: a list of items; each item is either:
+             - a CScript
+             - a (version, CScript) tuple
+             - another list of items (with the same structure)
+
+    Returns: script (sPK or redeemScript), tweak, {script:control, ...}
+    """
+    if scripts is None:
+        scripts = []
+
+    if len(scripts) == 0:
+        return (CScript([OP_1, pubkey]), bytes([0 for i in range(32)]), {})
+
+    ret, h = taproot_tree_helper(scripts)
+    tweak = TaggedHash("TapTweak", pubkey + h)
+    tweaked, negated = tweak_pubkey(pubkey, tweak)
+    control_map = dict((script, bytes([(version & 0xfe) + (1 if negated else 0)]) + pubkey + control) for version, script, control in ret)
+    return (CScript([OP_1, tweaked]), tweak, control_map)
+
+def is_op_success(o):
+    return o == 0x50 or o == 0x62 or o == 0x89 or o == 0x8a or o == 0x8d or o == 0x8e or (o >= 0x7e and o <= 0x81) or (o >= 0x83 and o <= 0x86) or (o >= 0x95 and o <= 0x99) or (o >= 0xbb and o <= 0xfe)

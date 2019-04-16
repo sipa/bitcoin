@@ -7,6 +7,13 @@ WARNING: This code is slow, uses bad randomness, does not properly protect
 keys, and is trivially vulnerable to side channel attacks. Do not use for
 anything but tests."""
 import random
+import hashlib
+
+def TaggedHash(tag, data):
+    ss = hashlib.sha256(tag.encode('utf-8')).digest()
+    ss += ss
+    ss += data
+    return hashlib.sha256(ss).digest()
 
 def modinv(a, n):
     """Compute the modular inverse of a modulo n
@@ -82,6 +89,10 @@ class EllipticCurve:
         inv_2 = (inv**2) % self.p
         inv_3 = (inv_2 * inv) % self.p
         return ((inv_2 * x1) % self.p, (inv_3 * y1) % self.p, 1)
+
+    def has_square_y(self, p1):
+        """Determine whether point p1 has a square (quadratic residue) Y coordinate."""
+        return jacobi_symbol(p1[1] * p1[2], SECP256K1_FIELD_SIZE) == 1
 
     def negate(self, p1):
         """Negate a Jacobian point tuple p1."""
@@ -212,7 +223,8 @@ class EllipticCurve:
                     r = self.add(r, p)
         return r
 
-SECP256K1 = EllipticCurve(2**256 - 2**32 - 977, 0, 7)
+SECP256K1_FIELD_SIZE = 2**256 - 2**32 - 977
+SECP256K1 = EllipticCurve(SECP256K1_FIELD_SIZE, 0, 7)
 SECP256K1_G = (0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798, 0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8, 1)
 SECP256K1_ORDER = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
 SECP256K1_ORDER_HALF = SECP256K1_ORDER // 2
@@ -322,6 +334,10 @@ class ECPubKey():
             return False
         return True
 
+def generate_privkey():
+    """Generate a valid random 32-byte private key."""
+    return random.randrange(1, SECP256K1_ORDER).to_bytes(32, 'big')
+
 class ECKey():
     """A secp256k1 private key"""
 
@@ -339,7 +355,7 @@ class ECKey():
 
     def generate(self, compressed=True):
         """Generate a random private key (compressed or uncompressed)."""
-        self.set(random.randrange(1, SECP256K1_ORDER).to_bytes(32, 'big'), compressed)
+        self.set(generate_privkey(), compressed)
 
     def get_bytes(self):
         """Retrieve the 32-byte representation of this key."""
@@ -384,3 +400,105 @@ class ECKey():
         rb = r.to_bytes((r.bit_length() + 8) // 8, 'big')
         sb = s.to_bytes((s.bit_length() + 8) // 8, 'big')
         return b'\x30' + bytes([4 + len(rb) + len(sb), 2, len(rb)]) + rb + bytes([2, len(sb)]) + sb
+
+def compute_xonly_pubkey(key):
+    """Compute an x-only (32 byte) public key from a (32 byte) private key.
+
+    This also returns whether the resulting public key was negated.
+    """
+
+    assert(len(key) == 32)
+    x = int.from_bytes(key, 'big')
+    if x == 0 or x >= SECP256K1_ORDER:
+        return (None, None)
+    P = SECP256K1.affine(SECP256K1.mul([(SECP256K1_G, x)]))
+    return (P[0].to_bytes(32, 'big'), not SECP256K1.has_square_y(P))
+
+def tweak_privkey(key, tweak, negated=False):
+    """Tweak a private key (after optionally negating it)."""
+
+    assert(len(key) == 32)
+    assert(len(tweak) == 32)
+
+    x = int.from_bytes(key, 'big')
+    if x == 0 or x >= SECP256K1_ORDER:
+        return None
+    if negated:
+       x = SECP256K1_ORDER - x
+    t = int.from_bytes(tweak, 'big')
+    if t >= SECP256K1_ORDER:
+        return None
+    x = (x + t) % SECP256K1_ORDER
+    if x == 0:
+        return None
+    return x.to_bytes(32, 'big')
+
+def tweak_pubkey(key, tweak):
+    """Tweak a public key and return whether the result was negated."""
+
+    assert(len(key) == 32)
+    assert(len(tweak) == 32)
+
+    x_coord = int.from_bytes(key, 'big')
+    if x_coord >= SECP256K1_FIELD_SIZE:
+        return None
+    P = SECP256K1.lift_x(x_coord)
+    if P is None:
+        return None
+    t = int.from_bytes(tweak, 'big')
+    if t >= SECP256K1_ORDER:
+        return None
+    Q = SECP256K1.affine(SECP256K1.mul([(SECP256K1_G, t), (P, 1)]))
+    if Q is None:
+        return None
+    return (Q[0].to_bytes(32, 'big'), not SECP256K1.has_square_y(Q))
+
+def verify_schnorr(key, sig, msg):
+    """Verify a Schnorr signature (see BIP 340).
+
+    - key is a 32-byte xonly pubkey (computed using compute_xonly_pubkey).
+    - sig is a 64-byte Schnorr signature
+    - msg is a 32-byte message
+    """
+    assert(len(key) == 32)
+    assert(len(msg) == 32)
+    assert(len(sig) == 64)
+
+    x_coord = int.from_bytes(key, 'big')
+    if x_coord == 0 or x_coord >= SECP256K1_FIELD_SIZE:
+        return False
+    P = SECP256K1.lift_x(x_coord)
+    if P is None:
+        return False
+    r = int.from_bytes(sig[0:32], 'big')
+    if r >= SECP256K1_FIELD_SIZE:
+        return False
+    s = int.from_bytes(sig[32:64], 'big')
+    if s >= SECP256K1_ORDER:
+        return False
+    e = int.from_bytes(TaggedHash("BIPSchnorr", sig[0:32] + key + msg), 'big') % SECP256K1_ORDER
+    R = SECP256K1.mul([(SECP256K1_G, s), (P, SECP256K1_ORDER - e)])
+    if not SECP256K1.has_square_y(R):
+        return False
+    if ((r * R[2] * R[2]) % SECP256K1_FIELD_SIZE) != R[0]:
+        return False
+    return True
+
+def sign_schnorr(key, msg):
+    """Create a Schnorr signature (see BIP 340)."""
+
+    assert(len(key) == 32)
+    assert(len(msg) == 32)
+
+    sec = int.from_bytes(key, 'big')
+    if sec == 0 or sec >= SECP256K1_ORDER:
+        return None
+    P = SECP256K1.affine(SECP256K1.mul([(SECP256K1_G, sec)]))
+    if not SECP256K1.has_square_y(P):
+        sec = SECP256K1_ORDER - sec
+    kp = int.from_bytes(TaggedHash("BIPSchnorrDerive", sec.to_bytes(32, 'big') + msg), 'big') % SECP256K1_ORDER
+    assert(kp != 0)
+    R = SECP256K1.affine(SECP256K1.mul([(SECP256K1_G, kp)]))
+    k = kp if SECP256K1.has_square_y(R) else SECP256K1_ORDER - kp
+    e = int.from_bytes(TaggedHash("BIPSchnorr", R[0].to_bytes(32, 'big') + P[0].to_bytes(32, 'big') + msg), 'big') % SECP256K1_ORDER
+    return R[0].to_bytes(32, 'big') + ((k + e * sec) % SECP256K1_ORDER).to_bytes(32, 'big')
