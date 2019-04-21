@@ -777,7 +777,7 @@ def taproot_tree_helper(pubkey, scripts):
             version, script = script
         assert isinstance(script, bytes)
         control = GetVersionTaggedPubKey(pubkey, version)
-        h = TaggedHash("TapLeaf", control + ser_string(script))
+        h = TaggedHash("TapLeaf", bytes([version & 0xfe]) + ser_string(script))
         return ([(script, control)], h)
     split_pos = len(scripts) // 2
     left, left_h = taproot_tree_helper(pubkey, scripts[0:split_pos])
@@ -804,7 +804,8 @@ def taproot_construct(pubkey, scripts=[]):
         return (CScript([OP_1, GetVersionTaggedPubKey(pubkey, TAPROOT_VER)]), bytes([0 for i in range(32)]), {})
 
     ret, h = taproot_tree_helper(pubkey, scripts)
-    tweaked = pubkey.tweak_add(h)
+    t = TaggedHash("TapTweak", pubkey.get_bytes() + h)
+    tweaked = pubkey.tweak_add(t)
     return (CScript([OP_1, GetVersionTaggedPubKey(tweaked, TAPROOT_VER)]), h, dict(ret))
 
 def taproot_key_sign(info, privkey, txTo, spent_utxos, hash_type, input_index, p2sh=False, annex=None):

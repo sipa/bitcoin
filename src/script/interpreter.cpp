@@ -1676,7 +1676,7 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
         CHashWriter ss_leaf(SER_GETHASH, 0);
         uint256 tag;
         CSHA256().Write((unsigned char*)"TapLeaf", 7).Finalize(tag.begin());
-        ss_leaf << tag << tag << Span<const unsigned char>(control.data(), 33) << scriptPubKey;
+        ss_leaf << tag << tag << (control[0] & 0xfe) << scriptPubKey;
         uint256 k = ss_leaf.GetSHA256();
         CSHA256().Write((unsigned char*)"TapBranch", 9).Finalize(tag.begin());
         for (int i = 0; i < path_len; ++i) {
@@ -1689,6 +1689,8 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
             }
             k = ss_branch.GetSHA256();
         }
+        CSHA256().Write((unsigned char*)"TapTweak", 8).Finalize(tag.begin());
+        k = (CHashWriter(SER_GETHASH, 0) << tag << tag << MakeSpan(basekey) << k).GetSHA256();
         if (!outpoint.CheckPayToContract(base, k)) return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
         if ((control[0] & 0xfe) == 0xc0) {
             sigversion = SigVersion::TAPSCRIPT;
