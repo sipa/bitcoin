@@ -1676,7 +1676,7 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
         CHashWriter ss_leaf(SER_GETHASH, 0);
         uint256 tag;
         CSHA256().Write((unsigned char*)"TapLeaf", 7).Finalize(tag.begin());
-        ss_leaf << tag << tag << (control[0] & 0xfe) << scriptPubKey;
+        ss_leaf << tag << tag << static_cast<unsigned char>(control[0] & 0xfe) << scriptPubKey;
         uint256 k = ss_leaf.GetSHA256();
         CSHA256().Write((unsigned char*)"TapBranch", 9).Finalize(tag.begin());
         for (int i = 0; i < path_len; ++i) {

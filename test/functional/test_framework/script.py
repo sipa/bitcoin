@@ -806,7 +806,7 @@ def taproot_construct(pubkey, scripts=[]):
     ret, h = taproot_tree_helper(pubkey, scripts)
     t = TaggedHash("TapTweak", pubkey.get_bytes() + h)
     tweaked = pubkey.tweak_add(t)
-    return (CScript([OP_1, GetVersionTaggedPubKey(tweaked, TAPROOT_VER)]), h, dict(ret))
+    return (CScript([OP_1, GetVersionTaggedPubKey(tweaked, TAPROOT_VER)]), t, dict(ret))
 
 def taproot_key_sign(info, privkey, txTo, spent_utxos, hash_type, input_index, p2sh=False, annex=None):
     script, tweak, paths = info
