@@ -582,6 +582,7 @@ public:
     bool m_valid_header;
     bool m_valid_checksum;
     uint32_t m_message_size;         // size of the payload
+    uint32_t m_raw_message_size;     // used wire size of the message (including header/checksum)
     std::string m_command;
 
     CNetMessage(const CDataStream& recv_in) : m_recv(recv_in) {
@@ -590,6 +591,7 @@ public:
         m_valid_header = false;
         m_valid_checksum = false;
         m_message_size = 0;
+        m_raw_message_size = 0;
     }
 
     void SetVersion(int nVersionIn)
