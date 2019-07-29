@@ -585,7 +585,7 @@ public:
     uint32_t m_raw_message_size;     // used wire size of the message (including header/checksum)
     std::string m_command;
 
-    CNetMessage(const CDataStream& recv_in) : m_recv(recv_in) {
+    CNetMessage(CDataStream&& recv_in) : m_recv(std::move(recv_in)) {
         m_time = 0;
         m_valid_netmagic = false;
         m_valid_header = false;

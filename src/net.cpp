@@ -684,7 +684,7 @@ const uint256& V1TransportDeserializer::GetMessageHash() const
 
 CNetMessage V1TransportDeserializer::GetMessage(const CMessageHeader::MessageStartChars& message_start, int64_t time) {
     // decompose a single CNetMessage from the TransportDeserializer
-    CNetMessage msg(vRecv);
+    CNetMessage msg(std::move(vRecv));
 
     // store state about valid header, netmagic and checksum
     msg.m_valid_header = hdr.IsValid(message_start);
