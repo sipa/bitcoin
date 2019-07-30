@@ -384,3 +384,63 @@ class ECKey():
         rb = r.to_bytes((r.bit_length() + 8) // 8, 'big')
         sb = s.to_bytes((s.bit_length() + 8) // 8, 'big')
         return b'\x30' + bytes([4 + len(rb) + len(sb), 2, len(rb)]) + rb + bytes([2, len(sb)]) + sb
+
+#import hashlib
+#
+##def sha256(x):
+#    return hashlib.new('sha256', x).digest()
+#
+#def ripemd160(x):
+#    return hashlib.new('ripemd160', x).digest()
+#
+#def hash160(x):
+#    return ripemd160(sha256(x))
+#
+#def hash256(x):
+#    return sha256(sha256(x))
+#
+#ret = [None for i in range(26)]
+#cnt = 0
+#num = 0
+#while True:
+#    x = ECKey()
+#    cnt += 1
+#    x.set(cnt.to_bytes(32, 'big'), True)
+#    p = x.get_pubkey()
+#    pk = p.get_bytes()
+#    i = pk[-1]
+#    if (i > 25):
+#        continue
+#    pkh = hash160(pk)
+#    if (pkh[-1] != i):
+#        continue
+#    if ret[i] is None:
+#        print("Found i=%i cnt=%i" % (i, cnt))
+#        while True:
+#            sig = x.sign_ecdsa(bytes([0] * 31 + [7]))
+#            if sig[-1] == i:
+#                break
+#        ret[i] = [x.get_bytes(), pk, pkh, sig]
+#        num += 1
+#        if num == 26:
+#            break
+#
+#print("static const std::vector<std::vector<unsigned char>> PRIVKEYS = {")
+#for i in range(26):
+#    print("    ParseHex(\"%s\")%s" % (ret[i][0].hex(), "," if i < 25 else ""))
+#print("};")
+#
+#print("static const std::vector<std::vector<unsigned char>> PUBKEYS = {")
+#for i in range(26):
+#    print("    ParseHex(\"%s\")%s" % (ret[i][1].hex(), "," if i < 25 else ""))
+#print("};")
+#
+#print("static const std::vector<std::vector<unsigned char>> PKHASHES = {")
+#for i in range(26):
+#    print("    ParseHex(\"%s\")%s" % (ret[i][2].hex(), "," if i < 25 else ""))
+#print("};")
+#
+#print("static const std::vector<std::vector<unsigned char>> SIGS = {")
+#for i in range(26):
+#    print("    ParseHex(\"%s\")%s" % (ret[i][3].hex(), "," if i < 25 else ""))
+#print("};")
