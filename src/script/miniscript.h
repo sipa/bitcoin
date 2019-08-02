@@ -187,6 +187,8 @@ enum class NodeType {
     THRESH_M,  //!< [k] [key_n]* [n] OP_CHECKMULTISIG
     // AND_N(X,Y) is represented as ANDOR(X,Y,0)
     // WRAP_T(X) is represented as AND_V(X,1)
+    // WRAP_L(X) is represented as OR_I(0,X)
+    // WRAP_U(X) is represented as OR_I(X,0)
 };
 
 namespace internal {
