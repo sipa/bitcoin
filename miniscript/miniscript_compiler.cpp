@@ -7,7 +7,7 @@
 #include <unordered_map>
 #include <script/script.h>
 #include <script/miniscript.h>
-#include <script/miniscript_compiler.h>
+#include <miniscript_compiler.h>
 #include <span.h>
 #include <util/strencodings.h>
 
@@ -64,25 +64,6 @@ struct Policy {
     explicit Policy(Type nt, std::vector<CompilerKey>&& key, uint32_t kv) : node_type(nt), keys(std::move(key)), k(kv) {}
 
     bool operator()() const { return node_type != Type::NONE; }
-
-    std::pair<bool, bool> Analyze() const {
-        if (node_type == Type::PK) return {true, true};
-        if (node_type == Type::OLDER || node_type == Type::AFTER || node_type == Type::HASH160 || node_type == Type::HASH256 || node_type == Type::RIPEMD160 || node_type == Type::SHA256) return {false, true};
-        std::vector<std::pair<bool, bool>> sub_prop;
-        for (const auto& s : sub) {
-            sub_prop.push_back(s.Analyze());
-        }
-        size_t n_strong = 0;
-        bool nonmal = true;
-        for (const auto& s : sub_prop) {
-            if (s.first) n_strong++;
-            if (!s.second) nonmal = false;
-        }
-        if (node_type == Type::AND) return {n_strong > 0, nonmal};
-        if (node_type == Type::OR) return {n_strong == sub.size(), nonmal && (n_strong >= sub.size() - 1)};
-        if (node_type == Type::THRESH) return {n_strong >= sub.size() - k + 1, nonmal && (n_strong >= sub.size() - k)};
-        return {false, false};
-   }
 };
 
 bool operator==(const Span<const char>& a, const std::string& b) { return (size_t)a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin()); }
