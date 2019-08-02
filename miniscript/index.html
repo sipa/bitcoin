@@ -484,7 +484,7 @@ There are also four more properties that let us reason about nonmalleability:<ul
   <td>e=f<sub>X</sub>, m=m<sub>X</sub>, s=s<sub>X</sub></td>
 </tr>
 <tr>
-  <td>u:X</td>
+  <td>n:X</td>
   <td>[X] 0NOTEQUAL</td>
   <td>nsat<sub>X</sub></td>
   <td>sat<sub>X</sub></td>
@@ -493,6 +493,28 @@ There are also four more properties that let us reason about nonmalleability:<ul
   <td></td>
   <td>z=z<sub>X</sub>, o=o<sub>X</sub>, n=n<sub>X</sub>, u, d=d<sub>X</sub></td>
   <td>f=f<sub>X</sub>, e=e<sub>X</sub>, m=m<sub>X</sub>, s=s<sub>X</sub></td>
+</tr>
+<tr>
+  <td>l:X</td>
+  <td>IF 0 ELSE [X] ENDIF (=or_i(0,X))</td>
+  <td>1</td>
+  <td>sat<sub>X</sub> 0</td>
+  <td>-</td>
+  <td>B=B<sub>X</sub></td>
+  <td></td>
+  <td>o=z<sub>X</sub>, u=u<sub>X</sub>, d</td>
+  <td>e=f<sub>X</sub>, m=m<sub>X</sub>, s=s<sub>X</sub></td>
+</tr>
+<tr>
+  <td>u:X</td>
+  <td>IF [X] ELSE 0 ENDIF (=or_i(X,0))</td>
+  <td>0</td>
+  <td>sat<sub>X</sub> 1</td>
+  <td>-</td>
+  <td>B=B<sub>X</sub></td>
+  <td></td>
+  <td>o=z<sub>X</sub>, u=u<sub>X</sub>, d</td>
+  <td>e=f<sub>X</sub>, m=m<sub>X</sub>, s=s<sub>X</sub></td>
 </tr>
 <tr>
   <td>true</td>

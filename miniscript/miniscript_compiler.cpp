@@ -182,7 +182,7 @@ struct Strat {
         OLDER, AFTER,
         HASH160, HASH256, SHA256, RIPEMD160,
         AND, OR, ANDOR, THRESH,
-        WRAP_AS, WRAP_C, WRAP_D, WRAP_V, WRAP_J, WRAP_U, // Several kinds of wrappers that don't change semantics
+        WRAP_AS, WRAP_C, WRAP_D, WRAP_V, WRAP_J, WRAP_N, // Several kinds of wrappers that don't change semantics
         MULTI, // Every subgraph is a separate compilation strategy; try each once
         CACHE, // sub[0] is the dependency; sub[1] and higher are (possibly self-referential) improvements to try repeatedly until all of them stop improving
     };
@@ -321,7 +321,7 @@ const Strat* ComputeStrategy(const Policy& node, std::unordered_map<const Policy
     ret->sub.push_back(MakeStrat(store, Strat::Type::AND, std::vector<const Strat*>{ret, STRAT_TRUE}));
     ret->sub.push_back(MakeStrat(store, Strat::Type::WRAP_J, std::vector<const Strat*>{ret}));
     ret->sub.push_back(MakeStrat(store, Strat::Type::WRAP_D, std::vector<const Strat*>{ret}));
-    ret->sub.push_back(MakeStrat(store, Strat::Type::WRAP_U, std::vector<const Strat*>{ret}));
+    ret->sub.push_back(MakeStrat(store, Strat::Type::WRAP_N, std::vector<const Strat*>{ret}));
     ret->sub.push_back(MakeStrat(store, Strat::Type::OR, std::vector<const Strat*>{ret, STRAT_FALSE}, 1.0));
     ret->sub.push_back(MakeStrat(store, Strat::Type::WRAP_AS, std::vector<const Strat*>{ret}));
 
@@ -464,7 +464,7 @@ CostPair CalcCostPair(NodeType nt, const std::vector<const Result*>& s, double l
         case NodeType::WRAP_A:
         case NodeType::WRAP_S:
         case NodeType::WRAP_C:
-        case NodeType::WRAP_U:
+        case NodeType::WRAP_N:
             return s[0]->pair;
         case NodeType::WRAP_D: return {2 + s[0]->pair.sat, 1};
         case NodeType::WRAP_V: return {s[0]->pair.sat, INF};
@@ -514,7 +514,7 @@ std::pair<std::vector<double>, std::vector<double>> GetPQs(NodeType nt, double p
         case NodeType::WRAP_A:
         case NodeType::WRAP_S:
         case NodeType::WRAP_C:
-        case NodeType::WRAP_U:
+        case NodeType::WRAP_N:
             return {{p}, {q}};
         case NodeType::WRAP_D:
         case NodeType::WRAP_V:
@@ -544,7 +544,7 @@ const TypeFilters& GetTypeFilter(NodeType nt) {
     static const TypeFilters FILTER_WRAP_D{{"V/zfms"_mstf}};
     static const TypeFilters FILTER_WRAP_V{{"B/zonmsx"_mstf}};
     static const TypeFilters FILTER_WRAP_J{{"Bn/oufms"_mstf}};
-    static const TypeFilters FILTER_WRAP_U{{"B/zondfems"_mstf}};
+    static const TypeFilters FILTER_WRAP_N{{"B/zondfems"_mstf}};
     static const TypeFilters FILTER_AND_V{
         {"V/nzoms"_mstf, "B/unzofmsx"_mstf},
         {"V/nsoms"_mstf, "K/unzofmsx"_mstf},
@@ -584,7 +584,7 @@ const TypeFilters& GetTypeFilter(NodeType nt) {
         case NodeType::WRAP_D: return FILTER_WRAP_D;
         case NodeType::WRAP_V: return FILTER_WRAP_V;
         case NodeType::WRAP_J: return FILTER_WRAP_J;
-        case NodeType::WRAP_U: return FILTER_WRAP_U;
+        case NodeType::WRAP_N: return FILTER_WRAP_N;
         case NodeType::AND_V: return FILTER_AND_V;
         case NodeType::AND_B: return FILTER_AND_B;
         case NodeType::OR_B: return FILTER_OR_B;
@@ -724,8 +724,8 @@ void Compile(const Strat* strat, Compilation& compilation, std::map<CompilationK
         case Strat::Type::WRAP_D:
             Add(compilation, cache, NodeType::WRAP_D, strat->sub, 0, 0);
             return;
-        case Strat::Type::WRAP_U:
-            Add(compilation, cache, NodeType::WRAP_U, strat->sub, 0, 0);
+        case Strat::Type::WRAP_N:
+            Add(compilation, cache, NodeType::WRAP_N, strat->sub, 0, 0);
             return;
         case Strat::Type::WRAP_J:
             Add(compilation, cache, NodeType::WRAP_J, strat->sub, 0, 0);

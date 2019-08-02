@@ -1,0 +1,51 @@
+prob = "" | ("3" | "99") "@";
+
+t01 = w;
+t11 = s;
+
+t02 = w "," t01;
+t12 = w "," t11 | s "," t01;
+t22 =             s "," t11;
+
+t03 = w "," t02;
+t13 = w "," t12 | s "," t02;
+t23 = w "," t22 | s "," t12;
+t33 =             s "," t22;
+
+t04 = w "," t03;
+t14 = w "," t13 | s "," t03;
+t24 = w "," t23 | s "," t13;
+t34 = w "," t33 | s "," t23;
+t44 =             s "," t33;
+
+t05 = w "," t04;
+t15 = w "," t14 | s "," t04;
+t25 = w "," t24 | s "," t14;
+t35 = w "," t34 | s "," t24;
+t45 = w "," t44 | s "," t34;
+t55 =             s "," t44;
+
+s = "pk(C)" |
+    "and(" (t12 | t22) ")" |
+    "or(" prob s "," prob s ")" |
+    "thresh(2," (t23 | t33) ")" |
+    "thresh(2," (t34 | t44) ")" |
+    "thresh(3," (t24 | t34 | t44) ")" |
+    "thresh(2," (t45 | t55) ")" |
+    "thresh(3," (t35 | t45 | t55) ")" |
+    "thresh(4," (t25 | t35 | t45 | t55) ")";
+
+w = "after(9)" |
+    "sha256(H)" |
+    "hash160(H)" |
+    "or(" prob s "," prob w ")" |
+    "or(" prob w "," prob s ")" |
+    "and(" w "," w ")" |
+    "thresh(2," t13 ")" |
+    "thresh(2," t24 ")" |
+    "thresh(3," t14 ")" |
+    "thresh(2," t35 ")" |
+    "thresh(3," t25 ")" |
+    "thresh(4," t15 ")";
+
+main = s;

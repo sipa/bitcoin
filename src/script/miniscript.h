@@ -175,7 +175,7 @@ enum class NodeType {
     WRAP_D,    //!< OP_DUP OP_IF [X] OP_ENDIF
     WRAP_V,    //!< [X] OP_VERIFY (or -VERIFY version of last opcode in X)
     WRAP_J,    //!< OP_SIZE OP_0NOTEQUAL OP_IF [X] OP_ENDIF
-    WRAP_U,    //!< [X] OP_0NOTEQUAL
+    WRAP_N,    //!< [X] OP_0NOTEQUAL
     AND_V,     //!< [X] [Y]
     AND_B,     //!< [X] [Y] OP_BOOLAND
     OR_B,      //!< [X] [Y] OP_BOOLOR
@@ -296,7 +296,7 @@ private:
             case NodeType::WRAP_D: return ret + 3;
             case NodeType::WRAP_V: return ret + (subs[0]->GetType() << "x"_mst);
             case NodeType::WRAP_J: return ret + 4;
-            case NodeType::WRAP_U: return ret + 1;
+            case NodeType::WRAP_N: return ret + 1;
             case NodeType::TRUE: return 1;
             case NodeType::FALSE: return 1;
             case NodeType::AND_V: return ret;
@@ -344,7 +344,7 @@ private:
             assert(subs.size() == 3);
         } else if (nodetype == NodeType::WRAP_A || nodetype == NodeType::WRAP_S || nodetype == NodeType::WRAP_C ||
                    nodetype == NodeType::WRAP_D || nodetype == NodeType::WRAP_V || nodetype == NodeType::WRAP_J ||
-                   nodetype == NodeType::WRAP_U) {
+                   nodetype == NodeType::WRAP_N) {
             assert(subs.size() == 1);
         } else if (nodetype != NodeType::THRESH) {
             assert(subs.size() == 0);
@@ -405,7 +405,7 @@ private:
             case NodeType::WRAP_D: return (CScript() << OP_DUP << OP_IF) + subs[0]->MakeScript() + (CScript() << OP_ENDIF);
             case NodeType::WRAP_V: return subs[0]->MakeScript(true) + (subs[0]->GetType() << "x"_mst ? (CScript() << OP_VERIFY) : CScript());
             case NodeType::WRAP_J: return (CScript() << OP_SIZE << OP_0NOTEQUAL << OP_IF) + subs[0]->MakeScript() + (CScript() << OP_ENDIF);
-            case NodeType::WRAP_U: return subs[0]->MakeScript() + CScript() << OP_0NOTEQUAL;
+            case NodeType::WRAP_N: return subs[0]->MakeScript() + CScript() << OP_0NOTEQUAL;
             case NodeType::TRUE: return CScript() << OP_1;
             case NodeType::FALSE: return CScript() << OP_0;
             case NodeType::AND_V: return subs[0]->MakeScript() + subs[1]->MakeScript(verify);
@@ -444,10 +444,14 @@ private:
             case NodeType::WRAP_D: return "d" + subs[0]->MakeString(ctx, true);
             case NodeType::WRAP_V: return "v" + subs[0]->MakeString(ctx, true);
             case NodeType::WRAP_J: return "j" + subs[0]->MakeString(ctx, true);
-            case NodeType::WRAP_U: return "u" + subs[0]->MakeString(ctx, true);
+            case NodeType::WRAP_N: return "n" + subs[0]->MakeString(ctx, true);
             case NodeType::AND_V:
                 // t:X is syntactic sugar for and_v(X,1).
                 if (subs[1]->nodetype == NodeType::TRUE) return "t" + subs[0]->MakeString(ctx, true);
+                break;
+            case NodeType::OR_I:
+                if (subs[0]->nodetype == NodeType::FALSE) return "l" + subs[1]->MakeString(ctx, true);
+                if (subs[1]->nodetype == NodeType::FALSE) return "u" + subs[0]->MakeString(ctx, true);
                 break;
             default:
                 break;
@@ -520,7 +524,7 @@ private:
             case NodeType::WRAP_D: return 3 + subs[0]->GetOps();
             case NodeType::WRAP_V: return subs[0]->GetOps() + (subs[0]->GetType() << "x"_mst);
             case NodeType::WRAP_J: return 4 + subs[0]->GetOps();
-            case NodeType::WRAP_U: return 1 + subs[0]->GetOps();
+            case NodeType::WRAP_N: return 1 + subs[0]->GetOps();
             case NodeType::TRUE: return 0;
             case NodeType::FALSE: return 0;
         }
@@ -618,7 +622,7 @@ private:
             case NodeType::WRAP_A:
             case NodeType::WRAP_S:
             case NodeType::WRAP_C:
-            case NodeType::WRAP_U:
+            case NodeType::WRAP_N:
                 return subs[0]->ProduceInput(ctx);
             case NodeType::WRAP_D: {
                 auto x = subs[0]->ProduceInput(ctx);
@@ -730,12 +734,16 @@ inline NodeRef<Key> Parse(Span<const char>& in, const Ctx& ctx) {
                     sub = MakeNodeRef<Key>(NodeType::WRAP_D, Vector(std::move(sub)));
                 } else if (expr[j] == 'j') {
                     sub = MakeNodeRef<Key>(NodeType::WRAP_J, Vector(std::move(sub)));
-                } else if (expr[j] == 'u') {
-                    sub = MakeNodeRef<Key>(NodeType::WRAP_U, Vector(std::move(sub)));
+                } else if (expr[j] == 'n') {
+                    sub = MakeNodeRef<Key>(NodeType::WRAP_N, Vector(std::move(sub)));
                 } else if (expr[j] == 'v') {
                     sub = MakeNodeRef<Key>(NodeType::WRAP_V, Vector(std::move(sub)));
                 } else if (expr[j] == 't') {
                     sub = MakeNodeRef<Key>(NodeType::AND_V, Vector(std::move(sub), MakeNodeRef<Key>(NodeType::TRUE)));
+                } else if (expr[j] == 'u') {
+                    sub = MakeNodeRef<Key>(NodeType::OR_I, Vector(std::move(sub), MakeNodeRef<Key>(NodeType::FALSE)));
+                } else if (expr[j] == 'l') {
+                    sub = MakeNodeRef<Key>(NodeType::OR_I, Vector(MakeNodeRef<Key>(NodeType::FALSE), std::move(sub)));
                 } else {
                     return {};
                 }
@@ -954,7 +962,7 @@ inline NodeRef<Key> DecodeSingle(I& in, I last, const Ctx& ctx) {
         ++in;
         auto sub = DecodeSingle<Key>(in, last, ctx);
         if (!sub) return {};
-        return MakeNodeRef<Key>(NodeType::WRAP_U, Vector(std::move(sub)));
+        return MakeNodeRef<Key>(NodeType::WRAP_N, Vector(std::move(sub)));
     }
     if (last > in && in[0].first == OP_ENDIF) {
         ++in;

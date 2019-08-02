@@ -383,7 +383,7 @@ NodeRef GenNode(miniscript::Type typ, int complexity) {
             case 0: return MakeNodeRef(NodeType::WRAP_C, MultiNode(complexity, Vector("K"_mst)));
             case 1: return MakeNodeRef(NodeType::WRAP_D, MultiNode(complexity - 1, Vector("V"_mst)));
             case 2: return MakeNodeRef(NodeType::WRAP_J, MultiNode(complexity - 1, Vector("B"_mst)));
-            case 3: return MakeNodeRef(NodeType::WRAP_U, MultiNode(complexity - 1, Vector("B"_mst)));
+            case 3: return MakeNodeRef(NodeType::WRAP_N, MultiNode(complexity - 1, Vector("B"_mst)));
             case 4: return MakeNodeRef(NodeType::OR_I, Cat(MultiNode(complexity - 1, Vector("B"_mst)), Vector(MakeNodeRef(NodeType::FALSE))));
             case 5: return MakeNodeRef(NodeType::OR_I, Cat(Vector(MakeNodeRef(NodeType::FALSE)), MultiNode(complexity - 1, Vector("B"_mst))));
             case 6: return MakeNodeRef(NodeType::AND_V, Cat(MultiNode(complexity - 1, Vector("V"_mst)), Vector(MakeNodeRef(NodeType::TRUE))));
@@ -480,7 +480,7 @@ BOOST_FIXTURE_TEST_SUITE(miniscript_tests, BasicTestingSetup)
 BOOST_AUTO_TEST_CASE(random_miniscript_tests)
 {
     for (int i = 0; i < 1000000; ++i) {
-        auto node = RandomNode("B"_mst, 90);
+        auto node = RandomNode("B"_mst, 64);
         auto str = node->ToString(CTX);
         //fprintf(stderr, "%s\n", str.c_str());
         auto script = node->ToScript();

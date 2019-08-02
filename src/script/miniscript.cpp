@@ -72,7 +72,7 @@ Type CalcSimpleType(NodeType nodetype, Type x, Type y, Type z) {
             "e"_mst.If(x << "f"_mst) | // e=f_x
             (x & "oums"_mst) | // o=o_x, u=u_x, m=m_x, s=s_x
             "ndx"_mst; // n, d, x
-        case NodeType::WRAP_U: return
+        case NodeType::WRAP_N: return
             (x & "Bzondfems"_mst) | // B=B_x, z=z_x, o=o_x, n=n_x, d=d_x, f=f_x, e=e_x, m=m_x, s=s_x
             "ux"_mst; // u, x
         case NodeType::AND_V: return
