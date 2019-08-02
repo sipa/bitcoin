@@ -1,9 +1,12 @@
 #ifndef _BITCOIN_SCRIPT_MINISCRIPT_H_
 #define _BITCOIN_SCRIPT_MINISCRIPT_H_ 1
 
-#include <vector>
+#include <algorithm>
+#include <numeric>
 #include <memory>
 #include <string>
+#include <vector>
+
 #include <stdlib.h>
 #include <assert.h>
 
@@ -257,7 +260,11 @@ struct Node {
     //! Subexpressions (for WRAP_*/AND_*/OR_*/ANDOR/THRESH)
     const std::vector<NodeRef<Key>> subs;
 
+
 private:
+    //! Non-push opcodes in the corresponding script.
+    const int ops;
+
     //! Cached expression type (computed by CalcType and fed through SanitizeType).
     const Type typ;
 
@@ -304,6 +311,9 @@ private:
 
     //! Compute the type for this miniscript.
     Type CalcType() const {
+        // Sanity check on sigops
+        if (GetOps() > 201) return ""_mst;
+
         // Sanity check on data
         if (nodetype == NodeType::SHA256 || nodetype == NodeType::HASH256) {
             assert(data.size() == 32);
@@ -481,6 +491,39 @@ private:
         return "";
     }
 
+    int CalcOps() const {
+        switch (nodetype) {
+            case NodeType::PK: return 0;
+            case NodeType::PK_H: return 3;
+            case NodeType::OLDER: return 1;
+            case NodeType::AFTER: return 1;
+            case NodeType::SHA256: return 4;
+            case NodeType::RIPEMD160: return 4;
+            case NodeType::HASH256: return 4;
+            case NodeType::HASH160: return 4;
+            case NodeType::AND_V: return subs[0]->GetOps() + subs[1]->GetOps();
+            case NodeType::AND_B: return 1 + subs[0]->GetOps() + subs[1]->GetOps();
+            case NodeType::OR_B: return 1 + subs[0]->GetOps() + subs[1]->GetOps();
+            case NodeType::OR_D: return 3 + subs[0]->GetOps() + subs[1]->GetOps();
+            case NodeType::OR_C: return 2 + subs[0]->GetOps() + subs[1]->GetOps();
+            case NodeType::OR_I: return 3 + subs[0]->GetOps() + subs[1]->GetOps();
+            case NodeType::ANDOR: return 3 + subs[0]->GetOps() + subs[1]->GetOps() + subs[2]->GetOps();
+            case NodeType::THRESH: return std::accumulate(subs.begin(), subs.end(), 0, [](int x, const NodeRef<Key>& a){return x + 1 + a->GetOps();});
+            case NodeType::THRESH_M: return 1;
+            case NodeType::WRAP_A: return 2 + subs[0]->GetOps();
+            case NodeType::WRAP_S: return 1 + subs[0]->GetOps();
+            case NodeType::WRAP_C: return 1 + subs[0]->GetOps();
+            case NodeType::WRAP_D: return 3 + subs[0]->GetOps();
+            case NodeType::WRAP_V: return subs[0]->GetOps() + (subs[0]->GetType() << "x"_mst);
+            case NodeType::WRAP_J: return 4 + subs[0]->GetOps();
+            case NodeType::WRAP_U: return 1 + subs[0]->GetOps();
+            case NodeType::TRUE: return 0;
+            case NodeType::FALSE: return 0;
+        }
+        assert(false);
+        return 0;
+    }
+
     template<typename Ctx>
     InputResult ProduceInput(const Ctx& ctx) const {
         static const InputStack ZERO = InputStack(std::vector<unsigned char>());
@@ -615,6 +658,9 @@ public:
     //! Return the size of the script for this expression (faster than ToString().size()).
     size_t ScriptSize() const { return scriptlen; }
 
+    //! Return the number of non-push opcodes in this script.
+    int GetOps() const { return ops; }
+
     //! Return the expression type.
     Type GetType() const { return typ; }
 
@@ -649,12 +695,12 @@ public:
     }
 
     // Constructors with various argument combinations.
-    Node(NodeType nt, std::vector<NodeRef<Key>> sub, std::vector<unsigned char> arg, uint32_t val = 0) : nodetype(nt), k(val), data(std::move(arg)), subs(std::move(sub)), typ(CalcType()), scriptlen(CalcScriptLen()) {}
-    Node(NodeType nt, std::vector<unsigned char> arg, uint32_t val = 0) : nodetype(nt), k(val), data(std::move(arg)), typ(CalcType()), scriptlen(CalcScriptLen()) {}
-    Node(NodeType nt, std::vector<NodeRef<Key>> sub, std::vector<Key> key, uint32_t val = 0) : nodetype(nt), k(val), keys(std::move(key)), subs(std::move(sub)), typ(CalcType()), scriptlen(CalcScriptLen()) {}
-    Node(NodeType nt, std::vector<Key> key, uint32_t val = 0) : nodetype(nt), k(val), keys(std::move(key)), typ(CalcType()), scriptlen(CalcScriptLen()) {}
-    Node(NodeType nt, std::vector<NodeRef<Key>> sub, uint32_t val = 0) : nodetype(nt), k(val), subs(std::move(sub)), typ(CalcType()), scriptlen(CalcScriptLen()) {}
-    Node(NodeType nt, uint32_t val = 0) : nodetype(nt), k(val), typ(CalcType()), scriptlen(CalcScriptLen()) {}
+    Node(NodeType nt, std::vector<NodeRef<Key>> sub, std::vector<unsigned char> arg, uint32_t val = 0) : nodetype(nt), k(val), data(std::move(arg)), subs(std::move(sub)), ops(CalcOps()), typ(CalcType()), scriptlen(CalcScriptLen()) {}
+    Node(NodeType nt, std::vector<unsigned char> arg, uint32_t val = 0) : nodetype(nt), k(val), data(std::move(arg)), ops(CalcOps()), typ(CalcType()), scriptlen(CalcScriptLen()) {}
+    Node(NodeType nt, std::vector<NodeRef<Key>> sub, std::vector<Key> key, uint32_t val = 0) : nodetype(nt), k(val), keys(std::move(key)), subs(std::move(sub)), ops(CalcOps()), typ(CalcType()), scriptlen(CalcScriptLen()) {}
+    Node(NodeType nt, std::vector<Key> key, uint32_t val = 0) : nodetype(nt), k(val), keys(std::move(key)), ops(CalcOps()), typ(CalcType()), scriptlen(CalcScriptLen()) {}
+    Node(NodeType nt, std::vector<NodeRef<Key>> sub, uint32_t val = 0) : nodetype(nt), k(val), subs(std::move(sub)), ops(CalcOps()), typ(CalcType()), scriptlen(CalcScriptLen()) {}
+    Node(NodeType nt, uint32_t val = 0) : nodetype(nt), k(val), ops(CalcOps()), typ(CalcType()), scriptlen(CalcScriptLen()) {}
 };
 
 namespace internal {

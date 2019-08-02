@@ -480,11 +480,10 @@ BOOST_FIXTURE_TEST_SUITE(miniscript_tests, BasicTestingSetup)
 BOOST_AUTO_TEST_CASE(random_miniscript_tests)
 {
     for (int i = 0; i < 1000000; ++i) {
-        auto node = RandomNode("B"_mst, 1 + InsecureRandRange(64));
+        auto node = RandomNode("B"_mst, 90);
         auto str = node->ToString(CTX);
-        fprintf(stderr, "%s\n", str.c_str());
+        //fprintf(stderr, "%s\n", str.c_str());
         auto script = node->ToScript();
-//        fprintf(stderr, "* Script: %s\n", ScriptToAsmStr(script).c_str());
         // Check consistency between script size estimation and real size
         BOOST_CHECK(node->ScriptSize() == script.size());
         // Check consistency of "x" property with the script (relying on the fact that in this test no keys or hashes end with a byte matching any of the opcodes below).
@@ -517,18 +516,21 @@ BOOST_AUTO_TEST_CASE(random_miniscript_tests)
             std::vector<std::vector<unsigned char>> stack;
             if (node->Satisfy(ctx, stack)) {
 //                fprintf(stderr, "* Solution with %i challenges\n", (int)ctx.supported.size());
-//                fprintf(stderr, "* Stack:");
-                for (const auto& arg : stack) {
-                    fprintf(stderr, " %s", HexStr(arg).c_str());
-                }
-                fprintf(stderr, "\n");
+//                fprintf(stderr, "\n");
                 stack.push_back(std::vector<unsigned char>(script.begin(), script.end()));
                 TestSignatureChecker checker(&ctx);
                 CScriptWitness witness;
                 witness.stack = std::move(stack);
                 ScriptError serror;
                 if (!VerifyScript(CScript(), spk, &witness, STANDARD_SCRIPT_VERIFY_FLAGS, checker, &serror)) {
-                    fprintf(stderr, "* FAILURE: %s\n", ScriptErrorString(serror));
+                    fprintf(stderr, "FAILURE: %s\n", str.c_str());
+                    fprintf(stderr, "* Script: %s\n", ScriptToAsmStr(script).c_str());
+                    fprintf(stderr, "* Max ops: %i\n", node->GetOps());
+                    fprintf(stderr, "* Stack:");
+                    for (const auto& arg : stack) {
+                        fprintf(stderr, " %s", HexStr(arg).c_str());
+                    }
+                    fprintf(stderr, "* ERROR: %s\n", ScriptErrorString(serror));
                     BOOST_CHECK(false);
                 }
                 break;
