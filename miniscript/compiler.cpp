@@ -7,9 +7,10 @@
 #include <unordered_map>
 #include <script/script.h>
 #include <script/miniscript.h>
-#include <miniscript_compiler.h>
 #include <span.h>
 #include <util/strencodings.h>
+
+#include "compiler.h"
 
 #include <assert.h>
 

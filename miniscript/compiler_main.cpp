@@ -5,7 +5,8 @@
 #include <assert.h>
 
 #include <script/miniscript.h>
-#include <miniscript_compiler.h>
+
+#include "compiler.h"
 
 static bool run(std::string&& line, int64_t count) {
     if (line.size() && line.back() == '\n') line.pop_back();
@@ -14,7 +15,7 @@ static bool run(std::string&& line, int64_t count) {
     miniscript::NodeRef<CompilerKey> ret;
     double avgcost = 0;
     if (!Compile(line, ret, avgcost)) {
-        printf("Cannot compiler: %s\n", line.c_str());
+        printf("Cannot compile: %s\n", line.c_str());
         return true;
     }
     printf("%7li %17.10f %5i %s %s\n", (long)count, ret->ScriptSize() + avgcost, (int)ret->ScriptSize(), ret->ToString(COMPILER_CTX).c_str(), line.c_str());

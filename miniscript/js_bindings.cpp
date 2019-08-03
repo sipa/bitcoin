@@ -1,7 +1,8 @@
 #include <string>
 
 #include <script/miniscript.h>
-#include <miniscript_compiler.h>
+
+#include "compiler.h"
 
 namespace {
 
