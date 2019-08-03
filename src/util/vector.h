@@ -50,7 +50,7 @@ inline V Cat(V&& v1, V&& v2)
     for (auto& arg : v2) {
         v1.push_back(std::move(arg));
     }
-    return v1;
+    return std::move(v1); // Explicit move is necessary
 }
 
 template<typename V>
@@ -60,7 +60,7 @@ inline V Cat(V&& v1, const V& v2)
     for (auto& arg : v2) {
         v1.push_back(arg);
     }
-    return v1;
+    return std::move(v1);
 }
 
 template<typename V>
