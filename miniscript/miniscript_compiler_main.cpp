@@ -17,7 +17,7 @@ static bool run(std::string&& line, int64_t count) {
         printf("Cannot compiler: %s\n", line.c_str());
         return true;
     }
-    printf("%7li %17.10f %5i %s %s\n", count, ret->ScriptSize() + avgcost, (int)ret->ScriptSize(), ret->ToString(COMPILER_CTX).c_str(), line.c_str());
+    printf("%7li %17.10f %5i %s %s\n", (long)count, ret->ScriptSize() + avgcost, (int)ret->ScriptSize(), ret->ToString(COMPILER_CTX).c_str(), line.c_str());
     return true;
 }
 
