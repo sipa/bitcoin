@@ -479,10 +479,10 @@ BOOST_FIXTURE_TEST_SUITE(miniscript_tests, BasicTestingSetup)
 
 BOOST_AUTO_TEST_CASE(random_miniscript_tests)
 {
-    for (int i = 0; i < 1000000; ++i) {
-        auto node = RandomNode("B"_mst, 64);
+    for (int i = 0; i < 100000; ++i) {
+        auto node = RandomNode("B"_mst, 90);
         auto str = node->ToString(CTX);
-        //fprintf(stderr, "%s\n", str.c_str());
+        if (i % 1000 == 0) fprintf(stderr, ".");
         auto script = node->ToScript();
         // Check consistency between script size estimation and real size
         BOOST_CHECK(node->ScriptSize() == script.size());
@@ -523,7 +523,7 @@ BOOST_AUTO_TEST_CASE(random_miniscript_tests)
                 witness.stack = std::move(stack);
                 ScriptError serror;
                 if (!VerifyScript(CScript(), spk, &witness, STANDARD_SCRIPT_VERIFY_FLAGS, checker, &serror)) {
-                    fprintf(stderr, "FAILURE: %s\n", str.c_str());
+                    fprintf(stderr, "\nFAILURE: %s\n", str.c_str());
                     fprintf(stderr, "* Script: %s\n", ScriptToAsmStr(script).c_str());
                     fprintf(stderr, "* Max ops: %i\n", node->GetOps());
                     fprintf(stderr, "* Stack:");
