@@ -37,7 +37,7 @@ s = "pk(C)" |
 
 w = "after(9)" |
     "sha256(H)" |
-    "hash160(H)" |
+#    "hash160(H)" |
     "or(" prob s "," prob w ")" |
     "or(" prob w "," prob s ")" |
     "and(" w "," w ")" |
