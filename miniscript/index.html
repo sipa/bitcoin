@@ -8,28 +8,41 @@
 <script src="miniscript.js" type="text/javascript"></script>
 <script type="text/javascript">
 em_miniscript_compile = Module.cwrap('miniscript_compile', 'none', ['string', 'number', 'number', 'number', 'number']);
+em_miniscript_analyze = Module.cwrap('miniscript_analyze', 'none', ['string', 'number', 'number']);
 
 function miniscript_compile() {
-    document.getElementById("descout").innerHTML = "Compiling...";
+    document.getElementById("descout").value = "Compiling...";
     document.getElementById("spendout").innerHTML = "Compiling...";
     window.setTimeout(function() {
         src = document.getElementById("source").value;
         var descout = Module._malloc(1000);
-        var spendout = Module._malloc(1000);
-        em_miniscript_compile(src, descout, 1000, spendout, 1000);
-        document.getElementById("descout").innerHTML = Module.UTF8ToString(descout);
+        var spendout = Module._malloc(50000);
+        em_miniscript_compile(src, descout, 1000, spendout, 50000);
+        document.getElementById("descout").value = Module.UTF8ToString(descout);
         document.getElementById("spendout").innerHTML = Module.UTF8ToString(spendout);
         Module._free(descout)
         Module._free(spendout)
     });
 }
+
+function miniscript_analyze() {
+    document.getElementById("spendout").innerHTML = "Analyzing...";
+    window.setTimeout(function() {
+        src = document.getElementById("descout").value;
+        var spendout = Module._malloc(50000);
+        em_miniscript_analyze(src, spendout, 50000);
+        document.getElementById("spendout").innerHTML = Module.UTF8ToString(spendout);
+        Module._free(spendout)
+    });
+}
+
 </script>
 <h3>Policy</h3>
 <p>
 <table>
 <tr>
 <td>
-<textarea rows="20" cols="100" id="source">
+<textarea rows="1" cols="100" id="source">
 and(pk(C),or(pk(C),or(9@pk(C),older(1000))))
 </textarea><br/>
 <button type="button" onclick="miniscript_compile();">Compile</button>
@@ -55,20 +68,21 @@ Shorthands:
 </table>
 </p>
 
+<hr/>
+<b>Miniscript output</b><br/>
+<textarea rows="4" cols="100" id="descout"></textarea>
+<button byte="button" onclick="miniscript_analyze();">Analyze</button>
+</p>
+
+<hr/>
 <p>
-<b>Spending cost</b><br/>
+<b>Analysis</b><br/>
 <a id="spendout"></a>
 </p>
 
 <hr/>
 
-<b>Miniscript output</b><br/>
-<a id="descout"></a>
-</p>
-
-<hr/>
-
-<h3>Expression types</h3>
+<h3>Miniscript reference</h3>
 
 <p>
 <table border="1">
