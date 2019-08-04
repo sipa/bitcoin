@@ -71,8 +71,6 @@ bool operator==(const Span<const char>& a, const std::string& b) { return (size_
 
 std::vector<unsigned char> Hash(const Span<const char>& in, size_t len)
 {
-    if (in == "H" && len == 32) return {0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88};
-    if (in == "H" && len == 20) return {0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99};
     auto unhex = ParseHex(std::string(in.begin(), in.end()));
     if (unhex.size() == len) return unhex;
     return {};
@@ -830,4 +828,32 @@ bool Compile(const std::string& policy, miniscript::NodeRef<CompilerKey>& ret, d
     }
 
     return ok;
+}
+
+std::string Expand(std::string str) {
+    while (true) {
+        auto pos = str.find("(H)");
+        if (pos == std::string::npos) break;
+        str.replace(pos, 3, "(8888888888888888888888888888888888888888888888888888888888888888)");
+    }
+    while (true) {
+        auto pos = str.find("(h)");
+        if (pos == std::string::npos) break;
+        str.replace(pos, 3, "(9999999999999999999999999999999999999999)");
+    }
+    return str;
+}
+
+std::string Abbreviate(std::string str) {
+    while (true) {
+        auto pos = str.find("(8888888888888888888888888888888888888888888888888888888888888888)");
+        if (pos == std::string::npos) break;
+        str.replace(pos, 66, "(H)");
+    }
+    while (true) {
+        auto pos = str.find("(9999999999999999999999999999999999999999)");
+        if (pos == std::string::npos) break;
+        str.replace(pos, 42, "(h)");
+    }
+    return str;
 }

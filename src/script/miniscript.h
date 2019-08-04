@@ -1152,7 +1152,7 @@ inline NodeRef<typename Ctx::Key> FromString(const std::string& str, const Ctx& 
     Span<const char> span = MakeSpan(str);
     auto ret = internal::Parse<typename Ctx::Key>(span, ctx);
     if (!ret || span.size()) return {};
-    if (!(ret->GetType() << "B"_mst)) return {};
+//    if (!(ret->GetType() << "B"_mst)) return {};
     return ret;
 }
 

@@ -22,12 +22,12 @@ void miniscript_compile(const char* desc, char* descout, int descoutlen, char* c
         str.erase(str.find_last_not_of(" \n\r\t") + 1);
         miniscript::NodeRef<CompilerKey> ret;
         double avgcost;
-        if (!Compile(str, ret, avgcost)) {
+        if (!Compile(Expand(str), ret, avgcost)) {
             Output("[compile error]", descout, descoutlen);
             Output("[compile error]", costout, costoutlen);
             return;
         }
-        Output(ret->ToString(COMPILER_CTX), descout, descoutlen);
+        Output(Abbreviate(ret->ToString(COMPILER_CTX)), descout, descoutlen);
         std::string coststr = std::to_string(ret->ScriptSize()) + " bytes script + " + std::to_string(avgcost) + " bytes input = " + std::to_string(ret->ScriptSize() + avgcost) + " bytes";
         Output(coststr, costout, costoutlen);
     } catch (const std::exception& e) {

@@ -27,4 +27,7 @@ extern const CompilerContext COMPILER_CTX;
 
 bool Compile(const std::string& policy, miniscript::NodeRef<CompilerKey>& ret, double& avgcost);
 
+std::string Expand(std::string str);
+std::string Abbreviate(std::string str);
+
 #endif
