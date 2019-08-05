@@ -480,7 +480,7 @@ CostPair CalcCostPair(NodeType nt, const std::vector<const Result*>& s, double l
         case NodeType::OR_I:
             return {Mul(l, s[0]->pair.sat + 2) + Mul(r, s[1]->pair.sat + 1), std::min(2 + s[0]->pair.nsat, 1 + s[1]->pair.nsat)};
         case NodeType::ANDOR:
-            return {Mul(l, s[0]->pair.sat + s[1]->pair.sat) + Mul(r, s[0]->pair.nsat + s[2]->pair.sat), s[0]->pair.nsat + s[1]->pair.nsat};
+            return {Mul(l, s[0]->pair.sat + s[1]->pair.sat) + Mul(r, s[0]->pair.nsat + s[2]->pair.sat), s[0]->pair.nsat + s[2]->pair.nsat};
         case NodeType::THRESH_M: return CostPair{1.0 + l * 73.0, 1.0 + l};
         case NodeType::THRESH: {
             double sat = 0.0, nsat = 0.0;
@@ -799,6 +799,50 @@ void Compile(const Strat* strat, Compilation& compilation, std::map<CompilationK
         }
     }
 }
+
+/*
+std::string DebugNode(const Node& node) {
+    switch (node->nodetype) {
+        case NodeType::PK: return "pk";
+        case NodeType::PK_H: return "pk_h";
+        case NodeType::THRESH_M: return "thresh_m(" + std::to_string(node->k) + " of " + std::to_string(node->keys.size()) + ")";
+        case NodeType::AFTER: return "after";
+        case NodeType::OLDER: return "older";
+        case NodeType::SHA256: return "sha256";
+        case NodeType::HASH256: return "hash256";
+        case NodeType::RIPEMD160: return "ripemd160";
+        case NodeType::HASH160: return "hash160";
+        case NodeType::TRUE: return "1";
+        case NodeType::FALSE: return "0";
+        case NodeType::WRAP_C: return "c:";
+        case NodeType::WRAP_A: return "a:";
+        case NodeType::WRAP_S: return "s:";
+        case NodeType::WRAP_V: return "v:";
+        case NodeType::WRAP_D: return "d:";
+        case NodeType::WRAP_J: return "j:";
+        case NodeType::WRAP_N: return "n:";
+        case NodeType::AND_V: return "and_v";
+        case NodeType::AND_B: return "and_b";
+        case NodeType::OR_B: return "or_b";
+        case NodeType::OR_C: return "or_c";
+        case NodeType::OR_D: return "or_d";
+        case NodeType::OR_I: return "or_i";
+        case NodeType::ANDOR: return "andor";
+        case NodeType::THRESH: return "thresh(" + std::to_string(node->k) + " of " + std::to_string(node->subs.size()) + ")";
+    }
+    assert(false);
+    return "";
+}
+
+void PrintCompilationResult(int level, const Result& res) {
+    for (int i = 0; i < level; ++i) fprintf(stderr, "  ");
+    fprintf(stderr, "* %s p=%f q=%f scriptlen=%i sat=%f nsat=%f cost=%f\n", DebugNode(res.node).c_str(), res.p, res.q, (int)res.node->ScriptSize(), res.pair.sat, res.pair.nsat, res.cost);
+    assert(res.subs.size() == res.node->subs.size());
+    for (size_t j = 0; j < res.subs.size(); ++j) {
+        PrintCompilationResult(level + 1, *(res.subs[j]));
+    }
+}
+*/
 
 } // namespace
 
