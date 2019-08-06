@@ -288,6 +288,7 @@ const Strat* ComputeStrategy(const Policy& node, std::unordered_map<const Policy
                 if (!rightleft || !rightright) return {};
                 strats.push_back(MakeStrat(store, Strat::Type::ANDOR, Vector(std::move(rightleft), std::move(rightright), left), 1.0 - prob));
             }
+            strats.push_back(MakeStrat(store, Strat::Type::ANDOR, Vector(left, STRAT_TRUE, right), prob));
             strats.push_back(MakeStrat(store, Strat::Type::OR, Vector(std::move(left), std::move(right)), prob));
             break;
         }
@@ -318,9 +319,9 @@ const Strat* ComputeStrategy(const Policy& node, std::unordered_map<const Policy
     ret->sub.push_back(MakeStrat(store, Strat::Type::WRAP_C, std::vector<const Strat*>{ret}));
     ret->sub.push_back(MakeStrat(store, Strat::Type::WRAP_V, std::vector<const Strat*>{ret}));
     ret->sub.push_back(MakeStrat(store, Strat::Type::AND, std::vector<const Strat*>{ret, STRAT_TRUE}));
-    ret->sub.push_back(MakeStrat(store, Strat::Type::WRAP_J, std::vector<const Strat*>{ret}));
-    ret->sub.push_back(MakeStrat(store, Strat::Type::WRAP_D, std::vector<const Strat*>{ret}));
     ret->sub.push_back(MakeStrat(store, Strat::Type::WRAP_N, std::vector<const Strat*>{ret}));
+    ret->sub.push_back(MakeStrat(store, Strat::Type::WRAP_D, std::vector<const Strat*>{ret}));
+    ret->sub.push_back(MakeStrat(store, Strat::Type::WRAP_J, std::vector<const Strat*>{ret}));
     ret->sub.push_back(MakeStrat(store, Strat::Type::OR, std::vector<const Strat*>{ret, STRAT_FALSE}, 1.0));
     ret->sub.push_back(MakeStrat(store, Strat::Type::WRAP_AS, std::vector<const Strat*>{ret}));
 
