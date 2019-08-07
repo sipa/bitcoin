@@ -326,6 +326,46 @@ template<typename... Args>
 NodeRef MakeNodeRef(Args&&... args) { return miniscript::MakeNodeRef<TestKey>(std::forward<Args>(args)...); }
 using miniscript::operator""_mst;
 
+bool Satisfiable(const NodeRef& ref) {
+    switch (ref->nodetype) {
+        case NodeType::FALSE:
+            return false;
+        case NodeType::AND_B:
+        case NodeType::AND_V:
+            return Satisfiable(ref->subs[0]) && Satisfiable(ref->subs[1]);
+        case NodeType::OR_B:
+        case NodeType::OR_C:
+        case NodeType::OR_D:
+        case NodeType::OR_I:
+            return Satisfiable(ref->subs[0]) || Satisfiable(ref->subs[1]);
+        case NodeType::ANDOR:
+            return (Satisfiable(ref->subs[0]) && Satisfiable(ref->subs[1])) || Satisfiable(ref->subs[2]);
+        case NodeType::WRAP_A:
+        case NodeType::WRAP_C:
+        case NodeType::WRAP_S:
+        case NodeType::WRAP_D:
+        case NodeType::WRAP_V:
+        case NodeType::WRAP_J:
+        case NodeType::WRAP_N:
+            return Satisfiable(ref->subs[0]);
+        case NodeType::PK:
+        case NodeType::PK_H:
+        case NodeType::THRESH_M:
+        case NodeType::AFTER:
+        case NodeType::OLDER:
+        case NodeType::HASH256:
+        case NodeType::HASH160:
+        case NodeType::SHA256:
+        case NodeType::RIPEMD160:
+        case NodeType::TRUE:
+            return true;
+        case NodeType::THRESH:
+            return std::accumulate(ref->subs.begin(), ref->subs.end(), (size_t)0, [](size_t acc, const NodeRef& ref){return acc + Satisfiable(ref);}) >= ref->k;
+    }
+    assert(false);
+    return false;
+}
+
 NodeRef GenNode(miniscript::Type typ, int complexity);
 
 NodeRef RandomNode(miniscript::Type typ, int complexity) {
@@ -473,6 +513,29 @@ void FindChallenges(const NodeRef& ref, std::set<Challenge>& chal) {
     }
 }
 
+void Verify(const std::string& testcase, const NodeRef& node, const TestContext& ctx, std::vector<std::vector<unsigned char>> stack, const CScript& script) {
+    // Construct P2WSH scriptPubKey.
+    CScript spk = GetScriptForDestination(WitnessV0ScriptHash(script));
+    // Construct the P2WSH witness (script stack + script).
+    CScriptWitness witness;
+    witness.stack = std::move(stack);
+    witness.stack.push_back(std::vector<unsigned char>(script.begin(), script.end()));
+    // Use a test signature checker aware of which afters/olders we made valid.
+    TestSignatureChecker checker(&ctx);
+    ScriptError serror;
+    if (!VerifyScript(CScript(), spk, &witness, STANDARD_SCRIPT_VERIFY_FLAGS, checker, &serror)) {
+        fprintf(stderr, "\nFAILURE: %s\n", testcase.c_str());
+        fprintf(stderr, "* Script: %s\n", ScriptToAsmStr(script).c_str());
+        fprintf(stderr, "* Max ops: %i\n", node->GetOps());
+        fprintf(stderr, "* Stack:");
+        for (const auto& arg : stack) {
+            fprintf(stderr, " %s", HexStr(arg).c_str());
+        }
+        fprintf(stderr, "* ERROR: %s\n", ScriptErrorString(serror));
+        BOOST_CHECK(false);
+    }
+}
+
 } // namespace
 
 BOOST_FIXTURE_TEST_SUITE(miniscript_tests, BasicTestingSetup)
@@ -480,9 +543,9 @@ BOOST_FIXTURE_TEST_SUITE(miniscript_tests, BasicTestingSetup)
 BOOST_AUTO_TEST_CASE(random_miniscript_tests)
 {
     for (int i = 0; i < 100000; ++i) {
-        auto node = RandomNode("B"_mst, 90);
+        auto typ = InsecureRandRange(100) ? "B"_mst : "Bms"_mst; // require 1% strong, non-malleable
+        auto node = RandomNode(typ, 1 + InsecureRandRange(90));
         auto str = node->ToString(CTX);
-        if (i % 1000 == 0) fprintf(stderr, ".");
         auto script = node->ToScript();
         // Check consistency between script size estimation and real size
         BOOST_CHECK(node->ScriptSize() == script.size());
@@ -504,38 +567,46 @@ BOOST_AUTO_TEST_CASE(random_miniscript_tests)
             BOOST_CHECK(decoded->GetType() == node->GetType());
         }
 
-        CScript spk = GetScriptForDestination(WitnessV0ScriptHash(script));
-
         std::set<Challenge> challenges;
         FindChallenges(node, challenges);
         std::vector<Challenge> challist(challenges.begin(), challenges.end());
         Shuffle(challist.begin(), challist.end(), g_insecure_rand_ctx);
         TestContext ctx;
-        for (const auto& chal : challist) {
-            ctx.supported.insert(chal);
-            std::vector<std::vector<unsigned char>> stack;
-            if (node->Satisfy(ctx, stack)) {
-//                fprintf(stderr, "* Solution with %i challenges\n", (int)ctx.supported.size());
-//                fprintf(stderr, "\n");
-                stack.push_back(std::vector<unsigned char>(script.begin(), script.end()));
-                TestSignatureChecker checker(&ctx);
-                CScriptWitness witness;
-                witness.stack = std::move(stack);
-                ScriptError serror;
-                if (!VerifyScript(CScript(), spk, &witness, STANDARD_SCRIPT_VERIFY_FLAGS, checker, &serror)) {
-                    fprintf(stderr, "\nFAILURE: %s\n", str.c_str());
-                    fprintf(stderr, "* Script: %s\n", ScriptToAsmStr(script).c_str());
-                    fprintf(stderr, "* Max ops: %i\n", node->GetOps());
-                    fprintf(stderr, "* Stack:");
-                    for (const auto& arg : stack) {
-                        fprintf(stderr, " %s", HexStr(arg).c_str());
-                    }
-                    fprintf(stderr, "* ERROR: %s\n", ScriptErrorString(serror));
-                    BOOST_CHECK(false);
-                }
-                break;
+        bool prev_mal_success = false, prev_nonmal_success = false;
+        // Go over all challenges involved in this miniscript in random order; the first iteration does not add anything.
+        for (int add = -1; add < (int)challist.size(); ++add) {
+            if (add >= 0) {
+                ctx.supported.insert(challist[add]);
             }
+            std::vector<std::vector<unsigned char>> stack;
+            bool mal_success = false;
+            if (node->Satisfy(ctx, stack, false)) {
+                Verify(str, node, ctx, stack, script);
+                mal_success = true;
+            }
+            bool nonmal_success = false;
+            if (node->Satisfy(ctx, stack, true)) {
+                Verify(str, node, ctx, std::move(stack), std::move(script));
+                nonmal_success = true;
+            }
+            // If a nonmalleable solution exists, a solution whatsoever must also exist.
+            BOOST_CHECK(mal_success >= nonmal_success);
+            // If a miniscript is nonmalleable/strong, and a solution exists, a non-malleable solution must also exist.
+            if (node->GetType() << "ms"_mst) {
+                BOOST_CHECK_EQUAL(nonmal_success, mal_success);
+            }
+            // Adding more satisfied conditions can never remove our ability to produce a satisfaction.
+            BOOST_CHECK(mal_success >= prev_mal_success);
+            prev_mal_success = mal_success;
+            // For nonmalleable solutions this is only true if the added condition is PK; for other conditions, it may make an valid satisfaction become malleable
+            if (add >= 0 && challist[add].first == ChallengeType::PK) {
+                BOOST_CHECK(nonmal_success >= prev_nonmal_success);
+                assert(nonmal_success >= prev_nonmal_success);
+            }
+            prev_nonmal_success = nonmal_success;
         }
+        // If the miniscript was satisfiable at all, a satisfaction must be found after all conditions are added.
+        BOOST_CHECK_EQUAL(prev_mal_success, Satisfiable(node));
     }
 }
 

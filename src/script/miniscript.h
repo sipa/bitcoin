@@ -204,6 +204,8 @@ Type SanitizeType(Type x);
 
 struct InputStack {
     bool valid = false;
+    bool has_sig = false;
+    bool malleable = false;
     size_t size = 0;
     std::vector<std::vector<unsigned char>> stack;
 
@@ -212,35 +214,57 @@ struct InputStack {
     InputStack& operator=(InputStack&& x) = default;
     InputStack& operator=(const InputStack& x) = default;
 
-    InputStack(bool val) : valid(val), size(valid ? 0 : std::numeric_limits<size_t>::max()) {}
+    explicit InputStack(bool val) : valid(val), size(valid ? 0 : std::numeric_limits<size_t>::max()) {}
     InputStack(std::vector<unsigned char> in) : valid(true), size(in.size() + 1), stack(Vector(std::move(in))) {}
+
+    InputStack& WithSig() {
+        has_sig = true;
+        return *this;
+    }
+
+    InputStack& Malleable(bool x = true) {
+        malleable = x;
+        return *this;
+    }
 
     bool operator<(const InputStack& b) const { return size < b.size; }
 
-    friend InputStack operator+(InputStack a, InputStack&& b) {
+    friend InputStack operator+(InputStack a, InputStack b) {
         if (!a.valid || !b.valid) {
             a.valid = false;
             a.stack.clear();
             a.size = std::numeric_limits<size_t>::max();
+            a.has_sig = false;
+            a.malleable = false;
         } else {
             a.stack = Cat(std::move(a.stack), std::move(b.stack));
             a.size += b.size;
-        }
-        return a;
-    }
-
-    friend InputStack operator+(InputStack a, const InputStack& b) {
-        if (!a.valid || !b.valid) {
-            a.valid = false;
-            a.stack.clear();
-            a.size = std::numeric_limits<size_t>::max();
-        } else {
-            a.stack = Cat(std::move(a.stack), b.stack);
-            a.size += b.size;
+            a.has_sig |= b.has_sig;
+            a.malleable |= b.malleable;
         }
         return a;
     }
 };
+
+inline InputStack Choose(InputStack a, InputStack b, bool nonmalleable) {
+    // If only one (or neither) is valid, pick the other one.
+    if (!a.valid) return b;
+    if (!b.valid) return a;
+    // If both are valid, they must be distinct.
+    assert(a.stack != b.stack);
+    if (nonmalleable) {
+        // If both options are weak, any result is fine; it just needs the malleable marker.
+        if (!a.has_sig && !b.has_sig) return a.Malleable();
+        // If one option is weak, we must pick that one.
+        if (!a.has_sig) return a;
+        if (!b.has_sig) return b;
+        // If both options are strong, prefer the nonmalleable one.
+        if (b.malleable) return a;
+        if (a.malleable) return b;
+    }
+    // Otherwise just pick the smallest one.
+    return std::min(a, b);
+}
 
 struct InputResult {
     InputStack nsat, sat;
@@ -591,21 +615,44 @@ private:
     }
 
     template<typename Ctx>
-    InputResult ProduceInput(const Ctx& ctx) const {
+    InputResult ProduceInput(const Ctx& ctx, bool nonmal) const {
+        auto ret = ProduceInputHelper(ctx, nonmal);
+        // Do a consistency check between the satisfaction code and the type checker
+        // (the actual satisfaction code in ProduceInputHelper does not use GetType)
+        if (GetType() << "z"_mst && ret.nsat.valid) assert(ret.nsat.stack.size() == 0);
+        if (GetType() << "z"_mst && ret.sat.valid) assert(ret.sat.stack.size() == 0);
+        if (GetType() << "o"_mst && ret.nsat.valid) assert(ret.nsat.stack.size() == 1);
+        if (GetType() << "o"_mst && ret.sat.valid) assert(ret.sat.stack.size() == 1);
+        if (GetType() << "n"_mst && ret.sat.valid) assert(ret.sat.stack.back().size() != 0);
+        if (GetType() << "d"_mst) assert(ret.nsat.valid);
+        if (GetType() << "f"_mst) assert(!ret.nsat.valid);
+        if (GetType() << "s"_mst && ret.sat.valid) assert(ret.sat.has_sig);
+        if (nonmal) {
+            if (GetType() << "e"_mst) assert(!ret.nsat.malleable);
+            if (GetType() << "m"_mst && ret.sat.valid) assert(!ret.sat.malleable);
+        }
+        return ret;
+    }
+
+    template<typename Ctx>
+    InputResult ProduceInputHelper(const Ctx& ctx, bool nonmal) const {
         static const InputStack ZERO = InputStack(std::vector<unsigned char>());
-        static const InputStack ZERO32 = InputStack(std::vector<unsigned char>(32, 0));
+        static const InputStack ZERO32 = InputStack(std::vector<unsigned char>(32, 0)).Malleable();
         static const InputStack ONE = InputStack(Vector((unsigned char)1));
+        static const InputStack EMPTY = InputStack(true);
+        static const InputStack MALLEABLE_EMPTY = InputStack(true).Malleable();
+        static const InputStack INVALID = InputStack(false);
 
         switch (nodetype) {
             case NodeType::PK: {
                 std::vector<unsigned char> sig;
-                if (!ctx.Sign(keys[0], sig)) return InputResult(ZERO, false);
-                return InputResult(ZERO, std::move(sig));
+                if (!ctx.Sign(keys[0], sig)) return InputResult(ZERO, INVALID);
+                return InputResult(ZERO, InputStack(std::move(sig)).WithSig());
             }
             case NodeType::PK_H: {
                 std::vector<unsigned char> key = keys[0].ToPKBytes(), sig;
-                if (!ctx.Sign(keys[0], sig)) return InputResult(ZERO + InputStack(std::move(key)), false);
-                return InputResult(ZERO + InputStack(key), InputStack(std::move(sig)) + InputStack(key));
+                if (!ctx.Sign(keys[0], sig)) return InputResult(ZERO + InputStack(std::move(key)), INVALID);
+                return InputResult(ZERO + InputStack(key), InputStack(std::move(sig)).WithSig() + InputStack(key));
             }
             case NodeType::THRESH_M: {
                 InputStack sat = ZERO;
@@ -615,109 +662,145 @@ private:
                 for (size_t i = 0; i < keys.size(); ++i) {
                     std::vector<unsigned char> sig;
                     if (ctx.Sign(keys[i], sig)) {
-                        sat = std::move(sat) + InputStack(std::move(sig));
+                        sat = std::move(sat) + InputStack(std::move(sig)).WithSig();
                         ++good;
                         if (good == k) break;
                     }
                 }
                 if (good == k) return InputResult(std::move(nsat), std::move(sat));
-                return InputResult(std::move(nsat), false);
+                return InputResult(std::move(nsat), INVALID);
             }
             case NodeType::OLDER: {
-                return InputResult(false, ctx.CheckOlder(k));
+                return InputResult(INVALID, ctx.CheckOlder(k) ? EMPTY : INVALID);
             }
             case NodeType::AFTER: {
-                return InputResult(false, ctx.CheckAfter(k));
+                return InputResult(INVALID, ctx.CheckAfter(k) ? EMPTY : INVALID);
             }
             case NodeType::SHA256: {
                 std::vector<unsigned char> preimage;
-                if (!ctx.SatSHA256(data, preimage)) return InputResult(ZERO32, false);
+                if (!ctx.SatSHA256(data, preimage)) return InputResult(ZERO32, INVALID);
                 return InputResult(ZERO32, std::move(preimage));
             }
             case NodeType::RIPEMD160: {
                 std::vector<unsigned char> preimage;
-                if (!ctx.SatRIPEMD160(data, preimage)) return InputResult(ZERO32, false);
+                if (!ctx.SatRIPEMD160(data, preimage)) return InputResult(ZERO32, INVALID);
                 return InputResult(ZERO32, std::move(preimage));
             }
             case NodeType::HASH256: {
                 std::vector<unsigned char> preimage;
-                if (!ctx.SatHASH256(data, preimage)) return InputResult(ZERO32, false);
+                if (!ctx.SatHASH256(data, preimage)) return InputResult(ZERO32, INVALID);
                 return InputResult(ZERO32, std::move(preimage));
             }
             case NodeType::HASH160: {
                 std::vector<unsigned char> preimage;
-                if (!ctx.SatHASH160(data, preimage)) return InputResult(ZERO32, false);
+                if (!ctx.SatHASH160(data, preimage)) return InputResult(ZERO32, INVALID);
                 return InputResult(ZERO32, std::move(preimage));
             }
             case NodeType::AND_V: {
-                auto x = subs[0]->ProduceInput(ctx), y = subs[1]->ProduceInput(ctx);
-                return InputResult(false, y.sat + x.sat);
+                auto x = subs[0]->ProduceInput(ctx, nonmal), y = subs[1]->ProduceInput(ctx, nonmal);
+                return InputResult(INVALID, y.sat + x.sat);
             }
             case NodeType::AND_B: {
-                auto x = subs[0]->ProduceInput(ctx), y = subs[1]->ProduceInput(ctx);
+                auto x = subs[0]->ProduceInput(ctx, nonmal), y = subs[1]->ProduceInput(ctx, nonmal);
                 return InputResult(y.nsat + x.nsat, y.sat + x.sat);
             }
             case NodeType::OR_B: {
-                auto x = subs[0]->ProduceInput(ctx), z = subs[1]->ProduceInput(ctx);
-                return InputResult(z.nsat + x.nsat, std::min(z.nsat + x.sat, z.sat + x.nsat));
+                auto x = subs[0]->ProduceInput(ctx, nonmal), z = subs[1]->ProduceInput(ctx, nonmal);
+                return InputResult(z.nsat + x.nsat, Choose(z.nsat + x.sat, z.sat + x.nsat, nonmal));
             }
             case NodeType::OR_C: {
-                auto x = subs[0]->ProduceInput(ctx), z = subs[1]->ProduceInput(ctx);
-                return InputResult(false, std::min(x.sat, z.sat + x.nsat));
+                auto x = subs[0]->ProduceInput(ctx, nonmal), z = subs[1]->ProduceInput(ctx, nonmal);
+                return InputResult(INVALID, Choose(x.sat, z.sat + x.nsat, nonmal));
             }
             case NodeType::OR_D: {
-                auto x = subs[0]->ProduceInput(ctx), z = subs[1]->ProduceInput(ctx);
-                return InputResult(z.nsat + x.nsat, std::min(x.sat, z.sat + x.nsat));
+                auto x = subs[0]->ProduceInput(ctx, nonmal), z = subs[1]->ProduceInput(ctx, nonmal);
+                auto nsat = z.nsat + x.nsat, sat_l = x.sat, sat_r = z.sat + x.nsat;
+                return InputResult(z.nsat + x.nsat, Choose(x.sat, z.sat + x.nsat, nonmal));
             }
             case NodeType::OR_I: {
-                auto x = subs[0]->ProduceInput(ctx), z = subs[1]->ProduceInput(ctx);
-                return InputResult(std::min(x.nsat + ONE, z.nsat + ZERO), std::min(x.sat + ONE, z.sat + ZERO));
+                auto x = subs[0]->ProduceInput(ctx, nonmal), z = subs[1]->ProduceInput(ctx, nonmal);
+                return InputResult(Choose(x.nsat + ONE, z.nsat + ZERO, nonmal), Choose(x.sat + ONE, z.sat + ZERO, nonmal));
             }
             case NodeType::ANDOR: {
-                auto x = subs[0]->ProduceInput(ctx), y = subs[1]->ProduceInput(ctx), z = subs[2]->ProduceInput(ctx);
-                return InputResult(z.nsat + x.nsat, std::min(y.sat + x.sat, z.sat + x.nsat));
+                auto x = subs[0]->ProduceInput(ctx, nonmal), y = subs[1]->ProduceInput(ctx, nonmal), z = subs[2]->ProduceInput(ctx, nonmal);
+                return InputResult(z.nsat + x.nsat, Choose(y.sat + x.sat, z.sat + x.nsat, nonmal));
             }
             case NodeType::WRAP_A:
             case NodeType::WRAP_S:
             case NodeType::WRAP_C:
             case NodeType::WRAP_N:
-                return subs[0]->ProduceInput(ctx);
+                return subs[0]->ProduceInput(ctx, nonmal);
             case NodeType::WRAP_D: {
-                auto x = subs[0]->ProduceInput(ctx);
+                auto x = subs[0]->ProduceInput(ctx, nonmal);
                 return InputResult(ZERO, x.sat + ONE);
             }
             case NodeType::WRAP_J: {
-                auto x = subs[0]->ProduceInput(ctx);
+                auto x = subs[0]->ProduceInput(ctx, nonmal);
                 return InputResult(ZERO, x.sat);
             }
             case NodeType::WRAP_V: {
-                auto x = subs[0]->ProduceInput(ctx);
-                return InputResult(false, x.sat);
+                auto x = subs[0]->ProduceInput(ctx, nonmal);
+                return InputResult(INVALID, x.sat);
             }
-            case NodeType::FALSE: return InputResult(true, false);
-            case NodeType::TRUE: return InputResult(false, true);
+            case NodeType::FALSE: return InputResult(EMPTY, INVALID);
+            case NodeType::TRUE: return InputResult(INVALID, EMPTY);
             case NodeType::THRESH: {
                 std::vector<InputResult> sub;
+                std::vector<bool> choice(subs.size(), false);
                 std::vector<std::pair<int64_t, size_t>> costs;
+                int to_add = k;
                 for (size_t i = 0; i < subs.size(); ++i) {
-                    sub.push_back(subs[i]->ProduceInput(ctx));
+                    sub.push_back(subs[i]->ProduceInput(ctx, nonmal));
+                    assert(sub.back().nsat.valid);
                     costs.emplace_back((int64_t)sub.back().sat.size - sub.back().nsat.size, i);
                 }
                 std::sort(costs.begin(), costs.end());
-                for (size_t i = 0; i < subs.size() - k; ++i) {
-                    sub[costs[costs.size() - 1 - i].second].sat = sub[costs[costs.size() - 1 - i].second].nsat;
+                if (nonmal) {
+                    // First add all weak subexpressions (to_add will go negative if k is too low to add them all)
+                    for (size_t i = 0; i < subs.size(); ++i) {
+                        if (sub[costs[i].second].sat.valid && !sub[costs[i].second].sat.has_sig) {
+                            if (to_add > 0) choice[costs[i].second] = true;
+                            to_add--;
+                        }
+                    }
+                    // Then add subexpressions whose satisfaction is nonmalleable but their nonsatisfaction is malleable.
+                    for (size_t i = 0; i < subs.size() && to_add > 0; ++i) {
+                        if (!choice[costs[i].second] && sub[costs[i].second].sat.valid && !sub[costs[i].second].sat.malleable && sub[costs[i].second].nsat.malleable) {
+                            choice[costs[i].second] = true;
+                            to_add--;
+                        }
+                    }
+                    // Then all other subexpressions with nonmalleable satisfaction.
+                    for (size_t i = 0; i < subs.size() && to_add > 0; ++i) {
+                        if (!choice[costs[i].second] && sub[costs[i].second].sat.valid && !sub[costs[i].second].sat.malleable) {
+                            choice[costs[i].second] = true;
+                            to_add--;
+                        }
+                    }
+                } else {
+                    // Just pick the overall cheapest ones.
+                    for (size_t i = 0; i < subs.size() && to_add > 0; ++i) {
+                        if (sub[costs[i].second].sat.valid && !choice[costs[i].second]) {
+                            choice[costs[i].second] = true;
+                            to_add--;
+                        }
+                    }
                 }
-                InputStack sat(true);
-                InputStack nsat(true);
+                InputStack sat = to_add > 0 ? INVALID : to_add < 0 ? MALLEABLE_EMPTY : EMPTY;
+                InputStack nsat = EMPTY;
                 for (size_t i = 0; i < subs.size(); ++i) {
-                    sat = std::move(sat) + std::move(sub[subs.size() - 1 - i].sat);
-                    nsat = std::move(nsat) + std::move(sub[subs.size() - 1 - i].nsat);
+                    if (choice[subs.size() - 1 - i]) {
+                        sat = sat + sub[subs.size() - 1 - i].sat;
+                    } else {
+                        sat = sat + sub[subs.size() - 1 - i].nsat;
+                    }
+                    nsat = nsat + sub[subs.size() - 1 - i].nsat;
                 }
-                return InputResult(std::move(nsat), std::move(sat));
+                return InputResult(nsat, sat);
             }
         }
         assert(false);
-        return InputResult(false, false);
+        return InputResult(INVALID, INVALID);
     }
 
 public:
@@ -738,8 +821,9 @@ public:
     std::string ToString(const Ctx& ctx) const { return MakeString(ctx); }
 
     template<typename Ctx>
-    bool Satisfy(const Ctx& ctx, std::vector<std::vector<unsigned char>>& stack) const {
-        auto ret = ProduceInput(ctx);
+    bool Satisfy(const Ctx& ctx, std::vector<std::vector<unsigned char>>& stack, bool nonmalleable = true) const {
+        auto ret = ProduceInput(ctx, nonmalleable);
+        if (nonmalleable && (ret.sat.malleable || !ret.sat.has_sig)) return false;
         stack = std::move(ret.sat.stack);
         return ret.sat.valid;
     }
