@@ -1,12 +1,26 @@
 <!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<title>Miniscript</title>
-</head>
+<html lang="en">
+    <head>
+        <!-- Required meta tags -->
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+        <title>Miniscript</title>
+        <!-- Bootstrap CSS -->
+        <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+        <link rel="stylesheet" href="style.css">
+        <style>
+            .monospace {
+                font-family: Consolas,Monaco,Lucida Console,Liberation Mono,DejaVu Sans Mono,Bitstream Vera Sans Mono,Courier New, monospace;
+            }
+            a.demo_link {
+                text-decoration-style: dashed;
+                text-underline-position: under;
+            }
+        </style>
+    </head>
 <body>
-<script src="miniscript.js" type="text/javascript"></script>
-<script type="text/javascript">
+<script src="miniscript.js"></script>
+<script>
 em_miniscript_compile = Module.cwrap('miniscript_compile', 'none', ['string', 'number', 'number', 'number', 'number']);
 em_miniscript_analyze = Module.cwrap('miniscript_analyze', 'none', ['string', 'number', 'number']);
 
@@ -37,17 +51,24 @@ function miniscript_analyze() {
 }
 
 </script>
-<h3>Policy</h3>
-<p>
-<table>
-<tr>
-<td>
+
+<div class="container" style="margin-top:50px">
+
+<div class="card mb-3 text-left">
+<h3 class="card-header">Miniscript introduction</h3>
+<div class="card-block">
+Some explanation goes here.
+</div>
+</div>
+
+<div class="card mb-3 text-left">
+<h3 class="card-header">Compiler demo</h3>
+<div class="card-block">
+
 <textarea rows="1" cols="100" id="source">
 and(pk(C),or(pk(C),or(9@pk(C),older(1000))))
 </textarea><br/>
 <button type="button" onclick="miniscript_compile();">Compile</button>
-</td>
-<td>
 Supported elements:
 <ul>
 <li><b>pk(HEX)</b>: Require public key HEX to sign.</li>
@@ -63,28 +84,23 @@ Shorthands:
 <li><b>U</b>: A dummy uncompressed public key (usable as argument to pk or multi)</li>
 <li><b>H</b>: A dummy hash (usable as argument to hash)</li>
 </ul>
-</td>
-</tr>
-</table>
-</p>
 
 <hr/>
 <b>Miniscript output</b><br/>
 <textarea rows="4" cols="100" id="descout"></textarea>
-<button byte="button" onclick="miniscript_analyze();">Analyze</button>
-</p>
+<button type="button" onclick="miniscript_analyze();">Analyze</button>
 
 <hr/>
-<p>
 <b>Analysis</b><br/>
 <a id="spendout"></a>
-</p>
+</div>
+</div>
 
-<hr/>
 
-<h3>Miniscript reference</h3>
+<div class="card text-left">
+<h3 class="card-header">Miniscript reference</h3>
+<div class="card-block">
 
-<p>
 <table border="1">
 <tr><th>Type</th><th>Shorthand</th><th>Behavior under honest inputs</th><th>Behavior under adverserial inputs</th></tr>
 <tr><td>Base</td><td>B</td><td>Takes its inputs from the top of the stack. Pushes a nonzero value of up to 4 bytes if the condition is satisfied, exactly zero otherwise.</td><td>Pushes zero onto the stack, or aborts.</td></tr>
@@ -92,7 +108,6 @@ Shorthands:
 <tr><td>Verify</td><td>V</td><td>Takes its inputs from the top of the stack, which must satisfy the condition. Does not push anything onto the stack.</td><td>Aborts.</td></tr>
 <tr><td>Wrapped</td><td>W</td><td>Takes from the stack its inputs + element X at the top. If the inputs satisfy the condition, [t X] or [X t] is pushed, where t is a nonzero value of up to 4 bytes. If not, [0 X] or [X 0] is pushed.</td><td>Pushes [0 X] or [X 0] onto the stack, or aborts.</td></tr>
 </table>
-</p>
 
 In addition, every expression can have zero or more of the following properties used for reasoning about correctness:<ul>
 <li><b>z</b> "zero": Known to consume exactly zero stack elements. Conflicts with "o".</li>
@@ -111,7 +126,6 @@ There are also four more properties that let us reason about nonmalleability:<ul
 
 <h3>Legend</h3>
 
-<p>
 <table border="1">
 <tr>
   <th>Semantics</th>
@@ -555,7 +569,10 @@ There are also four more properties that let us reason about nonmalleability:<ul
   <td>e, m, s</td>
 </tr>
 </table>
-</p>
+
+</div>
+</div>
+</div>
 
 </body>
 </html>
