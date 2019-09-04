@@ -515,6 +515,58 @@ BOOST_AUTO_TEST_CASE(fixed_tests)
 {
     g_testdata.reset(new TestData());
 
+    // Validity rules
+    Test("l:older(1)", "?", TESTMODE_VALID | TESTMODE_NONMAL); // older(1): valid
+    Test("l:older(0)", "?", TESTMODE_INVALID); // older(0): k must be at least 1
+    Test("l:older(2147483647)", "?", TESTMODE_VALID | TESTMODE_NONMAL); // older(2147483647): valid
+    Test("l:older(2147483648)", "?", TESTMODE_INVALID); // older(2147483648): k must be below 2^31
+    Test("u:after(1)", "?", TESTMODE_VALID | TESTMODE_NONMAL); // after(1): valid
+    Test("u:after(0)", "?", TESTMODE_INVALID); // after(0): k must be at least 1
+    Test("u:after(2147483647)", "?", TESTMODE_VALID | TESTMODE_NONMAL); // after(2147483647): valid
+    Test("u:after(2147483648)", "?", TESTMODE_INVALID); // after(2147483648): k must be below 2^31
+    Test("andor(0,1,1)", "?", TESTMODE_VALID | TESTMODE_NONMAL); // andor(Bdu,B,B): valid
+    Test("andor(a:0,1,1)", "?", TESTMODE_INVALID); // andor(Wdu,B,B): X must be B
+    Test("andor(0,a:1,a:1)", "?", TESTMODE_INVALID); // andor(Bdu,W,W): Y and Z must be B/V/K
+    Test("andor(1,1,1)", "?", TESTMODE_INVALID); // andor(Bu,B,B): X must be d
+    Test("andor(n:or_i(0,after(1)),1,1)", "?", TESTMODE_VALID); // andor(Bdu,B,B): valid
+    Test("andor(or_i(0,after(1)),1,1)", "?", TESTMODE_INVALID); // andor(Bd,B,B): X must be u
+    Test("c:andor(0,pk(03a0434d9e47f3c86235477c7b1ae6ae5d3442d49b1943c2b752a68e2a47e247c7),pk(036d2b085e9e382ed10b69fc311a03f8641ccfff21574de0927513a49d9a688a00))", "?", TESTMODE_VALID | TESTMODE_NONMAL | TESTMODE_NEEDSIG); // andor(Bdu,K,K): valid
+    Test("t:andor(0,v:1,v:1)", "?", TESTMODE_VALID | TESTMODE_NONMAL); // andor(Bdu,V,V): valid
+    Test("and_v(v:1,1)", "?", TESTMODE_VALID | TESTMODE_NONMAL); // and_v(V,B): valid
+    Test("t:and_v(v:1,v:1)", "?", TESTMODE_VALID | TESTMODE_NONMAL); // and_v(V,V): valid
+    Test("c:and_v(v:1,pk(036d2b085e9e382ed10b69fc311a03f8641ccfff21574de0927513a49d9a688a00))", "?", TESTMODE_VALID | TESTMODE_NONMAL | TESTMODE_NEEDSIG); // and_v(V,K): valid
+    Test("and_v(1,1)", "?", TESTMODE_INVALID); // and_v(B,B): X must be V
+    Test("and_v(pk(02352bbf4a4cdd12564f93fa332ce333301d9ad40271f8107181340aef25be59d5),1)", "?", TESTMODE_INVALID); // and_v(K,B): X must be V
+    Test("and_v(v:1,a:1)", "?", TESTMODE_INVALID); // and_v(K,W): Y must be B/V/K
+    Test("and_b(1,a:1)", "?", TESTMODE_VALID | TESTMODE_NONMAL); // and_b(B,W): valid
+    Test("and_b(1,1)", "?", TESTMODE_INVALID); // and_b(B,B): Y must W
+    Test("and_b(v:1,a:1)", "?", TESTMODE_INVALID); // and_b(V,W): X must be B
+    Test("and_b(a:1,a:1)", "?", TESTMODE_INVALID); // and_b(W,W): X must be B
+    Test("and_b(pk(025601570cb47f238d2b0286db4a990fa0f3ba28d1a319f5e7cf55c2a2444da7cc),a:1)", "?", TESTMODE_INVALID); // and_b(K,W): X must be B
+    Test("or_b(0,a:0)", "?", TESTMODE_VALID | TESTMODE_NONMAL | TESTMODE_NEEDSIG); // or_b(Bd,Wd): valid
+    Test("or_b(1,a:0)", "?", TESTMODE_INVALID); // or_b(B,Wd): X must be d
+    Test("or_b(0,a:1)", "?", TESTMODE_INVALID); // or_b(Bd,W): Y must be d
+    Test("or_b(0,0)", "?", TESTMODE_INVALID); // or_b(Bd,Bd): Y must W
+    Test("or_b(v:0,a:0)", "?", TESTMODE_INVALID); // or_b(V,Wd): X must be B
+    Test("or_b(a:0,a:0)", "?", TESTMODE_INVALID); // or_b(Wd,Wd): X must be B
+    Test("or_b(pk(025601570cb47f238d2b0286db4a990fa0f3ba28d1a319f5e7cf55c2a2444da7cc),a:0)", "?", TESTMODE_INVALID); // or_b(Kd,Wd): X must be B
+    Test("t:or_c(0,v:1)", "?", TESTMODE_VALID | TESTMODE_NONMAL); // or_c(Bdu,V): valid
+    Test("t:or_c(a:0,v:1)", "?", TESTMODE_INVALID); // or_c(Wdu,V): X must be B
+    Test("t:or_c(1,v:1)", "?", TESTMODE_INVALID); // or_c(Bu,V): X must be d
+    Test("t:or_c(n:or_i(0,after(1)),v:1)", "?", TESTMODE_VALID); // or_c(Bdu,V): valid
+    Test("t:or_c(or_i(0,after(1)),v:1)", "?", TESTMODE_INVALID); // or_c(Bd,V): X must be u
+    Test("t:or_c(0,1)", "?", TESTMODE_INVALID); // or_c(Bdu,B): Y must be V
+    Test("or_d(0,1)", "?", TESTMODE_VALID | TESTMODE_NONMAL); // or_d(Bdu,B): valid
+    Test("or_d(a:0,1)", "?", TESTMODE_INVALID); // or_d(Wdu,B): X must be B
+    Test("or_d(1,1)", "?", TESTMODE_INVALID); // or_d(Bu,B): X must be d
+    Test("or_d(n:or_i(0,after(1)),1)", "?", TESTMODE_VALID); // or_d(Bdu,B): valid
+    Test("or_d(or_i(0,after(1)),1)", "?", TESTMODE_INVALID); // or_d(Bd,B): X must be u
+    Test("or_d(0,v:1)", "?", TESTMODE_INVALID); // or_d(Bdu,V): Y must be B
+    Test("or_i(1,1)", "?", TESTMODE_VALID); // or_i(B,B): valid
+    Test("t:or_i(v:1,v:1)", "?", TESTMODE_VALID); // or_i(V,V): valid
+    Test("c:or_i(pk(03a0434d9e47f3c86235477c7b1ae6ae5d3442d49b1943c2b752a68e2a47e247c7),pk(036d2b085e9e382ed10b69fc311a03f8641ccfff21574de0927513a49d9a688a00))", "?", TESTMODE_VALID | TESTMODE_NONMAL | TESTMODE_NEEDSIG); // or_i(K,K): valid
+    Test("or_i(a:1,a:1)", "?", TESTMODE_INVALID); // or_i(W,W): X and Y must be B/V/K
+
     // Randomly generated test set that covers the majority of type and node type combinations
     Test("lltvln:after(1231488000)", "6300676300676300670400046749b1926869516868", TESTMODE_VALID | TESTMODE_NONMAL, 12, 3);
     Test("uuj:and_v(v:thresh_m(2,03d01115d548e7561b15c38f004d734633687cf4419620095bc5b0f47070afe85a,025601570cb47f238d2b0286db4a990fa0f3ba28d1a319f5e7cf55c2a2444da7cc),after(1231488000))", "6363829263522103d01115d548e7561b15c38f004d734633687cf4419620095bc5b0f47070afe85a21025601570cb47f238d2b0286db4a990fa0f3ba28d1a319f5e7cf55c2a2444da7cc52af0400046749b168670068670068", TESTMODE_VALID | TESTMODE_NONMAL | TESTMODE_NEEDSIG, 14, 5);
