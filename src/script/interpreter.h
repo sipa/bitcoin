@@ -163,6 +163,16 @@ enum class SigVersion
     TAPROOT = 2,     //!< Witness v1 with non-P2SH 32 byte program (Taproot), key path spending
 };
 
+struct ScriptExecutionData
+{
+    //! Whether m_annex_present and m_annex_hash are initialized.
+    bool m_annex_init = false;
+    //! Whether an annex is present.
+    bool m_annex_present;
+    //! Hash of the annex data.
+    uint256 m_annex_hash;
+};
+
 /** Signature hash sizes */
 static constexpr size_t WITNESS_V0_SCRIPTHASH_SIZE = 32;
 static constexpr size_t WITNESS_V0_KEYHASH_SIZE = 20;
@@ -178,7 +188,7 @@ template <class T>
 uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn, int nHashType, const CAmount& amount, SigVersion sigversion, const PrecomputedTransactionData* cache = nullptr);
 
 template <class T>
-bool SignatureHashTap(uint256& hash_out, const T& tx_to, unsigned int in_pos, uint8_t hash_type, SigVersion sigversion, const PrecomputedTransactionData& cache);
+bool SignatureHashTap(uint256& hash_out, const ScriptExecutionData& execdata, const T& tx_to, unsigned int in_pos, uint8_t hash_type, SigVersion sigversion, const PrecomputedTransactionData& cache);
 
 class BaseSignatureChecker
 {
@@ -188,7 +198,7 @@ public:
         return false;
     }
 
-    virtual bool CheckSigSchnorr(const std::vector<unsigned char>& sig, const std::vector<unsigned char>& pubkey, SigVersion sigversion) const
+    virtual bool CheckSigSchnorr(const std::vector<unsigned char>& sig, const std::vector<unsigned char>& pubkey, SigVersion sigversion, const ScriptExecutionData& execdata) const
     {
         return false;
     }
@@ -223,7 +233,7 @@ public:
     GenericTransactionSignatureChecker(const T* txToIn, unsigned int nInIn, const CAmount& amountIn) : txTo(txToIn), nIn(nInIn), amount(amountIn), txdata(nullptr) {}
     GenericTransactionSignatureChecker(const T* txToIn, unsigned int nInIn, const CAmount& amountIn, const PrecomputedTransactionData& txdataIn) : txTo(txToIn), nIn(nInIn), amount(amountIn), txdata(&txdataIn) {}
     bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const override;
-    bool CheckSigSchnorr(const std::vector<unsigned char>& sig, const std::vector<unsigned char>& pubkey, SigVersion sigversion) const override;
+    bool CheckSigSchnorr(const std::vector<unsigned char>& sig, const std::vector<unsigned char>& pubkey, SigVersion sigversion, const ScriptExecutionData& execdata) const override;
     bool CheckLockTime(const CScriptNum& nLockTime) const override;
     bool CheckSequence(const CScriptNum& nSequence) const override;
 };
@@ -231,7 +241,7 @@ public:
 using TransactionSignatureChecker = GenericTransactionSignatureChecker<CTransaction>;
 using MutableTransactionSignatureChecker = GenericTransactionSignatureChecker<CMutableTransaction>;
 
-bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& script, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* error = nullptr);
+bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& script, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* error = nullptr, ScriptExecutionData execdata = {});
 bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness* witness, unsigned int flags, const BaseSignatureChecker& checker, ScriptError* serror = nullptr);
 
 size_t CountWitnessSigOps(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness* witness, unsigned int flags);
