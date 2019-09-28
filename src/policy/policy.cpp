@@ -231,6 +231,25 @@ bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
                     return false;
             }
         }
+
+        // Check P2TR standard limits
+        if (witnessversion == 1 && witnessprogram.size() == WITNESS_V1_TAPROOT_SIZE && !prevScript.IsPayToScriptHash()) {
+            // Taproot spend
+            const auto& stack = tx.vin[i].scriptWitness.stack;
+            size_t stack_size = stack.size();
+            if (stack_size >= 2 && !stack[stack_size - 1].empty() && stack[stack_size - 1][0] == ANNEX_TAG) {
+                stack_size--; // Ignore annex
+            }
+            if (stack_size >= 2) {
+                // Script path spend
+                if ((stack[stack_size - 1][0] & 0xfe) == 0xc0) {
+                    // Tapscript v0
+                    for (unsigned int j = 0; j < stack_size - 2; ++j) {
+                        if (stack[j].size() > MAX_STANDARD_TAPSCRIPT_STACK_ITEM_SIZE) return false;
+                    }
+                }
+            }
+        }
     }
     return true;
 }
