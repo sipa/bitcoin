@@ -231,6 +231,30 @@ bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
                     return false;
             }
         }
+
+        // Check P2TR standard limits
+        if (witnessversion == 1 && witnessprogram.size() == WITNESS_V1_TAPROOT_SIZE && !prevScript.IsPayToScriptHash()) {
+            // Taproot spend (non-P2SH-wrapped, version 1, witness program size 32; see BIP 341)
+            const auto& stack = tx.vin[i].scriptWitness.stack;
+            bool have_annex = stack.size() >= 2 && !stack.back().empty() && stack.back()[0] == ANNEX_TAG;
+            if (stack.size() - have_annex >= 2) {
+                // Script path spend (2 or more stack elements are removing optional annex)
+                const auto& control_block = *(stack.end() - 1 - have_annex);
+                if (control_block.empty()) return false; // Empty control block is invalid
+                if ((control_block[0] & TAPROOT_LEAF_MASK) == TAPROOT_LEAF_TAPSCRIPT) {
+                    // Leaf version 0xc0 (aka Tapscript, see BIP 342)
+                    for (unsigned int j = 0; j < stack.size() - 2 - have_annex; ++j) { // Ignore script, control block, annex
+                        if (stack[j].size() > MAX_STANDARD_TAPSCRIPT_STACK_ITEM_SIZE) return false;
+                    }
+                }
+            } else if (stack.size() - have_annex == 1) {
+                // Key path spend (1 stack element after removing optional annex)
+                // (no policy rules apply)
+            } else {
+                // 0 stack elements remain after removing optional annex; this is invalid
+                return false;
+            }
+        }
     }
     return true;
 }
