@@ -157,6 +157,7 @@ def spend_single_sig(tx, input_index, spent_utxos, info, key, annex=None, hashty
         sighash = damage_bytes(sighash)
     # Compute signature
     sig = key.sign_schnorr(sighash)
+    assert(key.get_pubkey().verify_schnorr(sig, sighash))
     if damage_type == 1:
         sig = damage_bytes(sig)
     if damage_type == 2:

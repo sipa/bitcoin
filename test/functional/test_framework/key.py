@@ -366,7 +366,7 @@ class ECPubKey():
             return False
         e = int.from_bytes(TaggedHash("BIPSchnorr", sig[0:32] + self.get_bytes()[1:33] + msg), 'big') % SECP256K1_ORDER
         if self.is_positive:
-            e = SECP256K1_ORDER - 1
+            e = SECP256K1_ORDER - e
         R = SECP256K1.mul([(SECP256K1_G, s), (self.p, e)])
         if jacobi_symbol(R[1] * R[2], SECP256K1_FIELD_SIZE) != 1 or ((r * R[2] * R[2]) % SECP256K1_FIELD_SIZE) != R[0]:
             return False
