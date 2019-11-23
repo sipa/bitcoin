@@ -579,7 +579,7 @@ bool CNode::ReceiveMsgBytes(const char *pch, unsigned int nBytes, bool& complete
             // decompose a transport agnostic CNetMessage from the deserializer
             CNetMessage msg = m_deserializer->GetMessage(Params().MessageStart(), nTimeMicros);
 
-            SeedEvent((unsigned char *)msg.m_command.c_str(), msg.m_command.size());
+            SeedEvent(msg.m_command);
 
             //store received bytes per message command
             //to prevent a memory DOS, only allow valid commands

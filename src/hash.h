@@ -9,6 +9,7 @@
 #include <crypto/common.h>
 #include <crypto/ripemd160.h>
 #include <crypto/sha256.h>
+#include <crypto/sha512.h>
 #include <prevector.h>
 #include <serialize.h>
 #include <uint256.h>
@@ -153,6 +154,30 @@ public:
         // Serialize to this stream
         ::Serialize(*this, obj);
         return (*this);
+    }
+};
+
+class SHA512Writer
+{
+private:
+    CSHA512 m_ctx;
+
+    const int m_ser_type;
+    const int m_ser_version;
+public:
+
+    SHA512Writer(int ser_type, int ser_version) : m_ser_type(ser_type), m_ser_version(ser_version) {}
+
+    int GetType() const { return m_ser_type; }
+    int GetVersion() const { return m_ser_version; }
+    void write(const char* data, size_t size) { m_ctx.Write((const unsigned char*)data, size); }
+    void GetHash(unsigned char output[CSHA512::OUTPUT_SIZE]) { m_ctx.Finalize(output); }
+    void Reset() { m_ctx.Reset(); }
+
+    template<typename T>
+    SHA512Writer& operator<<(const T& obj) {
+        ::Serialize(*this, obj);
+        return *this;
     }
 };
 

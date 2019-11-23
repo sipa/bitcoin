@@ -8,6 +8,8 @@
 
 #include <crypto/chacha20.h>
 #include <crypto/common.h>
+#include <hash.h>
+#include <sync.h>
 #include <uint256.h>
 
 #include <chrono> // For std::chrono::microseconds
@@ -89,13 +91,24 @@ void GetStrongRandBytes(unsigned char* buf, int num) noexcept;
  */
 void RandAddPeriodic();
 
+int64_t GetPerformanceCounter() noexcept;
+extern Mutex events_mutex;
+extern SHA512Writer events_hasher;
+
 /**
  * Gathers entropy from the low bits of the time at which events occur. Should
  * be called with a few bytes describing the event at the time an event occurs.
  *
  * Thread-safe.
  */
-void SeedEvent(const unsigned char* event_type_buf, size_t buf_len);
+template<typename... T>
+void SeedEvent(const T&... args)
+{
+    LOCK(events_mutex);
+    events_hasher << (unsigned char)sizeof...(args);
+    (void)std::initializer_list<int>{(events_hasher << args, 0)...};
+    events_hasher << GetPerformanceCounter();
+}
 
 /**
  * Fast randomness source. This is seeded once with secure random data, but
