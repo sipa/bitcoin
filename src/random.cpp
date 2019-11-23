@@ -477,6 +477,9 @@ static void SeedStrengthen(CSHA512& hasher, RNGState& rng, int microseconds) noe
     Strengthen(strengthen_seed, microseconds, hasher);
 }
 
+static Mutex events_mutex;
+static CSHA512 events_hasher;
+
 static void SeedPeriodic(CSHA512& hasher, RNGState& rng)
 {
     // Everything that the 'fast' seeder includes
@@ -484,6 +487,14 @@ static void SeedPeriodic(CSHA512& hasher, RNGState& rng)
 
     // High-precision timestamp
     SeedTimestamp(hasher);
+
+    {
+        LOCK(events_mutex);
+        unsigned char events_hash[64];
+        events_hasher.Finalize(events_hash);
+        hasher.Write(events_hash, 64);
+        events_hasher = CSHA512();
+    }
 
     // Dynamic environment data (performance monitoring, ...)
     auto old_size = hasher.Size();
@@ -552,6 +563,13 @@ static void ProcRand(unsigned char* out, int num, RNGLevel level)
 void GetRandBytes(unsigned char* buf, int num) noexcept { ProcRand(buf, num, RNGLevel::FAST); }
 void GetStrongRandBytes(unsigned char* buf, int num) noexcept { ProcRand(buf, num, RNGLevel::SLOW); }
 void RandAddPeriodic() { ProcRand(nullptr, 0, RNGLevel::PERIODIC); }
+
+void SeedEvent(const unsigned char* event_type_buf, size_t buf_len) {
+    LOCK(events_mutex);
+    events_hasher.Write((unsigned char *)&buf_len, sizeof(size_t));
+    events_hasher.Write(event_type_buf, buf_len);
+    SeedTimestamp(events_hasher);
+}
 
 bool g_mock_deterministic_tests{false};
 

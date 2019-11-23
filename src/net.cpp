@@ -16,6 +16,7 @@
 #include <crypto/sha256.h>
 #include <netbase.h>
 #include <net_permissions.h>
+#include <random.h>
 #include <scheduler.h>
 #include <ui_interface.h>
 #include <util/strencodings.h>
@@ -577,6 +578,8 @@ bool CNode::ReceiveMsgBytes(const char *pch, unsigned int nBytes, bool& complete
         if (m_deserializer->Complete()) {
             // decompose a transport agnostic CNetMessage from the deserializer
             CNetMessage msg = m_deserializer->GetMessage(Params().MessageStart(), nTimeMicros);
+
+            SeedEvent((unsigned char *)msg.m_command.c_str(), msg.m_command.size());
 
             //store received bytes per message command
             //to prevent a memory DOS, only allow valid commands

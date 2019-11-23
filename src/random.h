@@ -90,6 +90,14 @@ void GetStrongRandBytes(unsigned char* buf, int num) noexcept;
 void RandAddPeriodic();
 
 /**
+ * Gathers entropy from the low bits of the time at which events occur. Should
+ * be called with a few bytes describing the event at the time an event occurs.
+ *
+ * Thread-safe.
+ */
+void SeedEvent(const unsigned char* event_type_buf, size_t buf_len);
+
+/**
  * Fast randomness source. This is seeded once with secure random data, but
  * is completely deterministic and does not gather more entropy after that.
  *
