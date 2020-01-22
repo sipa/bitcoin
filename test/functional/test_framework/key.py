@@ -275,7 +275,14 @@ class ECPubKey():
         return self.valid
 
     @property
-    def is_positive(self):
+    def has_square_y(self):
+        """Whether the point has a Y coordinate that is a quadratic residue when expressed in affine coordinates.
+
+        A scalar is a quadratic residue in a field size if its jacobi symbol in that field size is 1.
+
+        To convert to affine from jacobian coordinates, the Y coordinate is p[1] * p[2]^-3 (see the affine()
+        function above). Since the ratio of p[2] to p[2]^-3 is p[2]^4, which is a square, we instead
+        check the jacobi symbol of p[1] * p[2], avoiding costly inverses and multiplications."""
         return jacobi_symbol(self.p[1] * self.p[2], SECP256K1_FIELD_SIZE) == 1
 
     def get_bytes(self):
@@ -443,7 +450,7 @@ class ECKey():
         assert(len(msg) == 32)
         x = self.secret
         pk = self.get_pubkey()
-        if not pk.is_positive:
+        if not pk.has_square_y:
             x = SECP256K1_ORDER - x
         kp = int.from_bytes(TaggedHash("BIPSchnorrDerive", x.to_bytes(32, 'big') + msg), 'big') % SECP256K1_ORDER
         assert(kp != 0)

@@ -144,7 +144,7 @@ def spend_single_sig(tx, input_index, spent_utxos, info, key, annex=None, hashty
     # Taproot key path spend: tweak key
     if script is None:
         pubkey = key.get_pubkey()
-        if not pubkey.is_positive:
+        if not pubkey.has_square_y:
             key.negate()
         key = key.tweak_add(info[1])
         assert(key is not None)

@@ -793,7 +793,7 @@ def taproot_construct(pubkey, scripts=None):
     pubkey.set_xonly(pubkey.get_xonly_bytes())
     tweak = TaggedHash("TapTweak", pubkey.get_xonly_bytes() + h)
     tweaked = pubkey.tweak_add(tweak)
-    control_map = dict((script, bytes([(version & 0xfe) + (0 if tweaked.is_positive else 1)]) + pubkey.get_xonly_bytes() + control) for version, script, control in ret)
+    control_map = dict((script, bytes([(version & 0xfe) + (0 if tweaked.has_square_y else 1)]) + pubkey.get_xonly_bytes() + control) for version, script, control in ret)
     return (CScript([OP_1, tweaked.get_xonly_bytes()]), tweak, control_map)
 
 def is_op_success(o):
