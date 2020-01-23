@@ -49,7 +49,7 @@ def random_unknown_leaf_ver(no_annex_tag=True):
 def random_bytes(n):
     return bytes(random.getrandbits(8) for i in range(n))
 
-def random_script(size, no_success = True):
+def random_script(size, no_success=True):
     ret = bytes()
     while (len(ret) < size):
         remain = size - len(ret)
@@ -99,13 +99,13 @@ def random_checksig_style(pubkey):
         ret = CScript([pubkey, opcode, OP_1])
     elif (opcode == OP_CHECKSIGADD):
         num = random.choice([0, 0x7fffffff, -0x7fffffff])
-        ret = CScript([num, pubkey, opcode, num+1, OP_EQUAL])
+        ret = CScript([num, pubkey, opcode, num + 1, OP_EQUAL])
     else:
         ret = CScript([pubkey, opcode])
     return bytes(ret)
 
 def damage_bytes(b):
-    return (int.from_bytes(b, 'big') ^ (1 << random.randrange(len(b)*8))).to_bytes(len(b), 'big')
+    return (int.from_bytes(b, 'big') ^ (1 << random.randrange(len(b) * 8))).to_bytes(len(b), 'big')
 
 # Each spender is a tuple of:
 # - A scriptPubKey (CScript)
@@ -153,9 +153,9 @@ def spend_single_sig(tx, input_index, spent_utxos, info, key, annex=None, hashty
         ht ^= 2
     # Compute sighash
     if script:
-        sighash = TaprootSignatureHash(tx, spent_utxos, ht, input_index, scriptpath = True, script = script, codeseparator_pos = pos, annex = annex)
+        sighash = TaprootSignatureHash(tx, spent_utxos, ht, input_index, scriptpath=True, script=script, codeseparator_pos=pos, annex=annex)
     else:
-        sighash = TaprootSignatureHash(tx, spent_utxos, ht, input_index, scriptpath = False, annex = annex)
+        sighash = TaprootSignatureHash(tx, spent_utxos, ht, input_index, scriptpath=False, annex=annex)
     if damage_type == 0:
         sighash = damage_bytes(sighash)
     # Compute signature
@@ -203,7 +203,7 @@ def spend_alwaysvalid(tx, input_index, info, script, annex=None, damage=False):
     # Randomly add input witness
     if random.choice([True, False]):
         for i in range(random.randint(1, 10)):
-            ret = [random_bytes(random.randint(0, MAX_SCRIPT_ELEMENT_SIZE*2))] + ret
+            ret = [random_bytes(random.randint(0, MAX_SCRIPT_ELEMENT_SIZE * 2))] + ret
     tx.wit.vtxinwit[input_index].scriptWitness.stack = ret
 
 def spender_sighash_mutation(spenders, info, comment, standard=True, **kwargs):
@@ -279,7 +279,7 @@ class TAPROOTTest(BitcoinTestFramework):
 
         # Construct a UTXO to spend for each of the spenders
         self.nodes[0].generate(110)
-        bal = self.nodes[0].getbalance() * 3 / (4*len(spenders))
+        bal = self.nodes[0].getbalance() * 3 / (4 * len(spenders))
         random.shuffle(spenders)
         num_spenders = len(spenders)
         utxos = []
@@ -331,12 +331,12 @@ class TAPROOTTest(BitcoinTestFramework):
         self.lastblocktime = block['time']
         while len(utxos):
             tx = CTransaction()
-            tx.nVersion = random.choice([1, 2, random.randint(-0x80000000,0x7fffffff)])
-            min_sequence = (tx.nVersion != 1 and tx.nVersion != 0) * 0x80000000 # The minimum sequence number to disable relative locktime
+            tx.nVersion = random.choice([1, 2, random.randint(-0x80000000, 0x7fffffff)])
+            min_sequence = (tx.nVersion != 1 and tx.nVersion != 0) * 0x80000000  # The minimum sequence number to disable relative locktime
             if random.choice([True, False]):
-                tx.nLockTime = random.randrange(LOCKTIME_THRESHOLD, self.lastblocktime - 7200) # all absolute locktimes in the past
+                tx.nLockTime = random.randrange(LOCKTIME_THRESHOLD, self.lastblocktime - 7200)  # all absolute locktimes in the past
             else:
-                tx.nLockTime = random.randrange(self.lastblockheight+1) # all block heights in the past
+                tx.nLockTime = random.randrange(self.lastblockheight + 1)  # all block heights in the past
 
             # Pick 1 to 4 UTXOs to construct transaction inputs
             acceptable_input_counts = [cnt for cnt in input_counts if cnt <= len(utxos)]
@@ -347,14 +347,14 @@ class TAPROOTTest(BitcoinTestFramework):
                     break
             input_utxos = utxos[-inputs:]
             utxos = utxos[:-inputs]
-            fee = random.randrange(MIN_FEE * 2, MIN_FEE * 4) # 10000-20000 sat fee
+            fee = random.randrange(MIN_FEE * 2, MIN_FEE * 4)  # 10000-20000 sat fee
             in_value = sum(utxo.output.nValue for utxo in input_utxos) - fee
-            tx.vin = [CTxIn(outpoint = input_utxos[i].input, nSequence = random.randint(min_sequence, 0xffffffff)) for i in range(inputs)]
+            tx.vin = [CTxIn(outpoint=input_utxos[i].input, nSequence=random.randint(min_sequence, 0xffffffff)) for i in range(inputs)]
             tx.wit.vtxinwit = [CTxInWitness() for i in range(inputs)]
             self.log.info("Test: %s" % (", ".join(utxo.spender.comment for utxo in input_utxos)))
 
             # Add 1 to 4 outputs
-            outputs = random.choice([1,2,3,4])
+            outputs = random.choice([1, 2, 3, 4])
             assert in_value >= 0 and fee - outputs * DUST_LIMIT >= MIN_FEE
             for i in range(outputs):
                 tx.vout.append(CTxOut())
@@ -392,7 +392,7 @@ class TAPROOTTest(BitcoinTestFramework):
                 self.block_submit(self.nodes[0], [tx], msg, witness=True, accept=fail_input == inputs, cb_pubkey=random.choice(host_pubkeys), fees=fee)
 
     def build_spenders(self):
-        VALID_SIGHASHES = [0,1,2,3,0x81,0x82,0x83]
+        VALID_SIGHASHES = [0, 1, 2, 3, 0x81, 0x82, 0x83]
         spenders = []
 
         for annex in [None, bytes([ANNEX_TAG]) + random_bytes(random.randrange(0, 250))]:
@@ -416,9 +416,9 @@ class TAPROOTTest(BitcoinTestFramework):
             # For more complex scripts only test one sighash type
             hashtype = random.choice(VALID_SIGHASHES)
             scripts = [
-                CScript(random_checksig_style(pub2.get_xonly_bytes()) + bytes([OP_CODESEPARATOR])), # codesep after checksig
-                CScript(bytes([OP_CODESEPARATOR]) + random_checksig_style(pub2.get_xonly_bytes())), # codesep before checksig
-                CScript([bytes([1,2,3]), OP_DROP, OP_IF, OP_CODESEPARATOR, pub1.get_xonly_bytes(), OP_ELSE, OP_CODESEPARATOR, pub2.get_xonly_bytes(), OP_ENDIF, OP_CHECKSIG]), # branch dependent codesep
+                CScript(random_checksig_style(pub2.get_xonly_bytes()) + bytes([OP_CODESEPARATOR])),  # codesep after checksig
+                CScript(bytes([OP_CODESEPARATOR]) + random_checksig_style(pub2.get_xonly_bytes())),  # codesep before checksig
+                CScript([bytes([1, 2, 3]), OP_DROP, OP_IF, OP_CODESEPARATOR, pub1.get_xonly_bytes(), OP_ELSE, OP_CODESEPARATOR, pub2.get_xonly_bytes(), OP_ENDIF, OP_CHECKSIG]),  # branch dependent codesep
             ]
             info = taproot_construct(pub1, scripts)
             spender_sighash_mutation(spenders, info, "sighash/codesep#pk", key=sec1, hashtype=hashtype, annex=annex, standard=standard)
@@ -565,20 +565,20 @@ class TAPROOTTest(BitcoinTestFramework):
         # Test the Python Schnorr implementation
         byte_arrays = [random_bytes(32) for _ in range(8)] + [v.to_bytes(32, 'big') for v in [0, SECP256K1_ORDER - 1, SECP256K1_ORDER, 2**256 - 1]]
         keys = dict()
-        for key in byte_arrays: # build array of key/pubkey pairs
+        for key in byte_arrays:  # build array of key/pubkey pairs
             x = ECKey()
             x.set(key, True)
             if x.is_valid:
                 p = x.get_pubkey().get_xonly_bytes()
                 keys[key] = (x, p)
-        for msg in byte_arrays: # test every combination of message, signing key, verification key
+        for msg in byte_arrays:  # test every combination of message, signing key, verification key
             for sign_bytes, (sign_key, _) in keys.items():
                 sig = sign_key.sign_schnorr(msg)
                 for verify_bytes, (_, verify_pubkey) in keys.items():
                     if verify_bytes == sign_bytes:
                         assert(verify_schnorr(verify_pubkey, sig, msg))
                         sig = list(sig)
-                        sig[random.randrange(64)] ^= (1 << (random.randrange(8))) # damaging signature should break things
+                        sig[random.randrange(64)] ^= (1 << (random.randrange(8)))  # damaging signature should break things
                         sig = bytes(sig)
                     assert(not verify_schnorr(verify_pubkey, sig, msg))
 
@@ -593,8 +593,7 @@ class TAPROOTTest(BitcoinTestFramework):
             spenders = []
             for i in range(10):
                 spenders += self.build_spenders()
-            self.test_spenders(spenders, input_counts=[2,3,4])
-
+            self.test_spenders(spenders, input_counts=[2, 3, 4])
 
 if __name__ == '__main__':
     TAPROOTTest().main()

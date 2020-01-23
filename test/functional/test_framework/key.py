@@ -66,7 +66,7 @@ def modsqrt(a, p):
     """
     if p % 4 != 3:
         raise NotImplementedError("modsqrt only implemented for p % 4 = 3")
-    sqrt = pow(a, (p + 1)//4, p)
+    sqrt = pow(a, (p + 1) // 4, p)
     if pow(sqrt, 2, p) == a % p:
         return sqrt
     return None
@@ -126,14 +126,14 @@ class EllipticCurve:
         y1_2 = (y1**2) % self.p
         y1_4 = (y1_2**2) % self.p
         x1_2 = (x1**2) % self.p
-        s = (4*x1*y1_2) % self.p
-        m = 3*x1_2
+        s = (4 * x1 * y1_2) % self.p
+        m = 3 * x1_2
         if self.a:
             m += self.a * pow(z1, 4, self.p)
         m = m % self.p
-        x2 = (m**2 - 2*s) % self.p
-        y2 = (m*(s - x2) - 8*y1_4) % self.p
-        z2 = (2*y1*z1) % self.p
+        x2 = (m**2 - 2 * s) % self.p
+        y2 = (m * (s - x2) - 8 * y1_4) % self.p
+        z2 = (2 * y1 * z1) % self.p
         return (x2, y2, z2)
 
     def add_mixed(self, p1, p2):
@@ -161,9 +161,9 @@ class EllipticCurve:
         h_2 = (h**2) % self.p
         h_3 = (h_2 * h) % self.p
         u1_h_2 = (x1 * h_2) % self.p
-        x3 = (r**2 - h_3 - 2*u1_h_2) % self.p
-        y3 = (r*(u1_h_2 - x3) - y1*h_3) % self.p
-        z3 = (h*z1) % self.p
+        x3 = (r**2 - h_3 - 2 * u1_h_2) % self.p
+        y3 = (r * (u1_h_2 - x3) - y1 * h_3) % self.p
+        z3 = (h * z1) % self.p
         return (x3, y3, z3)
 
     def add(self, p1, p2):
@@ -201,9 +201,9 @@ class EllipticCurve:
         h_2 = (h**2) % self.p
         h_3 = (h_2 * h) % self.p
         u1_h_2 = (u1 * h_2) % self.p
-        x3 = (r**2 - h_3 - 2*u1_h_2) % self.p
-        y3 = (r*(u1_h_2 - x3) - s1*h_3) % self.p
-        z3 = (h*z1*z2) % self.p
+        x3 = (r**2 - h_3 - 2 * u1_h_2) % self.p
+        y3 = (r * (u1_h_2 - x3) - s1 * h_3) % self.p
+        z3 = (h * z1 * z2) % self.p
         return (x3, y3, z3)
 
     def mul(self, ps):
@@ -324,19 +324,19 @@ class ECPubKey():
             return False
         if (rlen > 1 and (sig[4] == 0) and not (sig[5] & 0x80)):
             return False
-        r = int.from_bytes(sig[4:4+rlen], 'big')
-        if (sig[4+rlen] != 0x02):
+        r = int.from_bytes(sig[4:4 + rlen], 'big')
+        if (sig[4 + rlen] != 0x02):
             return False
-        slen = sig[5+rlen]
+        slen = sig[5 + rlen]
         if slen < 1 or slen > 33:
             return False
         if (len(sig) != 6 + rlen + slen):
             return False
-        if sig[6+rlen] >= 0x80:
+        if sig[6 + rlen] >= 0x80:
             return False
-        if (slen > 1 and (sig[6+rlen] == 0) and not (sig[7+rlen] & 0x80)):
+        if (slen > 1 and (sig[6 + rlen] == 0) and not (sig[7 + rlen] & 0x80)):
             return False
-        s = int.from_bytes(sig[6+rlen:6+rlen+slen], 'big')
+        s = int.from_bytes(sig[6 + rlen:6 + rlen + slen], 'big')
 
         # Verify that r and s are within the group order
         if r < 1 or s < 1 or r >= SECP256K1_ORDER or s >= SECP256K1_ORDER:
@@ -347,8 +347,8 @@ class ECPubKey():
 
         # Run verifier algorithm on r, s
         w = modinv(s, SECP256K1_ORDER)
-        u1 = z*w % SECP256K1_ORDER
-        u2 = r*w % SECP256K1_ORDER
+        u1 = z * w % SECP256K1_ORDER
+        u2 = r * w % SECP256K1_ORDER
         R = SECP256K1.affine(SECP256K1.mul([(SECP256K1_G, u1), (self.p, u2)]))
         if R is None or R[0] != r:
             return False
