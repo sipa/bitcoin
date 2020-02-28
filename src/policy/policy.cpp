@@ -233,7 +233,7 @@ bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
         }
 
         // Check P2TR standard limits
-        if (witnessversion == 1 && witnessprogram.size() == WITNESS_V1_TAPROOT_SIZE && !prevScript.IsPayToScriptHash()) {
+        if (witnessversion == 1 && witnessprogram.size() == WITNESS_V1_TAPROOT_SIZE && !prev.scriptPubKey.IsPayToScriptHash()) {
             // Taproot spend (non-P2SH-wrapped, version 1, witness program size 32; see BIP 341)
             const auto& stack = tx.vin[i].scriptWitness.stack;
             bool have_annex = stack.size() >= 2 && !stack.back().empty() && stack.back()[0] == ANNEX_TAG;

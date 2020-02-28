@@ -6,11 +6,11 @@
 
 from test_framework.blocktools import create_coinbase, create_block, add_witness_commitment
 from test_framework.messages import CTransaction, CTxIn, CTxOut, COutPoint, CTxInWitness
-from test_framework.script import CScript, TaprootSignatureHash, taproot_construct, OP_0, OP_1, OP_CHECKSIG, OP_CHECKSIGVERIFY, OP_CHECKSIGADD, OP_IF, OP_CODESEPARATOR, OP_ELSE, OP_ENDIF, OP_DROP, LEAF_VERSION_TAPSCRIPT, SIGHASH_SINGLE, is_op_success, CScriptOp, OP_RETURN, OP_VERIF, OP_1NEGATE, OP_EQUAL, OP_SWAP, OP_CHECKMULTISIG, OP_CHECKMULTISIGVERIFY, OP_NOTIF, OP_2DROP, OP_NOT, OP_2DUP, OP_1SUB, OP_DUP, MAX_SCRIPT_ELEMENT_SIZE, LOCKTIME_THRESHOLD, ANNEX_TAG
+from test_framework.script import CScript, TaprootSignatureHash, taproot_construct, OP_0, OP_1, OP_CHECKSIG, OP_CHECKSIGVERIFY, OP_CHECKSIGADD, OP_IF, OP_CODESEPARATOR, OP_ELSE, OP_ENDIF, OP_DROP, LEAF_VERSION_TAPSCRIPT, SIGHASH_SINGLE, is_op_success, CScriptOp, OP_RETURN, OP_VERIF, OP_1NEGATE, OP_EQUAL, OP_SWAP, OP_CHECKMULTISIG, OP_CHECKMULTISIGVERIFY, OP_NOTIF, OP_2DROP, OP_NOT, OP_2DUP, OP_1SUB, OP_DUP, MAX_SCRIPT_ELEMENT_SIZE, LOCKTIME_THRESHOLD, ANNEX_TAG, OP_HASH160, hash160
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_raises_rpc_error, hex_str_to_bytes
 from test_framework.key import generate_privkey, compute_xonly_pubkey, SECP256K1_ORDER, verify_schnorr, sign_schnorr, tweak_privkey
-from test_framework.address import program_to_witness
+from test_framework.address import program_to_witness, script_to_p2sh
 from collections import namedtuple
 from io import BytesIO
 import random
@@ -33,6 +33,16 @@ def get_taproot_bech32(info):
     if isinstance(info, tuple):
         info = info[0]
     return program_to_witness(1, info[2:])
+
+def get_version1_p2sh(info):
+    if isinstance(info, tuple):
+        info = info[0]
+    return script_to_p2sh(info)
+
+def get_p2sh_spk(info):
+    if isinstance(info, tuple):
+        info = info[0]
+    return CScript([OP_HASH160, hash160(info), OP_EQUAL])
 
 def random_op_success():
     ret = 0
@@ -232,6 +242,22 @@ def spender_alwaysvalid(spenders, info, comment, **kwargs):
 
     spenders.append(Spender(script=spk, address=addr, comment=comment, is_standard=False, sat_function=fn))
 
+def spender_alwaysvalid_p2sh(spenders, info, comment, standard, script):
+    spk = get_p2sh_spk(info)
+    addr = get_version1_p2sh(info)
+
+    def fn(t, i, u, v):
+        if v:
+            t.vin[i].scriptSig = CScript([info[0]])
+            # Empty control block is only invalid if we apply taproot rules,
+            # which we shouldn't if the spend is wrapped in P2SH
+            t.wit.vtxinwit[i].scriptWitness.stack = [script, bytes()]
+        else:
+            t.vin[i].scriptSig = CScript()
+        return
+
+    spenders.append(Spender(script=spk, address=addr, comment=comment, is_standard=standard, sat_function=fn))
+
 def nested_script(script, depth):
     if depth == 0:
         return script
@@ -380,13 +406,13 @@ class TAPROOTTest(BitcoinTestFramework):
                     fn(tx, i, [utxo.output for utxo in input_utxos], i != fail_input)
                 # Submit to mempool to check standardness
                 standard = fail_input == inputs and all(utxo.spender.is_standard for utxo in input_utxos) and tx.nVersion >= 1 and tx.nVersion <= 2
+                tx.rehash()
                 if standard:
                     self.nodes[0].sendrawtransaction(tx.serialize().hex(), 0)
                     assert(self.nodes[0].getmempoolentry(tx.hash) is not None)
                 else:
                     assert_raises_rpc_error(-26, None, self.nodes[0].sendrawtransaction, tx.serialize().hex(), 0)
                 # Submit in a block
-                tx.rehash()
                 msg = ','.join(utxo.spender.comment + ("*" if n == fail_input else "") for n, utxo in enumerate(input_utxos))
                 self.block_submit(self.nodes[0], [tx], msg, witness=True, accept=fail_input == inputs, cb_pubkey=random.choice(host_pubkeys), fees=fee)
 
@@ -552,6 +578,7 @@ class TAPROOTTest(BitcoinTestFramework):
             spender_alwaysvalid(spenders, info, "alwaysvalid/success#if", script=scripts[1], annex=annex)
             spender_alwaysvalid(spenders, info, "alwaysvalid/success#verif", script=scripts[2], annex=annex)
             spender_alwaysvalid(spenders, info, "alwaysvalid/unknownversion#return", script=scripts[3], annex=annex)
+            spender_alwaysvalid_p2sh(spenders, info, "alwaysvalid/success/p2sh", standard=False, script=scripts[0])
             if (info[2][scripts[4][1]][0] != ANNEX_TAG):
                 # Annex is mandatory for control block with leaf version 0x50
                 spender_alwaysvalid(spenders, info, "alwaysvalid/unknownversion#fe", script=scripts[4], annex=annex)
