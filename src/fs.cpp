@@ -50,25 +50,25 @@ FileLock::~FileLock()
     }
 }
 
+static bool IsWSL()
+{
+    struct utsname uname_data;
+    return uname(&uname_data) == 0 && std::string(uname_data.version).find("Microsoft") != std::string::npos;
+}
+
 bool FileLock::TryLock()
 {
     if (fd == -1) {
         return false;
     }
 
+    static const bool is_wsl = IsWSL();
+
     // Exclusive file locking is broken on WSL using fcntl (issue #18622)
     // This workaround can be removed once the bug on WSL is fixed
     // Cache the result to avoid multiple system calls
-    static bool is_wsl_cache_exists = false;
-    static bool is_wsl;
-    if (!is_wsl_cache_exists) {
-        struct utsname uname_data;
-        is_wsl = (uname(&uname_data) == 0 && std::string(uname_data.version).find("Microsoft") != std::string::npos);
-	is_wsl_cache_exists = true;
-    }
-
     if (is_wsl) {
-	if (flock(fd, LOCK_EX | LOCK_NB) == -1) {
+        if (flock(fd, LOCK_EX | LOCK_NB) == -1) {
             reason = GetErrorReason();
             return false;
         }
