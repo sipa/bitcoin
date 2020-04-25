@@ -1751,6 +1751,7 @@ void static ProcessInvs(CNode* pfrom, const CChainParams& chainparams, CConnman*
         }
     }
 
+    LogPrintf("peer %i: processed %i/%i invs; announced=%i processing=%i inflight(global)=%i\n", pfrom->GetId(), std::distance(pfrom->m_queued_invs.begin(), it), pfrom->m_queued_invs.size(), State(pfrom->GetId())->m_tx_download.m_tx_announced.size(), State(pfrom->GetId())->m_tx_download.m_tx_process_time.size(), g_already_asked_for.size());
     pfrom->m_queued_invs.erase(pfrom->m_queued_invs.begin(), it);
 }
 
