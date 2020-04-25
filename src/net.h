@@ -737,6 +737,7 @@ public:
     RecursiveMutex cs_sendProcessing;
 
     std::deque<CInv> vRecvGetData;
+    std::deque<CInv> m_queued_invs;
     uint64_t nRecvBytes GUARDED_BY(cs_vRecv){0};
     std::atomic<int> nRecvVersion{INIT_PROTO_VERSION};
 

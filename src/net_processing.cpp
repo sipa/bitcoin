@@ -1684,7 +1684,7 @@ static uint32_t GetFetchFlags(CNode* pfrom) EXCLUSIVE_LOCKS_REQUIRED(cs_main) {
     return nFetchFlags;
 }
 
-void static ProcessInvs(CNode* pfrom, const CChainParams& chainparams, CConnman* connman, const std::atomic<bool>& interruptMsgProc, const std::vector<CInv>& invs) LOCKS_EXCLUDED(cs_main)
+void static ProcessInvs(CNode* pfrom, const CChainParams& chainparams, CConnman* connman, const std::atomic<bool>& interruptMsgProc) LOCKS_EXCLUDED(cs_main)
 {
     AssertLockNotHeld(cs_main);
 
@@ -1703,9 +1703,12 @@ void static ProcessInvs(CNode* pfrom, const CChainParams& chainparams, CConnman*
     uint32_t nFetchFlags = GetFetchFlags(pfrom);
     const auto current_time = GetTime<std::chrono::microseconds>();
 
-    for (CInv &inv : invs)
-    {
+    std::deque<CInv>::iterator it = pfrom->m_queued_invs.begin();
+
+    while (it != pfrom->m_queued_invs.end()) {
         if (interruptMsgProc) break;
+
+        CInv& inv = *(it++);
 
         bool fAlreadyHave = AlreadyHave(inv, mempool);
         LogPrint(BCLog::NET, "got inv: %s  %s peer=%d\n", inv.ToString(), fAlreadyHave ? "have" : "new", pfrom->GetId());
@@ -1738,6 +1741,8 @@ void static ProcessInvs(CNode* pfrom, const CChainParams& chainparams, CConnman*
             }
         }
     }
+
+    pfrom->m_queued_invs.erase(pfrom->m_queued_invs.begin(), it);
 }
 
 inline void static SendBlockTransactions(const CBlock& block, const BlockTransactionsRequest& req, CNode* pfrom, CConnman* connman) {
@@ -2332,7 +2337,8 @@ bool ProcessMessage(CNode* pfrom, const std::string& msg_type, CDataStream& vRec
             return false;
         }
 
-        ProcessInvs(pfrom, chainparams, connman, interruptMsgProc, vInv);
+        pfrom->m_queued_invs.insert(pfrom->m_queued_invs.end(), vInv.begin(), vInv.end());
+        ProcessInvs(pfrom, chainparams, connman, interruptMsgProc);
 
         return true;
     }
@@ -3339,6 +3345,10 @@ bool PeerLogicValidation::ProcessMessages(CNode* pfrom, std::atomic<bool>& inter
         }
     }
 
+    if (!pfrom->m_queued_invs.empty()) {
+        ProcessInvs(pfrom, chainparams, connman, interruptMsgProc);
+    }
+
     if (pfrom->fDisconnect)
         return false;
 
@@ -3346,6 +3356,7 @@ bool PeerLogicValidation::ProcessMessages(CNode* pfrom, std::atomic<bool>& inter
     // and prevents vRecvGetData to grow unbounded
     if (!pfrom->vRecvGetData.empty()) return true;
     if (!pfrom->orphan_work_set.empty()) return true;
+    if (!pfrom->m_queued_invs.empty()) return true;
 
     // Don't bother if send buffer is too full to respond anyway
     if (pfrom->fPauseSend)
@@ -3399,8 +3410,9 @@ bool PeerLogicValidation::ProcessMessages(CNode* pfrom, std::atomic<bool>& inter
         fRet = ProcessMessage(pfrom, msg_type, vRecv, msg.m_time, chainparams, m_mempool, connman, m_banman, interruptMsgProc);
         if (interruptMsgProc)
             return false;
-        if (!pfrom->vRecvGetData.empty())
+        if (!pfrom->vRecvGetData.empty() || !pfrom->m_queued_invs.empty()) {
             fMoreWork = true;
+        }
     } catch (const std::exception& e) {
         LogPrint(BCLog::NET, "%s(%s, %u bytes): Exception '%s' (%s) caught\n", __func__, SanitizeString(msg_type), nMessageSize, e.what(), typeid(e).name());
     } catch (...) {
