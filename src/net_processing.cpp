@@ -330,7 +330,8 @@ struct CNodeState {
      *
      *   When inv comes in, queue up (process_time, txid) inside the peer's
      *   CNodeState (m_tx_process_time) as long as m_tx_announced for the peer
-     *   isn't too big (MAX_PEER_TX_ANNOUNCEMENTS).
+     *   isn't too big (MAX_PEER_TX_ANNOUNCEMENTS). When that happens,
+     *   processing of new incoming invs is paused until it clears.
      *
      *   The process_time for a transaction is set to nNow for outbound peers,
      *   nNow + 2 seconds for inbound peers. This is the time at which we'll
@@ -761,16 +762,22 @@ std::chrono::microseconds CalculateTxGetDataTime(const uint256& txid, std::chron
     return process_time;
 }
 
-void RequestTx(CNodeState* state, const uint256& txid, std::chrono::microseconds current_time) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+/** Enqueue a transaction to be downloaded in the future, if we don't have it by then.
+ *
+ * Returns false if no new txids can be inserted into the data structure at this time. */
+bool RequestTx(CNodeState* state, const uint256& txid, std::chrono::microseconds current_time) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
 {
     CNodeState::TxDownloadState& peer_download_state = state->m_tx_download;
-    if (peer_download_state.m_tx_announced.size() >= MAX_PEER_TX_ANNOUNCEMENTS ||
-            peer_download_state.m_tx_process_time.size() >= MAX_PEER_TX_ANNOUNCEMENTS ||
-            peer_download_state.m_tx_announced.count(txid)) {
-        // Too many queued announcements from this peer, or we already have
-        // this announcement
-        return;
+    if (peer_download_state.m_tx_announced.count(txid)) {
+        // We already have this announcement.
+        return true;
     }
+    if (peer_download_state.m_tx_announced.size() >= MAX_PEER_TX_ANNOUNCEMENTS ||
+            peer_download_state.m_tx_process_time.size() >= MAX_PEER_TX_ANNOUNCEMENTS) {
+        // Too many queued announcements from this peer; pause processing.
+        return false;
+    }
+
     peer_download_state.m_tx_announced.insert(txid);
 
     // Calculate the time to try requesting this transaction. Use
@@ -778,6 +785,7 @@ void RequestTx(CNodeState* state, const uint256& txid, std::chrono::microseconds
     const auto process_time = CalculateTxGetDataTime(txid, current_time, !state->fPreferredDownload);
 
     peer_download_state.m_tx_process_time.emplace(process_time, txid);
+    return true;
 }
 
 } // namespace
@@ -1738,7 +1746,7 @@ void static ProcessInvs(CNode* pfrom, const CChainParams& chainparams, CConnman*
                 pfrom->fDisconnect = true;
                 break;
             } else if (!fAlreadyHave && !fImporting && !fReindex && !::ChainstateActive().IsInitialBlockDownload()) {
-                RequestTx(State(pfrom->GetId()), inv.hash, current_time);
+                if (!RequestTx(State(pfrom->GetId()), inv.hash, current_time)) break;
             }
         }
     }
