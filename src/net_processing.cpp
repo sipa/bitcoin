@@ -1707,6 +1707,7 @@ void static ProcessInvs(CNode* pfrom, const CChainParams& chainparams, CConnman*
 
     while (it != pfrom->m_queued_invs.end()) {
         if (interruptMsgProc) break;
+        if (pfrom->fPauseSend) break;
 
         CInv& inv = *(it++);
 
