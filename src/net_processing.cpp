@@ -1684,6 +1684,62 @@ static uint32_t GetFetchFlags(CNode* pfrom) EXCLUSIVE_LOCKS_REQUIRED(cs_main) {
     return nFetchFlags;
 }
 
+void static ProcessInvs(CNode* pfrom, const CChainParams& chainparams, CConnman* connman, const std::atomic<bool>& interruptMsgProc, const std::vector<CInv>& invs) LOCKS_EXCLUDED(cs_main)
+{
+    AssertLockNotHeld(cs_main);
+
+    const CNetMsgMaker msgMaker(pfrom->GetSendVersion());
+
+    // We won't accept tx inv's if we're in blocks-only mode, or this is a
+    // block-relay-only peer
+    bool fBlocksOnly = !g_relay_txes || (pfrom->m_tx_relay == nullptr);
+
+    // Allow whitelisted peers to send data other than blocks in blocks only mode if whitelistrelay is true
+    if (pfrom->HasPermission(PF_RELAY))
+        fBlocksOnly = false;
+
+    LOCK(cs_main);
+
+    uint32_t nFetchFlags = GetFetchFlags(pfrom);
+    const auto current_time = GetTime<std::chrono::microseconds>();
+
+    for (CInv &inv : invs)
+    {
+        if (interruptMsgProc) break;
+
+        bool fAlreadyHave = AlreadyHave(inv, mempool);
+        LogPrint(BCLog::NET, "got inv: %s  %s peer=%d\n", inv.ToString(), fAlreadyHave ? "have" : "new", pfrom->GetId());
+
+        if (inv.type == MSG_TX) {
+            inv.type |= nFetchFlags;
+        }
+
+        if (inv.type == MSG_BLOCK) {
+            UpdateBlockAvailability(pfrom->GetId(), inv.hash);
+            if (!fAlreadyHave && !fImporting && !fReindex && !mapBlocksInFlight.count(inv.hash)) {
+                // We used to request the full block here, but since headers-announcements are now the
+                // primary method of announcement on the network, and since, in the case that a node
+                // fell back to inv we probably have a reorg which we should get the headers for first,
+                // we now only provide a getheaders response here. When we receive the headers, we will
+                // then ask for the blocks we need.
+                connman->PushMessage(pfrom, msgMaker.Make(NetMsgType::GETHEADERS, ::ChainActive().GetLocator(pindexBestHeader), inv.hash));
+                LogPrint(BCLog::NET, "getheaders (%d) %s to peer=%d\n", pindexBestHeader->nHeight, inv.hash.ToString(), pfrom->GetId());
+            }
+        }
+        else
+        {
+            pfrom->AddInventoryKnown(inv);
+            if (fBlocksOnly) {
+                LogPrint(BCLog::NET, "transaction (%s) inv sent in violation of protocol, disconnecting peer=%d\n", inv.hash.ToString(), pfrom->GetId());
+                pfrom->fDisconnect = true;
+                break;
+            } else if (!fAlreadyHave && !fImporting && !fReindex && !::ChainstateActive().IsInitialBlockDownload()) {
+                RequestTx(State(pfrom->GetId()), inv.hash, current_time);
+            }
+        }
+    }
+}
+
 inline void static SendBlockTransactions(const CBlock& block, const BlockTransactionsRequest& req, CNode* pfrom, CConnman* connman) {
     BlockTransactions resp(req);
     for (size_t i = 0; i < req.indexes.size(); i++) {
@@ -2276,55 +2332,8 @@ bool ProcessMessage(CNode* pfrom, const std::string& msg_type, CDataStream& vRec
             return false;
         }
 
-        // We won't accept tx inv's if we're in blocks-only mode, or this is a
-        // block-relay-only peer
-        bool fBlocksOnly = !g_relay_txes || (pfrom->m_tx_relay == nullptr);
+        ProcessInvs(pfrom, chainparams, connman, interruptMsgProc, vInv);
 
-        // Allow whitelisted peers to send data other than blocks in blocks only mode if whitelistrelay is true
-        if (pfrom->HasPermission(PF_RELAY))
-            fBlocksOnly = false;
-
-        LOCK(cs_main);
-
-        uint32_t nFetchFlags = GetFetchFlags(pfrom);
-        const auto current_time = GetTime<std::chrono::microseconds>();
-
-        for (CInv &inv : vInv)
-        {
-            if (interruptMsgProc)
-                return true;
-
-            bool fAlreadyHave = AlreadyHave(inv, mempool);
-            LogPrint(BCLog::NET, "got inv: %s  %s peer=%d\n", inv.ToString(), fAlreadyHave ? "have" : "new", pfrom->GetId());
-
-            if (inv.type == MSG_TX) {
-                inv.type |= nFetchFlags;
-            }
-
-            if (inv.type == MSG_BLOCK) {
-                UpdateBlockAvailability(pfrom->GetId(), inv.hash);
-                if (!fAlreadyHave && !fImporting && !fReindex && !mapBlocksInFlight.count(inv.hash)) {
-                    // We used to request the full block here, but since headers-announcements are now the
-                    // primary method of announcement on the network, and since, in the case that a node
-                    // fell back to inv we probably have a reorg which we should get the headers for first,
-                    // we now only provide a getheaders response here. When we receive the headers, we will
-                    // then ask for the blocks we need.
-                    connman->PushMessage(pfrom, msgMaker.Make(NetMsgType::GETHEADERS, ::ChainActive().GetLocator(pindexBestHeader), inv.hash));
-                    LogPrint(BCLog::NET, "getheaders (%d) %s to peer=%d\n", pindexBestHeader->nHeight, inv.hash.ToString(), pfrom->GetId());
-                }
-            }
-            else
-            {
-                pfrom->AddInventoryKnown(inv);
-                if (fBlocksOnly) {
-                    LogPrint(BCLog::NET, "transaction (%s) inv sent in violation of protocol, disconnecting peer=%d\n", inv.hash.ToString(), pfrom->GetId());
-                    pfrom->fDisconnect = true;
-                    return true;
-                } else if (!fAlreadyHave && !fImporting && !fReindex && !::ChainstateActive().IsInitialBlockDownload()) {
-                    RequestTx(State(pfrom->GetId()), inv.hash, current_time);
-                }
-            }
-        }
         return true;
     }
 
