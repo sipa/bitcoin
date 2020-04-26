@@ -28,6 +28,7 @@
 #include <util/strencodings.h>
 
 #include <memory>
+#include <queue>
 #include <typeinfo>
 
 #if defined(NDEBUG)
@@ -373,7 +374,8 @@ struct CNodeState {
         /* Track when to attempt download of announced transactions (process
          * time in micros -> txid)
          */
-        std::multimap<std::chrono::microseconds, uint256> m_tx_process_time;
+        using ProcessEntry = std::pair<std::chrono::microseconds, uint256>;
+        std::priority_queue<ProcessEntry, std::vector<ProcessEntry>, std::greater<ProcessEntry>> m_tx_process_time;
 
         //! Store all the transactions a peer has recently announced
         std::set<uint256> m_tx_announced;
@@ -4098,11 +4100,11 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
         }
 
         auto& tx_process_time = state.m_tx_download.m_tx_process_time;
-        while (!tx_process_time.empty() && tx_process_time.begin()->first <= current_time && state.m_tx_download.m_tx_in_flight.size() < MAX_PEER_TX_IN_FLIGHT) {
-            const uint256 txid = tx_process_time.begin()->second;
+        while (!tx_process_time.empty() && tx_process_time.top().first <= current_time && state.m_tx_download.m_tx_in_flight.size() < MAX_PEER_TX_IN_FLIGHT) {
+            const uint256 txid = tx_process_time.top().second;
             // Erase this entry from tx_process_time (it may be added back for
             // processing at a later time, see below)
-            tx_process_time.erase(tx_process_time.begin());
+            tx_process_time.pop();
             CInv inv(MSG_TX | GetFetchFlags(pto), txid);
             if (!AlreadyHave(inv, m_mempool)) {
                 // If this transaction was last requested more than 1 minute ago,
