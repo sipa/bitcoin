@@ -1100,6 +1100,12 @@ void PeerLogicValidation::BlockConnected(const std::shared_ptr<const CBlock>& pb
             g_recent_confirmed_transactions->insert(ptx->GetHash());
         }
     }
+    {
+        LOCK(cs_main);
+        for (const auto& ptx : pblock->vtx) {
+            g_txrequest.AlreadyHaveTx(ptx->GetHash());
+        }
+    }
 }
 
 void PeerLogicValidation::BlockDisconnected(const std::shared_ptr<const CBlock> &block, const CBlockIndex* pindex)
@@ -1808,6 +1814,7 @@ void static ProcessOrphanTx(CConnman* connman, CTxMemPool& mempool, std::set<uin
         if (setMisbehaving.count(fromPeer)) continue;
         if (AcceptToMemoryPool(mempool, orphan_state, porphanTx, &removed_txn, false /* bypass_limits */, 0 /* nAbsurdFee */)) {
             LogPrint(BCLog::MEMPOOL, "   accepted orphan tx %s\n", orphanHash.ToString());
+            g_txrequest.AlreadyHaveTx(orphanHash);
             RelayTransaction(orphanHash, *connman);
             for (unsigned int i = 0; i < orphanTx.vout.size(); i++) {
                 auto it_by_prev = mapOrphanTransactionsByPrev.find(COutPoint(orphanHash, i));
@@ -2464,6 +2471,7 @@ bool ProcessMessage(CNode* pfrom, const std::string& msg_type, CDataStream& vRec
         if (!AlreadyHave(inv, mempool) &&
             AcceptToMemoryPool(mempool, state, ptx, &lRemovedTxn, false /* bypass_limits */, 0 /* nAbsurdFee */)) {
             mempool.check(&::ChainstateActive().CoinsTip());
+            g_txrequest.AlreadyHaveTx(inv.hash);
             RelayTransaction(tx.GetHash(), *connman);
             for (unsigned int i = 0; i < tx.vout.size(); i++) {
                 auto it_by_prev = mapOrphanTransactionsByPrev.find(COutPoint(inv.hash, i));
