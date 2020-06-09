@@ -2481,7 +2481,8 @@ bool ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRec
             if (addr.nTime <= 100000000 || addr.nTime > nNow + 10 * 60)
                 addr.nTime = nNow - 5 * 24 * 60 * 60;
             pfrom.AddAddressKnown(addr);
-            if (banman->IsBanned(addr)) continue; // Do not process banned addresses beyond remembering we received them
+            if (banman->IsDiscouraged(addr)) continue; // Do not process banned/discouraged addresses beyond remembering we received them
+            if (banman->IsBanned(addr)) continue;
             bool fReachable = IsReachable(addr);
             if (addr.nTime > nSince && !pfrom.fGetAddr && vAddr.size() <= 10 && addr.IsRoutable())
             {
@@ -3334,7 +3335,7 @@ bool ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRec
         std::vector<CAddress> vAddr = connman->GetAddresses();
         FastRandomContext insecure_rand;
         for (const CAddress &addr : vAddr) {
-            if (!banman->IsBanned(addr)) {
+            if (!banman->IsDiscouraged(addr) && !banman->IsBanned(addr)) {
                 pfrom.PushAddress(addr, insecure_rand);
             }
         }
@@ -3572,12 +3573,12 @@ bool PeerLogicValidation::CheckIfBanned(CNode& pnode)
             LogPrintf("Warning: not punishing manually-connected peer %s!\n", pnode.addr.ToString());
         else if (pnode.addr.IsLocal()) {
             // Disconnect but don't ban _this_ local node
-            LogPrintf("Warning: disconnecting but not banning local peer %s!\n", pnode.addr.ToString());
+            LogPrintf("Warning: disconnecting but not discouraging local peer %s!\n", pnode.addr.ToString());
             pnode.fDisconnect = true;
         } else {
-            // Disconnect and ban all nodes sharing the address
+            // Disconnect and discourage all nodes sharing the address
             if (m_banman) {
-                m_banman->Ban(pnode.addr, BanReasonNodeMisbehaving);
+                m_banman->Discourage(pnode.addr);
             }
             connman->DisconnectNode(pnode.addr);
         }

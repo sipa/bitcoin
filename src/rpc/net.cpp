@@ -613,12 +613,12 @@ static UniValue setban(const JSONRPCRequest& request)
             absolute = true;
 
         if (isSubnet) {
-            node.banman->Ban(subNet, BanReasonManuallyAdded, banTime, absolute);
+            node.banman->Ban(subNet, banTime, absolute);
             if (node.connman) {
                 node.connman->DisconnectNode(subNet);
             }
         } else {
-            node.banman->Ban(netAddr, BanReasonManuallyAdded, banTime, absolute);
+            node.banman->Ban(netAddr, banTime, absolute);
             if (node.connman) {
                 node.connman->DisconnectNode(netAddr);
             }
@@ -670,7 +670,7 @@ static UniValue listbanned(const JSONRPCRequest& request)
         rec.pushKV("address", entry.first.ToString());
         rec.pushKV("banned_until", banEntry.nBanUntil);
         rec.pushKV("ban_created", banEntry.nCreateTime);
-        rec.pushKV("ban_reason", banEntry.banReasonToString());
+        rec.pushKV("ban_reason", "manually added");
 
         bannedAddresses.push_back(rec);
     }
