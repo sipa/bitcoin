@@ -23,7 +23,7 @@ FUZZ_TARGET(bitpack)
     while (it != buffer.end()) {
         if (buffer.end() - it < 3) return;
 
-        unsigned offset = ((*(it)) + uint16_t{*(it + 1)}) % count;
+        size_t offset = ((*(it)) + uint16_t{*(it + 1)}) % count;
         unsigned bits = std::min<unsigned>(count - offset, (((*(it + 2)) >> 1) & 63) + 1);
         bool write = *(it + 2) & 1;
         it += 3;

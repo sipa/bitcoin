@@ -145,6 +145,7 @@ BITCOIN_CORE_H = \
   core_io.h \
   core_memusage.h \
   cuckoocache.h \
+  cuckoofilter.h \
   dbwrapper.h \
   external_signer.h \
   flatfile.h \
@@ -542,6 +543,7 @@ libbitcoin_common_a_SOURCES = \
   compressor.cpp \
   core_read.cpp \
   core_write.cpp \
+  cuckoofilter.cpp \
   external_signer.cpp \
   init/common.cpp \
   key.cpp \
