@@ -241,3 +241,9 @@ std::vector<std::string> serviceFlagsToStr(uint64_t flags)
 
     return str_flags;
 }
+
+GenTxid ToGenTxid(const CInv& inv)
+{
+    assert(inv.type == MSG_TX || inv.type == MSG_WITNESS_TX || inv.type == MSG_WTX);
+    return {inv.type == MSG_WTX, inv.hash};
+}
