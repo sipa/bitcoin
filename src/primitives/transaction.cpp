@@ -116,3 +116,8 @@ std::string CTransaction::ToString() const
         str += "    " + tx_out.ToString() + "\n";
     return str;
 }
+
+std::string GenTxid::ToString() const
+{
+    return (m_is_wtxid ? "wtx " : "tx ") + m_hash.ToString();
+}

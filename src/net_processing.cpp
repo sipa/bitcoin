@@ -4508,7 +4508,7 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
         if (state.m_tx_download.m_check_expiry_timer <= current_time) {
             for (auto it=state.m_tx_download.m_tx_in_flight.begin(); it != state.m_tx_download.m_tx_in_flight.end();) {
                 if (it->second <= current_time - TX_EXPIRY_INTERVAL) {
-                    LogPrint(BCLog::NET, "timeout of inflight tx %s from peer=%d\n", it->first.GetHash().ToString(), pto->GetId());
+                    LogPrint(BCLog::NET, "timeout of inflight %s from peer=%d\n", it->first.ToString(), pto->GetId());
                     state.m_tx_download.m_tx_announced.erase(it->first);
                     state.m_tx_download.m_tx_in_flight.erase(it++);
                 } else {

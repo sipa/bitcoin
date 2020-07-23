@@ -401,6 +401,7 @@ public:
     const uint256& GetHash() const { return m_hash; }
     friend bool operator==(const GenTxid& a, const GenTxid& b) { return a.m_is_wtxid == b.m_is_wtxid && a.m_hash == b.m_hash; }
     friend bool operator<(const GenTxid& a, const GenTxid& b) { return std::tie(a.m_is_wtxid, a.m_hash) < std::tie(b.m_is_wtxid, b.m_hash); }
+    std::string ToString() const;
 };
 
 #endif // BITCOIN_PRIMITIVES_TRANSACTION_H
