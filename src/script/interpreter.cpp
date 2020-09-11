@@ -1522,6 +1522,12 @@ bool GenericTransactionSignatureChecker<T>::VerifyECDSASignature(const std::vect
 }
 
 template <class T>
+bool GenericTransactionSignatureChecker<T>::VerifySchnorrSignature(Span<const unsigned char> sig, const XOnlyPubKey& pubkey, const uint256& sighash) const
+{
+    return pubkey.VerifySchnorr(sighash, sig);
+}
+
+template <class T>
 bool GenericTransactionSignatureChecker<T>::CheckECDSASignature(const std::vector<unsigned char>& vchSigIn, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const
 {
     CPubKey pubkey(vchPubKey);
@@ -1541,6 +1547,27 @@ bool GenericTransactionSignatureChecker<T>::CheckECDSASignature(const std::vecto
         return false;
 
     return true;
+}
+
+template <class T>
+bool GenericTransactionSignatureChecker<T>::CheckSchnorrSignature(Span<const unsigned char> sig, Span<const unsigned char> pubkey_in, SigVersion sigversion) const
+{
+    assert(sigversion == SigVersion::TAPROOT);
+    // Schnorr signatures have 32-byte public keys. The caller is responsible for enforcing this.
+    assert(pubkey_in.size() == 32);
+    if (sig.size() != 64 && sig.size() != 65) return false;
+
+    XOnlyPubKey pubkey{pubkey_in};
+
+    uint8_t hashtype = SIGHASH_DEFAULT;
+    if (sig.size() == 65) {
+        hashtype = SpanPopBack(sig);
+        if (hashtype == SIGHASH_DEFAULT) return false;
+    }
+    uint256 sighash;
+    assert(this->txdata);
+    if (!SignatureHashSchnorr(sighash, *txTo, nIn, hashtype, sigversion, *this->txdata)) return false;
+    return VerifySchnorrSignature(sig, pubkey, sighash);
 }
 
 template <class T>
