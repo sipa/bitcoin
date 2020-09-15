@@ -4,6 +4,8 @@
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 # Test Taproot softfork (BIPs 340-342)
 
+import os
+
 from test_framework.blocktools import (
     create_coinbase,
     create_block,
@@ -84,6 +86,7 @@ from test_framework.address import (
 )
 from collections import namedtuple
 from io import BytesIO
+import hashlib
 import random
 
 # === Framework for building spending transactions. ===
@@ -404,8 +407,9 @@ def spend(tx, idx, utxos, **kwargs):
             return CScript([elem])
 
     scriptsig_list = flatten(get(ctx, "scriptsig"))
-    tx.vin[idx].scriptSig = CScript(b"".join(bytes(to_script(elem)) for elem in scriptsig_list))
-    tx.wit.vtxinwit[idx].scriptWitness.stack = flatten(get(ctx, "witness"))
+    scriptsig = CScript(b"".join(bytes(to_script(elem)) for elem in scriptsig_list))
+    witness_stack = flatten(get(ctx, "witness"))
+    return (scriptsig, witness_stack)
 
 
 # === Spender objects ===
@@ -414,7 +418,7 @@ def spend(tx, idx, utxos, **kwargs):
 # - A scriptPubKey which is to be spent from (CScript)
 # - A comment describing the test (string)
 # - Whether the spending (on itself) is expected to be standard (bool)
-# - A tx-signing lambda taking as inputs:
+# - A tx-signing lambda returning (scriptsig, witness_stack) taking as inputs:
 #   - A transaction to sign (CTransaction)
 #   - An input position (int)
 #   - The spent UTXOs by this transaction (list of CTxOut)
@@ -495,10 +499,10 @@ def make_spender(comment, *, tap=None, witv0=False, script=None, pkh=None, p2sh=
 
     def sat_fn(tx, idx, utxos, valid):
         if valid:
-            spend(tx, idx, utxos, **conf)
+            return spend(tx, idx, utxos, **conf)
         else:
             assert failure is not None
-            spend(tx, idx, utxos, **{**conf, **failure})
+            return spend(tx, idx, utxos, **{**conf, **failure})
 
     return Spender(script=spk, comment=comment, is_standard=standard, sat_function=sat_fn, err_msg=err_msg, sigops_weight=sigops_weight, no_fail=failure is None, need_vin_vout_mismatch=need_vin_vout_mismatch)
 
@@ -947,8 +951,8 @@ def spenders_taproot_active():
     add_spender(spenders, "tapscript/1000inputs", leaf="t23", **common, inputs=[getter("sign")] + [b'' for _ in range(999)], failure={"leaf": "t24", "inputs": [getter("sign")] + [b'' for _ in range(1000)]}, **ERR_STACK_SIZE)
     # Test that pushing a MAX_SCRIPT_ELEMENT_SIZE byte stack element is valid, but one longer is not.
     add_spender(spenders, "tapscript/pushmaxlimit", leaf="t25", **common, **SINGLE_SIG, failure={"leaf": "t26"}, **ERR_PUSH_LIMIT)
-    # Test that 999-of-999 multisig works (but 1000-of-1000 triggers stack size limits)
-    add_spender(spenders, "tapscript/bigmulti", leaf="t33", **common, inputs=big_spend_inputs, num=999, failure={"leaf": "t34", "num": 1000}, **ERR_STACK_SIZE)
+#    # Test that 999-of-999 multisig works (but 1000-of-1000 triggers stack size limits)
+#    add_spender(spenders, "tapscript/bigmulti", leaf="t33", **common, inputs=big_spend_inputs, num=999, failure={"leaf": "t34", "num": 1000}, **ERR_STACK_SIZE)
 
     # == Test for sigops ratio limit ==
 
@@ -1083,24 +1087,25 @@ def spenders_taproot_active():
     # == Legacy tests ==
 
     # Also add a few legacy spends into the mix, so that transactions which combine taproot and pre-taproot spends get tested too.
-    eckey1 = ECKey()
-    eckey1.set(generate_privkey(), True)
-    pubkey1 = eckey1.get_pubkey().get_bytes()
-    eckey2 = ECKey()
-    eckey2.set(generate_privkey(), True)
-    for p2sh in [False, True]:
-        for witv0 in [False, True]:
-            for hashtype in VALID_SIGHASHES_ECDSA + [random.randrange(0x04, 0x80), random.randrange(0x84, 0x100)]:
-                standard = hashtype in VALID_SIGHASHES_ECDSA
-                add_spender(spenders, "legacy/pk-wrongkey", hashtype=hashtype, p2sh=p2sh, witv0=witv0, standard=standard, script=CScript([pubkey1, OP_CHECKSIG]), **SINGLE_SIG, key=eckey1, failure={"key": eckey2}, sigops_weight=4-3*witv0, **ERR_NO_SUCCESS)
-                add_spender(spenders, "legacy/pkh-sighashflip", hashtype=hashtype, p2sh=p2sh, witv0=witv0, standard=standard, pkh=pubkey1, key=eckey1, **SIGHASH_BITFLIP, sigops_weight=4-3*witv0, **ERR_NO_SUCCESS)
+    for compr in [False, True]:
+        eckey1 = ECKey()
+        eckey1.set(generate_privkey(), compr)
+        pubkey1 = eckey1.get_pubkey().get_bytes()
+        eckey2 = ECKey()
+        eckey2.set(generate_privkey(), compr)
+        for p2sh in [False, True]:
+            for witv0 in [False, True]:
+                for hashtype in VALID_SIGHASHES_ECDSA + [random.randrange(0x04, 0x80), random.randrange(0x84, 0x100)]:
+                    standard = (hashtype in VALID_SIGHASHES_ECDSA) and (compr or not witv0)
+                    add_spender(spenders, "legacy/pk-wrongkey", hashtype=hashtype, p2sh=p2sh, witv0=witv0, standard=standard, script=CScript([pubkey1, OP_CHECKSIG]), **SINGLE_SIG, key=eckey1, failure={"key": eckey2}, sigops_weight=4-3*witv0, **ERR_NO_SUCCESS)
+                    add_spender(spenders, "legacy/pkh-sighashflip", hashtype=hashtype, p2sh=p2sh, witv0=witv0, standard=standard, pkh=pubkey1, key=eckey1, **SIGHASH_BITFLIP, sigops_weight=4-3*witv0, **ERR_NO_SUCCESS)
 
     # Verify that OP_CHECKSIGADD wasn't accidentally added to pre-taproot validation logic.
     for p2sh in [False, True]:
         for witv0 in [False, True]:
             for hashtype in VALID_SIGHASHES_ECDSA + [random.randrange(0x04, 0x80), random.randrange(0x84, 0x100)]:
                 standard = hashtype in VALID_SIGHASHES_ECDSA and (p2sh or witv0)
-                add_spender(spenders, "legacy/nocsa", hashtype=hashtype, p2sh=p2sh, witv0=witv0, standard=standard, script=CScript([OP_IF, OP_11, pubkey1, OP_CHECKSIGADD, OP_12, OP_EQUAL, OP_ELSE, pubkey1, OP_CHECKSIG, OP_ENDIF]), key=eckey1, sigops_weight=4-3*witv0, inputs=[getter("sign"), b''], failure={"inputs": [getter("sign"), b'\x01']}, **ERR_UNDECODABLE)
+                add_spender(spenders, "compact/nocsa", hashtype=hashtype, p2sh=p2sh, witv0=witv0, standard=standard, script=CScript([OP_IF, OP_11, pubkey1, OP_CHECKSIGADD, OP_12, OP_EQUAL, OP_ELSE, pubkey1, OP_CHECKSIG, OP_ENDIF]), key=eckey1, sigops_weight=4-3*witv0, inputs=[getter("sign"), b''], failure={"inputs": [getter("sign"), b'\x01']}, **ERR_UNDECODABLE)
 
     return spenders
 
@@ -1342,21 +1347,46 @@ class TaprootTest(BitcoinTestFramework):
             cb_pubkey = random.choice(host_pubkeys)
             sigops_weight += 1 * WITNESS_SCALE_FACTOR
 
+            # Compute satisfying and failing scriptSig/witness for each input.
+            input_data = []
+            for i in range(len(input_utxos)):
+                fn = input_utxos[i].spender.sat_function
+                fail = None
+                success = fn(tx, i, [utxo.output for utxo in input_utxos], True)
+                if not input_utxos[i].spender.no_fail:
+                    fail = fn(tx, i, [utxo.output for utxo in input_utxos], False)
+
+                if input_utxos[i].spender.comment.startswith("legacy/") or input_utxos[i].spender.comment.startswith("inactive/"):
+                    flags = "P2SH,CHECKLOCKTIMEVERIFY,CHECKSEQUENCEVERIFY,WITNESS,NULLDUMMY"
+                else:
+                    flags = "P2SH,CHECKLOCKTIMEVERIFY,CHECKSEQUENCEVERIFY,WITNESS,NULLDUMMY,TAPROOT"
+                final = ""
+                if input_utxos[i].spender.is_standard:
+                    final = "\"final\": true, "
+                txstr = tx.serialize().hex()
+                success_str = "\"success\": {\"scriptSig\": \"%s\", \"witness\": [%s]}, " % (success[0].hex(), ", ".join("\"%s\"" % x.hex() for x in success[1]))
+                fail_str = ""
+                if fail is not None:
+                    fail_str = "\"failure\": {\"scriptSig\": \"%s\", \"witness\": [%s]}, " % (fail[0].hex(), ", ".join("\"%s\"" % x.hex() for x in fail[1]))
+                s = "{\"tx\": \"%s\", \"prevouts\": [%s], \"index\": %i, %s%s\"flags\": \"%s\", %s\"comment\": \"%s\"},\n" % (txstr, ", ".join("\"%s\"" % x.output.serialize().hex() for x in input_utxos), i, success_str, fail_str, flags, final, input_utxos[i].spender.comment)
+                h = hashlib.sha1(s.encode("utf-8")).hexdigest()
+                with open(os.environ.get("FDIR") + "/" + h, 'w') as f:
+                    f.write(s)
+
+                input_data.append((fail, success))
+
             # Sign each input incorrectly once on each complete signing pass, except the very last.
-            for fail_input in list(range(len(input_utxos))) + [None]:
+#            for fail_input in list(range(len(input_utxos))) + [None]:
+            for fail_input in [None]:
                 # Skip trying to fail at spending something that can't be made to fail.
                 if fail_input is not None and input_utxos[fail_input].spender.no_fail:
                     continue
                 # Expected message with each input failure, may be None(which is ignored)
                 expected_fail_msg = None if fail_input is None else input_utxos[fail_input].spender.err_msg
-                # Wipe scriptSig/witness
-                for i in range(len(input_utxos)):
-                    tx.vin[i].scriptSig = CScript()
-                    tx.wit.vtxinwit[i] = CTxInWitness()
                 # Fill inputs/witnesses
                 for i in range(len(input_utxos)):
-                    fn = input_utxos[i].spender.sat_function
-                    fn(tx, i, [utxo.output for utxo in input_utxos], i != fail_input)
+                    tx.vin[i].scriptSig = input_data[i][i != fail_input][0]
+                    tx.wit.vtxinwit[i].scriptWitness.stack = input_data[i][i != fail_input][1]
                 # Submit to mempool to check standardness
                 is_standard_tx = fail_input is None and all(utxo.spender.is_standard for utxo in input_utxos) and tx.nVersion >= 1 and tx.nVersion <= 2
                 tx.rehash()
@@ -1380,21 +1410,21 @@ class TaprootTest(BitcoinTestFramework):
     def run_test(self):
         self.connect_nodes(0, 1)
 
-        # Post-taproot activation tests go first (pre-taproot tests' blocks are invalid post-taproot).
-        self.log.info("Post-activation tests...")
-        self.nodes[1].generate(101)
-        self.test_spenders(self.nodes[1], spenders_taproot_active(), input_counts=[1, 2, 2, 2, 2, 3])
+        self.nodes[0].generate(10)
+        self.sync_blocks()
+        self.nodes[1].generate(110)
 
-        # Transfer % of funds to pre-taproot node.
-        addr = self.nodes[0].getnewaddress()
-        self.nodes[1].sendtoaddress(address=addr, amount=int(self.nodes[1].getbalance() * 70000000) / 100000000)
+        # Post-taproot activation tests
+        self.log.info("Post-activation tests...")
         self.nodes[1].generate(1)
+        self.test_spenders(self.nodes[1], spenders_taproot_active(), input_counts=[1,2])
+
         self.sync_blocks()
 
         # Pre-taproot activation tests.
         self.log.info("Pre-activation tests...")
-        self.test_spenders(self.nodes[0], spenders_taproot_inactive(), input_counts=[1, 2, 2, 2, 2, 3])
-
+        self.nodes[0].generate(1)
+        self.test_spenders(self.nodes[0], spenders_taproot_inactive(), input_counts=[1,2])
 
 if __name__ == '__main__':
     TaprootTest().main()
