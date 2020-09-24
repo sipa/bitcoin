@@ -74,8 +74,11 @@ static const unsigned int MAX_INV_SZ = 50000;
 /** Maximum number of in-flight transactions from a peer. It is not a hard limit, but the threshold
  *  at which point pushback mechanisms kick in. */
 static constexpr int32_t MAX_PEER_TX_IN_FLIGHT = 100;
-/** Maximum number of announced transactions from a peer */
-static constexpr int32_t MAX_PEER_TX_ANNOUNCEMENTS = 2 * MAX_INV_SZ;
+/** Maximum number of transactions to consider for requesting, per peer. It provides a reasonable DoS limit to
+ *  per-peer memory usage spent on announcements, while covering peers continuously sending INVs at the maximum
+ *  rate (by our own policy, see INVENTORY_BROADCAST_PER_SECOND) for several minutes, while not receiving
+ *  the actual transaction (from any peer) in response to requests for them. */
+static constexpr int32_t MAX_PEER_TX_ANNOUNCEMENTS = 5000;
 /** How many microseconds to delay requesting transactions via txids, if we have wtxid-relaying peers */
 static constexpr std::chrono::microseconds TXID_RELAY_DELAY{std::chrono::seconds{2}};
 /** How many microseconds to delay requesting transactions from inbound peers */
@@ -743,14 +746,14 @@ void PeerManager::RequestTx(const CNode& node, const GenTxid& gtxid, std::chrono
 {
     AssertLockHeld(cs_main); // For m_txrequest
     NodeId nodeid = node.GetId();
-    if (m_txrequest.Count(nodeid) >= MAX_PEER_TX_ANNOUNCEMENTS) {
+    if (!node.HasPermission(PF_RELAY) && m_txrequest.Count(nodeid) >= MAX_PEER_TX_ANNOUNCEMENTS) {
         // Too many queued announcements from this peer
         return;
     }
     auto state = State(nodeid);
 
     // Decide the TxRequestTracker parameters for this announcement:
-    // - "overloaded": if at least MAX_PEER_TX_IN_FLIGHT requests are in flight.
+    // - "overloaded": if at least MAX_PEER_TX_IN_FLIGHT requests are in flight (and no PF_RELAY).
     // - "preferred": if fPreferredDownload is set (= outbound, or PF_NOBAN permission)
     // - "reqtime": immediately if none of the penalties below apply, otherwise current time plus:
     //   - INBOUND_PEER_TX_DELAY for announcements from non-preferred connections
@@ -758,7 +761,7 @@ void PeerManager::RequestTx(const CNode& node, const GenTxid& gtxid, std::chrono
     //   - OVERLOADED_PEER_TX_DELAY for announcements from overloaded peers
     auto delay = std::chrono::microseconds{0};
     bool preferred = state->fPreferredDownload;
-    bool overloaded = m_txrequest.CountInFlight(nodeid) >= MAX_PEER_TX_IN_FLIGHT;
+    bool overloaded = !node.HasPermission(PF_RELAY) && m_txrequest.CountInFlight(nodeid) >= MAX_PEER_TX_IN_FLIGHT;
     if (!preferred) delay += INBOUND_PEER_TX_DELAY;
     if (!state->m_wtxid_relay && g_wtxid_relay_peers > 0) delay += TXID_RELAY_DELAY;
     if (overloaded) delay += OVERLOADED_PEER_TX_DELAY;
