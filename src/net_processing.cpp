@@ -763,7 +763,7 @@ void PeerManager::RequestTx(const CNode& node, const GenTxid& gtxid, std::chrono
     bool preferred = state->fPreferredDownload;
     bool overloaded = !node.HasPermission(PF_RELAY) && m_txrequest.CountInFlight(nodeid) >= MAX_PEER_TX_IN_FLIGHT;
     if (!preferred) delay += INBOUND_PEER_TX_DELAY;
-    if (!state->m_wtxid_relay && g_wtxid_relay_peers > 0) delay += TXID_RELAY_DELAY;
+    if (!gtxid.IsWtxid() && g_wtxid_relay_peers > 0) delay += TXID_RELAY_DELAY;
     if (overloaded) delay += OVERLOADED_PEER_TX_DELAY;
     auto reqtime = delay.count() ? current_time + delay : std::chrono::microseconds::min();
     m_txrequest.ReceivedInv(nodeid, gtxid, preferred, reqtime);
