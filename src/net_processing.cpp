@@ -766,7 +766,7 @@ void PeerManager::RequestTx(const CNode& node, const GenTxid& gtxid, std::chrono
     if (!gtxid.IsWtxid() && g_wtxid_relay_peers > 0) delay += TXID_RELAY_DELAY;
     if (overloaded) delay += OVERLOADED_PEER_TX_DELAY;
     auto reqtime = delay.count() ? current_time + delay : std::chrono::microseconds::min();
-    m_txrequest.ReceivedInv(nodeid, gtxid, preferred, reqtime);
+    m_txrequest.ReceivedInv(nodeid, gtxid, preferred, overloaded, reqtime);
 }
 
 // This function is used for testing the stale tip eviction logic, see

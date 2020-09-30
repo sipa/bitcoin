@@ -91,12 +91,23 @@ class Tester
         uint64_t m_sequence;
         State m_state{State::NOTHING};
         bool m_preferred;
+        bool m_first;
         bool m_is_wtxid;
         uint64_t m_priority; //!< Precomputed priority.
     };
 
+    struct PerTxHash
+    {
+        bool m_ever_requested = false;
+        bool m_ever_first_preferred = false;
+        bool m_ever_first_nonpreferred = false;
+    };
+
     //! Information about all txhash/peer combination.
     Entry m_entries[MAX_TXHASHES][MAX_PEERS];
+
+    //! Information about every txhash.
+    PerTxHash m_pertxhash[MAX_TXHASHES];
 
     //! The current time; can move forward and backward.
     std::chrono::microseconds m_now{112223333};
@@ -109,6 +120,16 @@ class Tester
     //! yet.
     std::bitset<MAX_TXHASHES> m_get_requestable_last_result;
 
+    //! Check if a new entry for txhash can be marked first.
+    bool PermitFirst(int txhash, bool preferred)
+    {
+        return !(m_pertxhash[txhash].m_ever_requested ||
+            (preferred ?
+                m_pertxhash[txhash].m_ever_first_preferred :
+                m_pertxhash[txhash].m_ever_first_nonpreferred
+            ));
+    }
+
     //! Delete txhashes whose only entries are COMPLETED.
     void Cleanup(int txhash)
     {
@@ -118,6 +139,9 @@ class Tester
             if (entry.m_state == State::CANDIDATE || entry.m_state == State::REQUESTED) return;
             if (entry.m_state != State::NOTHING) all_nothing = false;
         }
+        m_pertxhash[txhash].m_ever_requested = false;
+        m_pertxhash[txhash].m_ever_first_preferred = false;
+        m_pertxhash[txhash].m_ever_first_nonpreferred = false;
         if (all_nothing) return;
         for (int peer = 0; peer < MAX_PEERS; ++peer) {
             m_entries[txhash][peer].m_state = State::NOTHING;
@@ -195,7 +219,8 @@ public:
         m_tracker.ForgetTxHash(TXHASHES[txhash]);
     }
 
-    void ReceivedInv(int peer, int txhash, bool is_wtxid, bool preferred, std::chrono::microseconds reqtime)
+    void ReceivedInv(int peer, int txhash, bool is_wtxid, bool preferred, bool overloaded,
+        std::chrono::microseconds reqtime)
     {
         // Removes the ability to call RequestedTx until the next GetRequestable.
         m_get_requestable_last_peer = -1;
@@ -204,19 +229,22 @@ public:
         // already, create a new CANDIDATE; otherwise do nothing.
         Entry& entry = m_entries[txhash][peer];
         if (entry.m_state == State::NOTHING) {
+            entry.m_first = !overloaded && PermitFirst(txhash, preferred);
             entry.m_preferred = preferred;
             entry.m_state = State::CANDIDATE;
             entry.m_time = reqtime;
             entry.m_is_wtxid = is_wtxid;
             entry.m_sequence = m_sequence++;
-            entry.m_priority = m_tracker.ComputePriority(TXHASHES[txhash], peer, entry.m_preferred);
+            entry.m_priority = m_tracker.ComputePriority(TXHASHES[txhash], peer, entry.m_preferred, entry.m_first);
+            if (entry.m_first && entry.m_preferred) m_pertxhash[txhash].m_ever_first_preferred = true;
+            if (entry.m_first && !entry.m_preferred) m_pertxhash[txhash].m_ever_first_nonpreferred = true;
 
             // Add event so that AdvanceToEvent can quickly jump to the point where its reqtime passes.
             if (reqtime > m_now) m_events.push(reqtime);
         }
 
         // Call TxRequestTracker's implementation.
-        m_tracker.ReceivedInv(peer, GenTxid{is_wtxid, TXHASHES[txhash]}, preferred, reqtime);
+        m_tracker.ReceivedInv(peer, GenTxid{is_wtxid, TXHASHES[txhash]}, preferred, overloaded, reqtime);
     }
 
     void RequestedTx(int txhash, bool is_wtxid, std::chrono::microseconds exptime)
@@ -231,6 +259,7 @@ public:
         assert(m_entries[txhash][peer].m_state == State::CANDIDATE);
         m_entries[txhash][peer].m_state = State::REQUESTED;
         m_entries[txhash][peer].m_time = exptime;
+        m_pertxhash[txhash].m_ever_requested = true;
 
         // Add event so that AdvanceToEvent can quickly jump to the point where its exptime passes.
         if (exptime > m_now) m_events.push(exptime);
@@ -351,19 +380,23 @@ void test_one_input(const std::vector<uint8_t>& buffer)
             txidnum = it == buffer.end() ? 0 : *(it++);
             tester.ForgetTxHash(txidnum % MAX_TXHASHES);
             break;
-        case 5: case 7: // Received immediate preferred inv
-        case 6: case 8: // Same, but non-preferred.
+        case 5: // Received immediate preferred non-overloaded inv
+        case 6: // Same, but non-preferred overloaded.
+        case 7: // Same, but preferred overloaded.
+        case 8: // Same, but non-preferred non-overloaded.
             peer = it == buffer.end() ? 0 : *(it++) % MAX_PEERS;
             txidnum = it == buffer.end() ? 0 : *(it++);
-            tester.ReceivedInv(peer, txidnum % MAX_TXHASHES, (txidnum / MAX_TXHASHES) & 1, cmd & 1,
+            tester.ReceivedInv(peer, txidnum % MAX_TXHASHES, (txidnum / MAX_TXHASHES) & 1, cmd & 1, cmd & 2,
                 std::chrono::microseconds::min());
             break;
-        case 9: case 11:  // Received delayed preferred inv
-        case 10: case 12: // Same, but non-preferred.
+        case 9: // Received delayed preferred non-overloaded inv
+        case 10: // Same, but non-preferred overloaded.
+        case 11: // Same, but preferred overloaded.
+        case 12: // Same, but non-preferred non-overloaded.
             peer = it == buffer.end() ? 0 : *(it++) % MAX_PEERS;
             txidnum = it == buffer.end() ? 0 : *(it++);
             delaynum = it == buffer.end() ? 0 : *(it++);
-            tester.ReceivedInv(peer, txidnum % MAX_TXHASHES, (txidnum / MAX_TXHASHES) & 1, cmd & 1,
+            tester.ReceivedInv(peer, txidnum % MAX_TXHASHES, (txidnum / MAX_TXHASHES) & 1, cmd & 1, cmd & 2,
                 tester.Now() + DELAYS[delaynum]);
             break;
         case 13: // Requested tx from peer

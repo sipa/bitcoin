@@ -28,6 +28,7 @@
  * - Whether it's from a "preferred" peer or not. Which announcements get this flag is determined by the caller, but
  *   this is designed for outbound peers, or other peers that we have a higher level of trust in). Even when the
  *   peers' preferredness changes, the preferred flag of existing announcements from that peer won't change.
+ * - Whether the peer was the "first" to announce this txhash within its class (see '"First" marker rules').
  * - Whether or not the transaction was requested already, and if so, when it times out (called "expiry").
  * - Whether or not the transaction request failed already (timed out, or NOTFOUND was received).
  *
@@ -70,9 +71,26 @@
  *     Rationale: preferred peers (outbound, whitelisted) are chosen by us, so are less likely to be under attacker
  *                control.
  *
- *   - Pick a uniformly random peer among the candidates.
+ *   - Among the remaining candidates, choose the first (non-overloaded) peer to have announced the transaction,
+ *     if that one is still a candidate. This is done using a "first" marker that is added to announcements, which
+ *     prioritizes an announcement over all others (within the class of preferred or non-preferred announcements).
+ *     The "first" marker is given to announcements at the time they are received, provided:
+ *     - No requests for its txhash have ever been attempted (or since it was forgotten about).
+ *     - The peer that announced them was not overloaded.
+ *     - No announcement for the same txhash from another peer within the same preferred/nonpreferred class has been
+ *       given a "first" marker already.
  *
- *     Rationale: random assignments are hard to influence for attackers.
+ *     Rationale: in non-attack scenarios we want to give one chance to request from the fastest peer to reduce
+ *                latency, and reduce risk of fetching chains of dependent transactions out of order. An attacker
+ *                who races the network can exploit this to delay us learning about a transaction, but it is
+ *                available only once per txhash. The restrictions on the eligibility to get the "first" marker
+ *                avoid giving the speed benefit to honest but overloaded peers, and also reduce the extent to which
+ *                attackers that race the network in announcing large swaths of transactions can disarrange chains
+ *                of transactions.
+ *
+ *   - If no remaining candidates have the "first" marker, pick a uniformly random peer among the candidates.
+ *
+ *     Rationale: if the "first" mechanism failed, random assignments are hard to influence for attackers.
  *
  * Together these rules strike a balance between being fast in non-adverserial conditions and minimizing
  * susceptibility to invblock attacks. An attacker that races the network:
@@ -80,10 +98,10 @@
  * - If there are P preferred connections of which Ph>=1 are honest, the attacker can delay us from learning
  *   about a transaction by k expiration periods, where k ~ 1 + NHG(N=P-1,K=P-Ph-1,r=1), which has mean
  *   P/(Ph+1) (where NHG stands for Negative Hypergeometric distribution). The "1 +" is due to the fact that the
- *   attacker can be the first to announce through a preferred connection in this scenario, which very likely means
- *   they get the first request.
+ *   attacker can be the first to announce through a preferred connection in this scenario, meaning they will get the
+ *   "first" marker and thus the first request.
  * - If all P preferred connections are to the attacker, and there are NP non-preferred connections of which NPh are
- *   honest, k ~ P + NHG(N=NP-1,K=NP-NPh-1,r=1), with mean P - 1 + NP/(NPh+1).
+ *   honest, k ~ P + 1 + NHG(N=NP-1,K=NP-NPh-1,r=1), with mean P + NP/(NPh+1).
  *
  * Complexity:
  * - Memory usage is proportional to the total number of tracked announcements (Size()) plus the number of
@@ -136,9 +154,10 @@ public:
      * COMPLETED). Note that this means a second INV with the same txhash from the same peer will be ignored, even
      * if one is a txid and the other is wtxid (but that shouldn't happen, as BIP339 requires that all announced
      * inventory is exclusively using MSG_WTX). The new entry is given the specified preferred and reqtime values,
-     * and takes it is_wtxid from the specified gtxid.
+     * and takes it is_wtxid from the specified gtxid. It is eligible to get a first marker if overloaded is false
+     * (but also subject to the other rules regarding the first marker).
      */
-    void ReceivedInv(uint64_t peer, const GenTxid& gtxid, bool preferred,
+    void ReceivedInv(uint64_t peer, const GenTxid& gtxid, bool preferred, bool overloaded,
         std::chrono::microseconds reqtime);
 
     /** Converts the CANDIDATE entry for the provided peer and gtxid into a REQUESTED one.
@@ -164,7 +183,7 @@ public:
      *  - Convert all REQUESTED entries (for all txhashes/peers) with (expiry <= now) to COMPLETED entries.
      *  - Requestable entries are selected: CANDIDATE entries from the specified peer with (reqtime <= now) for
      *    which the specified peer is the best choice among all such CANDIDATE entries with the same txhash (subject
-     *    to preference rules, and tiebreaking using a deterministic salted hash of peer and txhash).
+     *    to preference/first rules, and tiebreaking using a deterministic salted hash of peer and txhash).
      *  - The selected entries are sorted in order of announcement (even if multiple were added at the same time, or
      *    even when the clock went backwards while they were being added), converted to GenTxids using their
      *    is_wtxid flag, and returned.
@@ -184,7 +203,7 @@ public:
     size_t Size() const;
 
     /** Access to the internal priority computation (testing only) */
-    uint64_t ComputePriority(const uint256& txhash, uint64_t peer, bool preferred) const;
+    uint64_t ComputePriority(const uint256& txhash, uint64_t peer, bool preferred, bool first) const;
 
     /** Run internal consistency check (testing only). */
     void SanityCheck() const;

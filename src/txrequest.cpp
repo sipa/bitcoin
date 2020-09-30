@@ -61,11 +61,14 @@ struct Entry {
     /** What peer the request was from. */
     const uint64_t m_peer;
     /** What sequence number this announcement has. */
-    const uint64_t m_sequence : 59;
+    const uint64_t m_sequence : 56;
     /** Whether the request is preferred (giving it priority higher than non-preferred ones). */
     const bool m_preferred : 1;
     /** Whether this is a wtxid request. */
     const bool m_is_wtxid : 1;
+    /** Whether this was: the very first announcement for this txhash, within the preferred or non-preferred ones,
+     *  and no request had been made for this txhash from any peer at the time the announcement came in. */
+    const bool m_first : 1;
 
     /** What state this announcement is in. This is a uint8_t instead of a State to silence a GCC warning. */
     uint8_t m_state : 3;
@@ -74,6 +77,11 @@ struct Entry {
     // data structure because having a separate per-txhash map would consume much more memory.
     // Only the flags of the last Entry for a given txhash (ByTxHash order) are relevant;
     // the other ones are ignored.
+
+    /** New preferred announcements with this txhash are not eligible to get the 'first' marker. */
+    mutable bool m_no_more_first_pref : 1;
+    /** New non-preferred announcements with this txhash are not eligible to get the 'first' marker. */
+    mutable bool m_no_more_first_nonpref : 1;
 
     /** Convert the m_state variable to a State enum. */
     State GetState() const { return State(m_state); }
@@ -100,9 +108,10 @@ struct Entry {
 
     /** Construct a new entry from scratch, initially in CANDIDATE_DELAYED state. */
     Entry(const GenTxid& gtxid, uint64_t peer, bool preferred, std::chrono::microseconds reqtime,
-        uint64_t sequence) :
+        uint64_t sequence, bool first) :
         m_txhash(gtxid.GetHash()), m_time(reqtime), m_peer(peer), m_sequence(sequence), m_preferred(preferred),
-        m_is_wtxid(gtxid.IsWtxid()), m_state(uint8_t(State::CANDIDATE_DELAYED)) {}
+        m_is_wtxid(gtxid.IsWtxid()), m_first(first), m_state(uint8_t(State::CANDIDATE_DELAYED)),
+        m_no_more_first_pref(false), m_no_more_first_nonpref(false) {}
 };
 
 /** A functor with embedded salt that computes priority of an announcement.
@@ -116,15 +125,18 @@ public:
         m_k0{deterministic ? 0 : GetRand(0xFFFFFFFFFFFFFFFF)},
         m_k1{deterministic ? 0 : GetRand(0xFFFFFFFFFFFFFFFF)} {}
 
-    uint64_t operator()(const uint256& txhash, uint64_t peer, bool preferred) const
+    uint64_t operator()(const uint256& txhash, uint64_t peer, bool preferred, bool first) const
     {
-        uint64_t low_bits = CSipHasher(m_k0, m_k1).Write(txhash.begin(), txhash.size()).Write(peer).Finalize() >> 1;
+        uint64_t low_bits = 0;
+        if (!first) {
+            low_bits = CSipHasher(m_k0, m_k1).Write(txhash.begin(), txhash.size()).Write(peer).Finalize() >> 1;
+        }
         return low_bits | uint64_t{!preferred} << 63;
     }
 
     uint64_t operator()(const Entry& entry) const
     {
-        return operator()(entry.m_txhash, entry.m_peer, entry.m_preferred);
+        return operator()(entry.m_txhash, entry.m_peer, entry.m_preferred, entry.m_first);
     }
 };
 
@@ -235,6 +247,14 @@ struct TxHashInfo
     uint64_t m_priority_best_candidate_ready = std::numeric_limits<uint64_t>::max();
     //! All peers we have an entry for this txhash for.
     std::vector<uint64_t> m_peers;
+    //! Whether any preferred first entry exists.
+    bool m_any_first_pref = false;
+    //! Whether any non-preferred first entry exists.
+    bool m_any_first_nonpref = false;
+    //! Whether any Entry with m_no_more_first_pref exists.
+    bool m_any_no_more_first_pref = false;
+    //! Whether any Entry with m_no_more_first_nonpref exists.
+    bool m_any_no_more_first_nonpref = false;
 };
 
 /** (Re)compute the PeerInfo map from the index. Only used for sanity checking. */
@@ -271,6 +291,10 @@ std::map<uint256, TxHashInfo> ComputeTxHashInfo(const Index& index, const Priori
         // Also keep track of which peers this txhash has a Entry for (so we can detect duplicates).
         info.m_peers.push_back(entry.m_peer);
         // Track preferred/first.
+        info.m_any_first_pref |= (entry.m_first && entry.m_preferred);
+        info.m_any_first_nonpref |= (entry.m_first && !entry.m_preferred);
+        info.m_any_no_more_first_pref |= entry.m_no_more_first_pref;
+        info.m_any_no_more_first_nonpref |= entry.m_no_more_first_nonpref;
     }
     return ret;
 }
@@ -327,11 +351,26 @@ public:
             std::sort(info.m_peers.begin(), info.m_peers.end());
             assert(std::adjacent_find(info.m_peers.begin(), info.m_peers.end()) == info.m_peers.end());
 
+            // Verify all per-txhash flags.
+            // The "no-more-first" per_txhash flags are set when:
+            //    - an Entry has been created with the m_first flag (per class)
+            //    - we've actually requested a transaction with that txhash (both classes)
+            // We can't tell if a COMPLETED request is because we requested it (in which case both per-txhash flags
+            // should be set) or because the peer sent some sort of failure indication prior to us requesting it (in
+            // which case neither flag needs to be set). Check what we can:
+            if (info.m_any_first_pref || info.m_requested) assert(info.m_any_no_more_first_pref);
+            if (info.m_any_first_nonpref || info.m_requested) assert(info.m_any_no_more_first_nonpref);
+
             // Looking up the last ByTxHash entry with the given txhash must return an Entry with that txhash or the
             // multi_index is very bad.
             auto it_last = std::prev(m_index.get<ByTxHash>().lower_bound(
                 EntryTxHash{item.first, State::TOO_LARGE, 0}));
             assert(it_last != m_index.get<ByTxHash>().end() && it_last->m_txhash == item.first);
+
+            // No entry can have flags that are a superset of the actual ones (they're always ORed into the actual
+            // one).
+            assert(it_last->m_no_more_first_pref == info.m_any_no_more_first_pref);
+            assert(it_last->m_no_more_first_nonpref == info.m_any_no_more_first_nonpref);
         }
     }
 
@@ -359,6 +398,14 @@ private:
         peerit->second.m_completed -= it->GetState() == State::COMPLETED;
         peerit->second.m_requested -= it->GetState() == State::REQUESTED;
         if (--peerit->second.m_total == 0) m_peerinfo.erase(peerit);
+        // As it may possibly be the last-sorted Entry for a given txhash, propagate its per-txhash flags to its
+        // predecessor (if it belongs to the same txhash).
+        auto bytxhashit = m_index.project<ByTxHash>(it);
+        if (bytxhashit != m_index.get<ByTxHash>().begin() &&
+            bytxhashit->m_txhash == std::prev(bytxhashit)->m_txhash) {
+            std::prev(bytxhashit)->m_no_more_first_pref |= bytxhashit->m_no_more_first_pref;
+            std::prev(bytxhashit)->m_no_more_first_nonpref |= bytxhashit->m_no_more_first_nonpref;
+        }
         return m_index.get<Tag>().erase(it);
     }
 
@@ -369,7 +416,23 @@ private:
         auto peerit = m_peerinfo.find(it->m_peer);
         peerit->second.m_completed -= it->GetState() == State::COMPLETED;
         peerit->second.m_requested -= it->GetState() == State::REQUESTED;
+        // It's possible that it used to be the last-sorted Entry for its txhash, so propagate its
+        // flags to its predecessor (which would then become the new last-sorted Entry).
+        auto bytxhashit = m_index.project<ByTxHash>(it);
+        if (bytxhashit != m_index.get<ByTxHash>().begin() &&
+            bytxhashit->m_txhash == std::prev(bytxhashit)->m_txhash) {
+            std::prev(bytxhashit)->m_no_more_first_pref |= bytxhashit->m_no_more_first_pref;
+            std::prev(bytxhashit)->m_no_more_first_nonpref |= bytxhashit->m_no_more_first_nonpref;
+        }
         m_index.get<Tag>().modify(it, std::move(modifier));
+        // It's possible that it is now the new last-sorted Entry for its txhash, so propagate flags
+        // from its predecessor to it.
+        bytxhashit = m_index.project<ByTxHash>(it);
+        if (bytxhashit != m_index.get<ByTxHash>().begin() &&
+            bytxhashit->m_txhash == std::prev(bytxhashit)->m_txhash) {
+            bytxhashit->m_no_more_first_pref |= std::prev(bytxhashit)->m_no_more_first_pref;
+            bytxhashit->m_no_more_first_nonpref |= std::prev(bytxhashit)->m_no_more_first_nonpref;
+        }
         peerit->second.m_completed += it->GetState() == State::COMPLETED;
         peerit->second.m_requested += it->GetState() == State::REQUESTED;
     }
@@ -530,7 +593,7 @@ public:
         }
     }
 
-    void ReceivedInv(uint64_t peer, const GenTxid& gtxid, bool preferred,
+    void ReceivedInv(uint64_t peer, const GenTxid& gtxid, bool preferred, bool overloaded,
         std::chrono::microseconds reqtime)
     {
         // Bail out if we already have a CANDIDATE_BEST entry for this (txhash, peer) combination. The case where
@@ -539,25 +602,49 @@ public:
         if (m_index.get<ByPeer>().count(EntryPeer{peer, true, gtxid.GetHash()})) return;
 
         // Find last entry for this txhash, and extract per-txhash information from it.
+        bool no_more_first_pref = false, no_more_first_nonpref = false;
         Iter<ByTxHash> it_last = m_index.get<ByTxHash>().end();
         // First find the first entry past this txhash.
         it_last = m_index.get<ByTxHash>().lower_bound(EntryTxHash{gtxid.GetHash(), State::TOO_LARGE, 0});
         if (it_last != m_index.get<ByTxHash>().begin() && std::prev(it_last)->m_txhash == gtxid.GetHash()) {
+            // Its predecessor exists, and has the right txhash. Remember it, and OR in its flags.
             it_last--;
+            no_more_first_pref |= it_last->m_no_more_first_pref;
+            no_more_first_nonpref |= it_last->m_no_more_first_nonpref;
         } else {
             // No entry for this txhash exists yet.
             it_last = m_index.get<ByTxHash>().end();
         }
 
+        // Determine whether the new announcement's Entry will get the first marker, and update
+        // the per-txhash information to be stored (but note that per-txhash isn't actually stored
+        // until after the emplace below succeeds).
+        bool first = false;
+        if (!overloaded) {
+            if (preferred && !no_more_first_pref) {
+                first = true;
+                no_more_first_pref = true;
+            } else if (!preferred && !no_more_first_nonpref) {
+                first = true;
+                no_more_first_nonpref = true;
+            }
+        }
+
         // Try creating the entry with CANDIDATE_DELAYED state (which will fail due to the uniqueness
         // of the ByPeer index if a non-CANDIDATE_BEST entry already exists with the same txhash and peer).
         // Bail out in that case.
-        auto ret = m_index.get<ByPeer>().emplace(gtxid, peer, preferred, reqtime, m_sequence);
+        auto ret = m_index.get<ByPeer>().emplace(gtxid, peer, preferred, reqtime, m_sequence, first);
         if (!ret.second) return;
 
         // Update accounting metadata.
         ++m_peerinfo[peer].m_total;
         ++m_sequence;
+
+        // Update per-txhash data of the new last Entry (either the newly created one, or it_last).
+        auto it = m_index.project<ByTxHash>(ret.first);
+        if (it_last == m_index.get<ByTxHash>().end() || std::next(it_last) == it) it_last = it;
+        it_last->m_no_more_first_pref |= no_more_first_pref;
+        it_last->m_no_more_first_nonpref |= no_more_first_nonpref;
     }
 
     //! Find the GenTxids to request now from peer.
@@ -601,6 +688,8 @@ public:
         // eligible for the "first" marker.
         auto it_last = std::prev(m_index.get<ByTxHash>().lower_bound(EntryTxHash{gtxid.GetHash(), State::TOO_LARGE, 0}));
         assert(it_last->m_txhash == gtxid.GetHash());
+        it_last->m_no_more_first_pref = true;
+        it_last->m_no_more_first_nonpref = true;
     }
 
     void ReceivedResponse(uint64_t peer, const GenTxid& gtxid)
@@ -637,9 +726,9 @@ public:
     //! Count how many announcements are being tracked in total across all peers and transactions.
     size_t Size() const { return m_index.size(); }
 
-    uint64_t ComputePriority(const uint256& txhash, uint64_t peer, bool preferred) const
+    uint64_t ComputePriority(const uint256& txhash, uint64_t peer, bool preferred, bool first) const
     {
-        return m_computer(txhash, peer, preferred);
+        return m_computer(txhash, peer, preferred, first);
     }
 
 };
@@ -662,10 +751,10 @@ void TxRequestTracker::PostGetRequestableSanityCheck(std::chrono::microseconds n
     m_impl->PostGetRequestableSanityCheck(now);
 }
 
-void TxRequestTracker::ReceivedInv(uint64_t peer, const GenTxid& gtxid, bool preferred,
+void TxRequestTracker::ReceivedInv(uint64_t peer, const GenTxid& gtxid, bool preferred, bool overloaded,
     std::chrono::microseconds reqtime)
 {
-    m_impl->ReceivedInv(peer, gtxid, preferred, reqtime);
+    m_impl->ReceivedInv(peer, gtxid, preferred, overloaded, reqtime);
 }
 
 void TxRequestTracker::RequestedTx(uint64_t peer, const GenTxid& gtxid, std::chrono::microseconds expiry)
@@ -683,7 +772,7 @@ std::vector<GenTxid> TxRequestTracker::GetRequestable(uint64_t peer, std::chrono
     return m_impl->GetRequestable(peer, now);
 }
 
-uint64_t TxRequestTracker::ComputePriority(const uint256& txhash, uint64_t peer, bool preferred) const
+uint64_t TxRequestTracker::ComputePriority(const uint256& txhash, uint64_t peer, bool preferred, bool first) const
 {
-    return m_impl->ComputePriority(txhash, peer, preferred);
+    return m_impl->ComputePriority(txhash, peer, preferred, first);
 }
