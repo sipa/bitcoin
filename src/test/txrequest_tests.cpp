@@ -194,8 +194,6 @@ void BuildSingleTest(Scenario& scenario, int config)
     auto gtxid = scenario.NewGTxid();
     bool immediate = config & 1;
     bool preferred = config & 2;
-    bool overload = config & 4;
-    if (overload) return; // future
     auto delay = immediate ? NO_TIME : RandomTime();
 
     scenario.SetTestName(strprintf("Single(config=%i)", config));
@@ -212,14 +210,14 @@ void BuildSingleTest(Scenario& scenario, int config)
         scenario.Check(peer, {gtxid}, 1, 0, 0, "s4");
     }
 
-    if (config >> 4) { // We'll request the transaction
+    if (config >> 3) { // We'll request the transaction
         scenario.AdvanceTime(RandomTime());
         auto expiry = RandomTime();
         scenario.Check(peer, {gtxid}, 1, 0, 0, "s5");
         scenario.RequestedTx(peer, gtxid, scenario.Now() + expiry);
         scenario.Check(peer, {}, 0, 1, 0, "s6");
 
-        if ((config >> 4) == 1) { // The request will time out
+        if ((config >> 3) == 1) { // The request will time out
             scenario.AdvanceTime(expiry - MICROSECOND);
             scenario.Check(peer, {}, 0, 1, 0, "s7");
             scenario.AdvanceTime(MICROSECOND);
@@ -228,7 +226,7 @@ void BuildSingleTest(Scenario& scenario, int config)
         } else {
             scenario.AdvanceTime(std::chrono::microseconds{InsecureRandRange(expiry.count())});
             scenario.Check(peer, {}, 0, 1, 0, "s9");
-            if ((config >> 4) == 3) { // A reponse will arrive for the transaction
+            if ((config >> 3) == 3) { // A reponse will arrive for the transaction
                 scenario.ReceivedResponse(peer, gtxid);
                 scenario.Check(peer, {}, 0, 0, 0, "s10");
                 return;
@@ -237,7 +235,7 @@ void BuildSingleTest(Scenario& scenario, int config)
     }
 
     scenario.AdvanceTime(RandomTime());
-    if (config & 8) { // The peer will go offline
+    if (config & 4) { // The peer will go offline
         scenario.DisconnectedPeer(peer);
     } else { // The transaction is no longer needed
         scenario.ForgetTxHash(gtxid.GetHash());
@@ -248,7 +246,7 @@ void BuildSingleTest(Scenario& scenario, int config)
 /** Add to scenario a test with a single tx announced by two peers, to verify the
  *  right peer is selected for requests.
  *
- * config is an integer between 0 and 127, which controls which variant of the test is used.
+ * config is an integer between 0 and 31, which controls which variant of the test is used.
  */
 void BuildPriorityTest(Scenario& scenario, int config)
 {
@@ -260,10 +258,7 @@ void BuildPriorityTest(Scenario& scenario, int config)
     // depending on configuration.
     bool prio1 = config & 1;
     auto gtxid = prio1 ? scenario.NewGTxid({{peer1, peer2}}) : scenario.NewGTxid({{peer2, peer1}});
-
     bool pref1 = config & 2, pref2 = config & 4;
-    bool overload1 = config & 8, overload2 = config & 16;
-    if (overload1 || overload2) return; // future
 
     scenario.ReceivedInv(peer1, gtxid, pref1, MIN_TIME);
     scenario.Check(peer1, {gtxid}, 1, 0, 0, "p1");
@@ -286,7 +281,7 @@ void BuildPriorityTest(Scenario& scenario, int config)
     scenario.Check(priopeer, {gtxid}, 1, 0, 0, "p6");
 
     // We possibly request from the selected peer.
-    if (config & 32) {
+    if (config & 8) {
         scenario.RequestedTx(priopeer, gtxid, MAX_TIME);
         scenario.Check(priopeer, {}, 0, 1, 0, "p7");
         scenario.Check(otherpeer, {}, 1, 0, 0, "p8");
@@ -294,13 +289,13 @@ void BuildPriorityTest(Scenario& scenario, int config)
     }
 
     // The peer which was selected (or requested from) now goes offline, or a NOTFOUND is received from them.
-    if (config & 64) {
+    if (config & 16) {
         scenario.DisconnectedPeer(priopeer);
     } else {
         scenario.ReceivedResponse(priopeer, gtxid);
     }
     if (InsecureRandBool()) scenario.AdvanceTime(RandomTime());
-    scenario.Check(priopeer, {}, 0, 0, !(config & 64), "p8");
+    scenario.Check(priopeer, {}, 0, 0, !(config & 16), "p8");
     scenario.Check(otherpeer, {gtxid}, 1, 0, 0, "p9");
     if (InsecureRandBool()) scenario.AdvanceTime(RandomTime());
 
@@ -420,7 +415,7 @@ void BuildRequestOrderTest(Scenario& scenario, int config)
 
     scenario.ReceivedInv(peer, gtxid1, config & 1, reqtime1);
     // Simulate time going backwards by giving the second announcement an earlier reqtime.
-    scenario.ReceivedInv(peer, gtxid2, config & 4, reqtime2);
+    scenario.ReceivedInv(peer, gtxid2, config & 2, reqtime2);
 
     scenario.AdvanceTime(reqtime2 - MICROSECOND - scenario.Now());
     scenario.Check(peer, {}, 2, 0, 0, "o1");
@@ -492,13 +487,13 @@ void TestInterleavedScenarios()
     for (int config = 0; config < 4; ++config) {
         builders.emplace_back([config](Scenario& scenario){ BuildWtxidTest(scenario, config); });
     }
-    for (int config = 0; config < 16; ++config) {
+    for (int config = 0; config < 4; ++config) {
         builders.emplace_back([config](Scenario& scenario){ BuildRequestOrderTest(scenario, config); });
     }
     for (int config = 0; config < 32; ++config) {
         builders.emplace_back([config](Scenario& scenario){ BuildSingleTest(scenario, config); });
     }
-    for (int config = 0; config < 128; ++config) {
+    for (int config = 0; config < 32; ++config) {
         builders.emplace_back([config](Scenario& scenario){ BuildPriorityTest(scenario, config); });
     }
     for (int peers = 1; peers <= 8; ++peers) {
