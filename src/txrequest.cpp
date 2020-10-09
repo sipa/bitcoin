@@ -58,7 +58,7 @@ using SequenceNumber = uint64_t;
 struct Announcement {
     /** Txid or wtxid that was announced. */
     const uint256 m_txhash;
-    /** For CANDIDATE_{DELAYED,BEST,READY} the reqtime; for REQUESTED the expiry. */
+    /** For CANDIDATE_DELAYED the reqtime; for REQUESTED the expiry; no meaning for other states. */
     std::chrono::microseconds m_time;
     /** What peer the request was from. */
     const NodeId m_peer;
@@ -171,39 +171,21 @@ public:
     }
 };
 
-enum class WaitState {
-    //! Used for announcements that need efficient testing of "is their timestamp in the future?".
-    FUTURE_EVENT,
-    //! Used for announcements whose timestamp is not relevant.
-    NO_EVENT,
-    //! Used for announcements that need efficient testing of "is their timestamp in the past?".
-    PAST_EVENT,
-};
-
-WaitState GetWaitState(const Announcement& ann)
-{
-    if (ann.IsWaiting()) return WaitState::FUTURE_EVENT;
-    if (ann.IsSelectable()) return WaitState::PAST_EVENT;
-    return WaitState::NO_EVENT;
-}
-
-// The ByTime index is sorted by (wait_state, time).
+// The ByTime index is sorted by (!IsWaiting(), time).
 //
 // All announcements with a timestamp in the future can be found by iterating the index forward from the beginning.
-// All announcements with a timestamp in the past can be found by iterating the index backwards from the end.
 //
 // Uses:
 // * Finding CANDIDATE_DELAYED announcements whose reqtime has passed, and REQUESTED announcements whose expiry has
 //   passed.
-// * Finding CANDIDATE_READY/BEST announcements whose reqtime is in the future (when the clock time went backwards).
 struct ByTime {};
-using ByTimeView = std::pair<WaitState, std::chrono::microseconds>;
+using ByTimeView = std::pair<bool, std::chrono::microseconds>;
 struct ByTimeViewExtractor
 {
     using result_type = ByTimeView;
     result_type operator()(const Announcement& ann) const
     {
-        return ByTimeView{GetWaitState(ann), ann.m_time};
+        return ByTimeView{!ann.IsWaiting(), ann.m_time};
     }
 };
 
@@ -313,6 +295,9 @@ class TxRequestTracker::Impl {
     //! Map with this tracker's per-peer statistics.
     std::unordered_map<NodeId, PeerInfo> m_peerinfo;
 
+    //! The current time. It is kept here internally to guarantee a view of time that does not go backwards.
+    std::chrono::microseconds m_now = std::chrono::microseconds::min();
+
 public:
     void SanityCheck() const
     {
@@ -348,17 +333,13 @@ public:
         }
     }
 
-    void PostGetRequestableSanityCheck(std::chrono::microseconds now) const
+    void PostGetRequestableSanityCheck() const
     {
         for (const Announcement& ann : m_index) {
             if (ann.IsWaiting()) {
                 // REQUESTED and CANDIDATE_DELAYED must have a time in the future (they should have been converted
                 // to COMPLETED/CANDIDATE_READY respectively).
-                assert(ann.m_time > now);
-            } else if (ann.IsSelectable()) {
-                // CANDIDATE_READY and CANDIDATE_BEST cannot have a time in the future (they should have remained
-                // CANDIDATE_DELAYED, or should have been converted back to it if time went backwards).
-                assert(ann.m_time <= now);
+                assert(ann.m_time > m_now);
             }
         }
     }
@@ -478,35 +459,23 @@ private:
         return true;
     }
 
-    //! Make the data structure consistent with a given point in time:
+    //! Move our clock forward and make the data structure consistent with the new time.
     //! - REQUESTED annoucements with expiry <= now are turned into COMPLETED.
     //! - CANDIDATE_DELAYED announcements with reqtime <= now are turned into CANDIDATE_{READY,BEST}.
-    //! - CANDIDATE_{READY,BEST} announcements with reqtime > now are turned into CANDIDATE_DELAYED.
     void SetTimePoint(std::chrono::microseconds now, std::vector<std::pair<NodeId, GenTxid>>* expired)
     {
         if (expired) expired->clear();
+        m_now = std::max(m_now, now);
 
         // Iterate over all CANDIDATE_DELAYED and REQUESTED from old to new, as long as they're in the past,
         // and convert them to CANDIDATE_READY and COMPLETED respectively.
         while (!m_index.empty()) {
             auto it = m_index.get<ByTime>().begin();
-            if (it->m_state == State::CANDIDATE_DELAYED && it->m_time <= now) {
+            if (it->m_state == State::CANDIDATE_DELAYED && it->m_time <= m_now) {
                 PromoteCandidateReady(m_index.project<ByTxHash>(it));
-            } else if (it->m_state == State::REQUESTED && it->m_time <= now) {
+            } else if (it->m_state == State::REQUESTED && it->m_time <= m_now) {
                 if (expired) expired->emplace_back(it->m_peer, ToGenTxid(*it));
                 MakeCompleted(m_index.project<ByTxHash>(it));
-            } else {
-                break;
-            }
-        }
-
-        while (!m_index.empty()) {
-            // If time went backwards, we may need to demote CANDIDATE_BEST and CANDIDATE_READY announcements back
-            // to CANDIDATE_DELAYED. This is an unusual edge case, and unlikely to matter in production. However,
-            // it makes it much easier to specify and test TxRequestTracker::Impl's behaviour.
-            auto it = std::prev(m_index.get<ByTime>().end());
-            if (it->IsSelectable() && it->m_time > now) {
-                ChangeAndReselect(m_index.project<ByTxHash>(it), State::CANDIDATE_DELAYED);
             } else {
                 break;
             }
@@ -715,9 +684,9 @@ size_t TxRequestTracker::Count(NodeId peer) const { return m_impl->Count(peer); 
 size_t TxRequestTracker::Size() const { return m_impl->Size(); }
 void TxRequestTracker::SanityCheck() const { m_impl->SanityCheck(); }
 
-void TxRequestTracker::PostGetRequestableSanityCheck(std::chrono::microseconds now) const
+void TxRequestTracker::PostGetRequestableSanityCheck() const
 {
-    m_impl->PostGetRequestableSanityCheck(now);
+    m_impl->PostGetRequestableSanityCheck();
 }
 
 void TxRequestTracker::ReceivedInv(NodeId peer, const GenTxid& gtxid, bool preferred,

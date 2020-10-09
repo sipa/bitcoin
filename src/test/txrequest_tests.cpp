@@ -142,23 +142,19 @@ public:
      * @param inflight   The expected return value CountInFlight(peer)
      * @param completed  The expected return value of Count(peer), minus candidates and inflight.
      * @param checkname  An arbitrary string to include in error messages, for test identificatrion.
-     * @param offset     Offset with the current time to use (must be <= 0). This allows simulations of time going
-     *                   backwards (but note that the ordering of this event only follows the scenario's m_now.
      */
     void Check(NodeId peer, const std::vector<GenTxid>& expected, size_t candidates, size_t inflight,
-        size_t completed, const std::string& checkname,
-        std::chrono::microseconds offset = std::chrono::microseconds{0})
+        size_t completed, const std::string& checkname)
     {
         const auto comment = m_testname + " " + checkname;
         auto& runner = m_runner;
         const auto now = m_now;
-        assert(offset.count() <= 0);
         runner.actions.emplace_back(m_now, [=,&runner]() {
             std::vector<std::pair<NodeId, GenTxid>> expired_now;
-            auto ret = runner.txrequest.GetRequestable(peer, now + offset, &expired_now);
+            auto ret = runner.txrequest.GetRequestable(peer, now, &expired_now);
             for (const auto& entry : expired_now) runner.expired.insert(entry);
             runner.txrequest.SanityCheck();
-            runner.txrequest.PostGetRequestableSanityCheck(now + offset);
+            runner.txrequest.PostGetRequestableSanityCheck();
             size_t total = candidates + inflight + completed;
             size_t real_total = runner.txrequest.Count(peer);
             size_t real_candidates = runner.txrequest.CountCandidates(peer);
@@ -464,7 +460,7 @@ void BuildRequestOrderTest(Scenario& scenario, int config)
     auto reqtime1 = reqtime2 + RandomTime8s();
 
     scenario.ReceivedInv(peer, gtxid1, config & 1, reqtime1);
-    // Simulate time going backwards by giving the second announcement an earlier reqtime.
+    // Test the case where the later announcement has an earlier reqtime.
     scenario.ReceivedInv(peer, gtxid2, config & 2, reqtime2);
 
     scenario.AdvanceTime(reqtime2 - MICROSECOND - scenario.Now());
@@ -474,8 +470,7 @@ void BuildRequestOrderTest(Scenario& scenario, int config)
     scenario.AdvanceTime(reqtime1 - MICROSECOND - scenario.Now());
     scenario.Check(peer, {gtxid2}, 2, 0, 0, "o3");
     scenario.AdvanceTime(MICROSECOND);
-    // Even with time going backwards in between announcements, the return value of GetRequestable is in
-    // announcement order.
+    // Even with reqtime decreasing, the return value of GetRequestable is in announcement order.
     scenario.Check(peer, {gtxid1, gtxid2}, 2, 0, 0, "o4");
 
     scenario.DisconnectedPeer(peer);
@@ -554,52 +549,6 @@ void BuildWtxidTest(Scenario& scenario, int config)
     scenario.ForgetTxHash(txhash);
     scenario.Check(peerT, {}, 0, 0, 0, "w13");
     scenario.Check(peerW, {}, 0, 0, 0, "w14");
-}
-
-/** Add to scenario a test that exercises clocks that go backwards. */
-void BuildTimeBackwardsTest(Scenario& scenario)
-{
-    auto peer1 = scenario.NewPeer();
-    auto peer2 = scenario.NewPeer();
-    auto gtxid = scenario.NewGTxid({{peer1, peer2}});
-
-    // Announce from peer2.
-    auto reqtime = scenario.Now() + RandomTime8s();
-    scenario.ReceivedInv(peer2, gtxid, true, reqtime);
-    scenario.Check(peer2, {}, 1, 0, 0, "r1");
-    scenario.AdvanceTime(reqtime - scenario.Now());
-    scenario.Check(peer2, {gtxid}, 1, 0, 0, "r2");
-    // Check that if the clock goes backwards by 1us, the transaction would stop being requested.
-    scenario.Check(peer2, {}, 1, 0, 0, "r3", -MICROSECOND);
-    // But it reverts to being requested if time goes forward again.
-    scenario.Check(peer2, {gtxid}, 1, 0, 0, "r4");
-
-    // Announce from peer1.
-    if (InsecureRandBool()) scenario.AdvanceTime(RandomTime8s());
-    scenario.ReceivedInv(peer1, gtxid, true, MAX_TIME);
-    scenario.Check(peer2, {gtxid}, 1, 0, 0, "r5");
-    scenario.Check(peer1, {}, 1, 0, 0, "r6");
-
-    // Request from peer1.
-    if (InsecureRandBool()) scenario.AdvanceTime(RandomTime8s());
-    auto expiry = scenario.Now() + RandomTime8s();
-    scenario.RequestedTx(peer1, gtxid.GetHash(), expiry);
-    scenario.Check(peer1, {}, 0, 1, 0, "r7");
-    scenario.Check(peer2, {}, 1, 0, 0, "r8");
-
-    // Expiration passes.
-    scenario.AdvanceTime(expiry - scenario.Now());
-    scenario.Check(peer1, {}, 0, 0, 1, "r9");
-    scenario.Check(peer2, {gtxid}, 1, 0, 0, "r10"); // Request goes back to peer2.
-    scenario.CheckExpired(peer1, gtxid);
-    scenario.Check(peer1, {}, 0, 0, 1, "r11", -MICROSECOND); // Going back does not unexpire.
-    scenario.Check(peer2, {gtxid}, 1, 0, 0, "r12", -MICROSECOND);
-
-    // Peer2 goes offline, meaning no viable announcements remain.
-    if (InsecureRandBool()) scenario.AdvanceTime(RandomTime8s());
-    scenario.DisconnectedPeer(peer2);
-    scenario.Check(peer1, {}, 0, 0, 0, "r13");
-    scenario.Check(peer2, {}, 0, 0, 0, "r14");
 }
 
 /** Add to scenario a test that involves RequestedTx() calls for txhashes not returned by GetRequestable. */
@@ -691,7 +640,6 @@ void TestInterleavedScenarios()
         builders.emplace_back([n](Scenario& scenario){ BuildSingleTest(scenario, n & 31); });
         builders.emplace_back([n](Scenario& scenario){ BuildPriorityTest(scenario, n & 31); });
         builders.emplace_back([n](Scenario& scenario){ BuildBigPriorityTest(scenario, (n & 7) + 1); });
-        builders.emplace_back([](Scenario& scenario){ BuildTimeBackwardsTest(scenario); });
         builders.emplace_back([](Scenario& scenario){ BuildWeirdRequestsTest(scenario); });
     }
     // Randomly shuffle all those functions.

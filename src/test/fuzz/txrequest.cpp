@@ -22,7 +22,7 @@ constexpr int MAX_PEERS = 16;
 //! Randomly generated GenTxids used in this test (length is MAX_TXHASHES).
 uint256 TXHASHES[MAX_TXHASHES];
 
-//! Precomputed random durations (positive and negative, each ~exponentially distributed).
+//! Precomputed random durations (positive, ~exponentially distributed).
 std::chrono::microseconds DELAYS[256];
 
 struct Initializer
@@ -33,20 +33,16 @@ struct Initializer
             CSHA256().Write(&txhash, 1).Finalize(TXHASHES[txhash].begin());
         }
         int i = 0;
-        // DELAYS[N] for N=0..15 is just N microseconds.
-        for (; i < 16; ++i) {
+        // DELAYS[N] for N=0..31 is just N microseconds.
+        for (; i < 32; ++i) {
             DELAYS[i] = std::chrono::microseconds{i};
         }
-        // DELAYS[N] for N=16..127 has randomly-looking but roughly exponentially increasing values up to
-        // 198.416453 seconds.
-        for (; i < 128; ++i) {
-            int diff_bits = ((i - 10) * 2) / 9;
+        // DELAYS[N] for N=32..255 has randomly-looking but roughly exponentially increasing values up to
+        // 339.419159 seconds.
+        for (; i < 256; ++i) {
+            int diff_bits = (i - 20) / 9;
             uint64_t diff = 1 + (CSipHasher(0, 0).Write(i).Finalize() >> (64 - diff_bits));
             DELAYS[i] = DELAYS[i - 1] + std::chrono::microseconds{diff};
-        }
-        // DELAYS[N] for N=128..255 are negative delays with the same magnitude as N=0..127.
-        for (; i < 256; ++i) {
-            DELAYS[i] = -DELAYS[255 - i];
         }
     }
 } g_initializer;
@@ -147,6 +143,7 @@ public:
 
     void AdvanceTime(std::chrono::microseconds offset)
     {
+        assert(offset.count() >= 0);
         m_now += offset;
         while (!m_events.empty() && m_events.top() <= m_now) m_events.pop();
     }
@@ -275,7 +272,7 @@ public:
         std::sort(expired.begin(), expired.end());
         assert(expired == expected_expired);
 
-        m_tracker.PostGetRequestableSanityCheck(m_now);
+        m_tracker.PostGetRequestableSanityCheck();
         assert(result.size() == actual.size());
         for (size_t pos = 0; pos < actual.size(); ++pos) {
             assert(TXHASHES[std::get<1>(result[pos])] == actual[pos].GetHash());

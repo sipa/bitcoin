@@ -155,10 +155,13 @@ public:
      *    announcements with the same txhash (subject to preferredness rules, and tiebreaking using a deterministic
      *    salted hash of peer and txhash).
      *  - The selected announcements are converted to GenTxids using their is_wtxid flag, and returned in
-     *    announcement order (even if multiple were added at the same time, or when the clock went backwards while
-     *    they were being added). This is done to minimize disruption from dependent transactions being requested
-     *    out of order: if multiple dependent transactions are announced simultaneously by one peer, and end up
-     *    being requested from them, the requests will happen in announcement order.
+     *    announcement order (even if multiple were added at the same time). This is done to minimize disruption
+     *    from dependent transactions being requested out of order: if multiple dependent transactions are announced
+     *    simultaneously by one peer, and end up being requested from them, the requests will happen in announcement
+     *    order.
+     *
+     * 'now' cannot go backwards. In every call, the highest value for 'now' ever passed is used, rather than the
+     * specific value provided.
      */
     std::vector<GenTxid> GetRequestable(NodeId peer, std::chrono::microseconds now,
         std::vector<std::pair<NodeId, GenTxid>>* expired = nullptr);
@@ -203,9 +206,9 @@ public:
 
     /** Run a time-dependent internal consistency check (testing only).
      *
-     * This can only be called immediately after GetRequestable, with the same 'now' parameter.
+     * This can only be called immediately after GetRequestable.
      */
-    void PostGetRequestableSanityCheck(std::chrono::microseconds now) const;
+    void PostGetRequestableSanityCheck() const;
 };
 
 #endif // BITCOIN_TXREQUEST_H
