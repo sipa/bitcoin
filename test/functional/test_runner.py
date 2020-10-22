@@ -109,6 +109,7 @@ BASE_SCRIPTS = [
     'wallet_dump.py',
     'wallet_listtransactions.py',
     'feature_taproot.py',
+    'feature_taproot.py --previous_release',
     # vv Tests less than 60s vv
     'p2p_sendheaders.py',
     'wallet_importmulti.py',
