@@ -168,6 +168,7 @@ CExtPubKey DecodeExtPubKey(const std::string& str)
         const std::vector<unsigned char>& prefix = Params().Base58Prefix(CChainParams::EXT_PUBLIC_KEY);
         if (data.size() == BIP32_EXTKEY_SIZE + prefix.size() && std::equal(prefix.begin(), prefix.end(), data.begin())) {
             key.Decode(data.data() + prefix.size());
+            if (key.nDepth == 0 && (ReadLE32(key.vchFingerprint) != 0 || key.nChild != 0)) return CExtPubKey{};
         }
     }
     return key;
@@ -191,6 +192,7 @@ CExtKey DecodeExtKey(const std::string& str)
         const std::vector<unsigned char>& prefix = Params().Base58Prefix(CChainParams::EXT_SECRET_KEY);
         if (data.size() == BIP32_EXTKEY_SIZE + prefix.size() && std::equal(prefix.begin(), prefix.end(), data.begin())) {
             key.Decode(data.data() + prefix.size());
+            if (key.nDepth == 0 && (ReadLE32(key.vchFingerprint) != 0 || key.nChild != 0)) return CExtKey{};
         }
     }
     return key;
