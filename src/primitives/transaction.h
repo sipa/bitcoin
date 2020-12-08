@@ -390,6 +390,15 @@ struct CMutableTransaction
         }
         return false;
     }
+
+    friend bool operator==(const CMutableTransaction& a, const CMutableTransaction& b)
+    {
+        if (a.nVersion != b.nVersion || a.nLockTime != b.nLockTime || a.vin != b.vin || a.vout != b.vout) return false;
+        for (size_t i = 0; i < a.vin.size(); ++i) {
+            if (a.vin[i].scriptWitness.stack != b.vin[i].scriptWitness.stack) return false;
+        }
+        return true;
+    }
 };
 
 typedef std::shared_ptr<const CTransaction> CTransactionRef;
