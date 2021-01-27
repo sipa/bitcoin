@@ -37,6 +37,7 @@ bench_bench_bitcoin_SOURCES = \
   bench/nanobench.cpp \
   bench/rpc_blockchain.cpp \
   bench/rpc_mempool.cpp \
+  bench/tx_check.cpp \
   bench/util_time.cpp \
   bench/verify_script.cpp \
   bench/base58.cpp \
