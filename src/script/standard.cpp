@@ -210,8 +210,13 @@ bool ExtractDestination(const CScript& scriptPubKey, CTxDestination& addressRet)
         addressRet = hash;
         return true;
     }
-    case TxoutType::WITNESS_UNKNOWN:
     case TxoutType::WITNESS_V1_TAPROOT: {
+        WitnessV1Taproot tap;
+        std::copy(vSolutions[1].begin(), vSolutions[1].end(), tap.begin());
+        addressRet = tap;
+        return true;
+    }
+    case TxoutType::WITNESS_UNKNOWN: {
         WitnessUnknown unk;
         unk.version = vSolutions[0][0];
         std::copy(vSolutions[1].begin(), vSolutions[1].end(), unk.program);
@@ -295,6 +300,11 @@ public:
     CScript operator()(const WitnessV0ScriptHash& id) const
     {
         return CScript() << OP_0 << ToByteVector(id);
+    }
+
+    CScript operator()(const WitnessV1Taproot& tap) const
+    {
+        return CScript() << OP_1 << ToByteVector(tap);
     }
 
     CScript operator()(const WitnessUnknown& id) const

@@ -667,6 +667,7 @@ public:
             case 2 /* ScriptHash */: return OutputType::LEGACY;
             case 3 /* WitnessV0ScriptHash */:
             case 4 /* WitnessV0KeyHash */:
+            case 6 /* WitnessV1Taproot */:
             case 5 /* WitnessUnknown */: return OutputType::BECH32;
             case 0 /* CNoDestination */:
             default: return nullopt;
@@ -695,6 +696,7 @@ public:
             case 2 /* ScriptHash */: return OutputType::LEGACY;
             case 3 /* WitnessV0ScriptHash */:
             case 4 /* WitnessV0KeyHash */:
+            case 6 /* WitnessV1Taproot */:
             case 5 /* WitnessUnknown */: return OutputType::BECH32;
             case 0 /* CNoDestination */:
             default: return nullopt;
