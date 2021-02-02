@@ -270,4 +270,46 @@ CScript GetScriptForRawPubKey(const CPubKey& pubkey);
 /** Generate a multisig script. */
 CScript GetScriptForMultisig(int nRequired, const std::vector<CPubKey>& keys);
 
+/** Utility class to construct Taproot outputs from inner key and script tree. */
+class TaprootBuilder
+{
+private:
+    /** Information associated with a node in the Merkle tree. */
+    struct NodeInfo
+    {
+        /** Merkle hash of this node. */
+        uint256 hash;
+    };
+    /** Whether the builder is in a valid state so far. */
+    bool m_valid = true;
+    /** Merkle nodes, by depth in the tree (at most one node per depth is kept). */
+    std::vector<std::optional<NodeInfo>> m_stack;
+
+    XOnlyPubKey m_inner_key;  //!< The inner key, set when finalizing.
+    XOnlyPubKey m_output_key; //!< The output key, computed when finalizing. */
+
+    /** Combine information about a parent Merkle tree node from its child nodes. */
+    static NodeInfo Combine(NodeInfo&& a, NodeInfo&& b);
+    /** Insert information about a node at a certain depth, and propagate information up. */
+    void Insert(NodeInfo&& node, int depth);
+
+public:
+    /** Add a new script at a certain depth in the tree. */
+    TaprootBuilder& Add(int depth, const CScript& script, int leaf_version);
+    /** Add a Merkle node with a given hash to the tree. */
+    TaprootBuilder& AddOmitted(int depth, const uint256& hash);
+    /** Finalize the construction. Can only be called when IsComplete() is true.
+        inner_key.IsFullyValid() must be true. */
+    TaprootBuilder& Finalize(const XOnlyPubKey& inner_key);
+
+    /** Return true if so far all input was valid. */
+    bool IsValid() const { return m_valid; }
+    /** Return whether there were either no leaves, or the leaves form a Huffman tree. */
+    bool IsComplete() const { return m_valid && (m_stack.size() == 0 || (m_stack.size() == 1 && m_stack[0].has_value())); }
+    /** Compute scriptPubKey (after Finalize()). */
+    WitnessV1Taproot GetOutput();
+    /** Check if a list of depths is legal (can lead to IsComplete()). */
+    static bool ValidDepths(const std::vector<int>& depths);
+};
+
 #endif // BITCOIN_SCRIPT_STANDARD_H

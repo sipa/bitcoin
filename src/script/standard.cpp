@@ -6,8 +6,11 @@
 #include <script/standard.h>
 
 #include <crypto/sha256.h>
+#include <hash.h>
 #include <pubkey.h>
+#include <script/interpreter.h>
 #include <script/script.h>
+#include <util/strencodings.h>
 
 #include <string>
 
@@ -338,3 +341,91 @@ CScript GetScriptForMultisig(int nRequired, const std::vector<CPubKey>& keys)
 bool IsValidDestination(const CTxDestination& dest) {
     return dest.index() != 0;
 }
+
+/*static*/ TaprootBuilder::NodeInfo TaprootBuilder::Combine(NodeInfo&& a, NodeInfo&& b)
+{
+    NodeInfo ret;
+    /* Lexicographically sort a and b's hash, and compute parent hash. */
+    if (a.hash < b.hash) {
+        ret.hash = (CHashWriter(HASHER_TAPBRANCH) << a.hash << b.hash).GetSHA256();
+    } else {
+        ret.hash = (CHashWriter(HASHER_TAPBRANCH) << b.hash << a.hash).GetSHA256();
+    }
+    return ret;
+}
+
+void TaprootBuilder::Insert(TaprootBuilder::NodeInfo&& node, int depth)
+{
+    assert(depth >= 0 && (size_t)depth <= TAPROOT_CONTROL_MAX_NODE_COUNT);
+    /* We cannot insert a leaf at a lower depth while a deeper branch is unfinished. */
+    if ((size_t)depth + 1 < m_stack.size()) {
+        m_valid = false;
+        return;
+    }
+    /* As long as an entry in the stack exists at the specified depth, combine it and propagate up. */
+    while (m_valid && m_stack.size() > (size_t)depth && m_stack[depth].has_value()) {
+        node = Combine(std::move(node), std::move(*m_stack[depth]));
+        m_stack.pop_back();
+        if (depth == 0) m_valid = false; /* Can't propagate further up than the root */
+        --depth;
+    }
+    if (m_valid) {
+        /* Make sure the stack is big enough to place the new node. */
+        if (m_stack.size() <= (size_t)depth) m_stack.resize((size_t)depth + 1);
+        assert(!m_stack[depth].has_value());
+        m_stack[depth] = std::move(node);
+    }
+}
+
+/*static*/ bool TaprootBuilder::ValidDepths(const std::vector<int>& depths)
+{
+    std::vector<bool> stack;
+    for (int depth : depths) {
+        if (depth < 0 || (size_t)depth > TAPROOT_CONTROL_MAX_NODE_COUNT) return false;
+        if ((size_t)depth + 1 < stack.size()) return false;
+        while (stack.size() > (size_t)depth && stack[depth]) {
+            stack.pop_back();
+            if (depth == 0) return false;
+            --depth;
+        }
+        if (stack.size() <= (size_t)depth) stack.resize((size_t)depth + 1);
+        assert(!stack[depth]);
+        stack[depth] = true;
+    }
+    return stack.size() == 0 || (stack.size() == 1 && stack[0]);
+}
+
+TaprootBuilder& TaprootBuilder::Add(int depth, const CScript& script, int leaf_version)
+{
+    assert((leaf_version & ~TAPROOT_LEAF_MASK) == 0);
+    if (!IsValid()) return *this;
+    /* Construct NodeInfo object with leaf hash and - if desired - leaf information. */
+    NodeInfo node;
+    node.hash = (CHashWriter{HASHER_TAPLEAF} << uint8_t(leaf_version) << script).GetSHA256();
+    /* Insert into the stack. */
+    Insert(std::move(node), depth);
+    return *this;
+}
+
+TaprootBuilder& TaprootBuilder::AddOmitted(int depth, const uint256& hash)
+{
+    if (!IsValid()) return *this;
+    /* Construct NodeInfo object with the hash directly, and insert it into the stack. */
+    NodeInfo node;
+    node.hash = hash;
+    Insert(std::move(node), depth);
+    return *this;
+}
+
+TaprootBuilder& TaprootBuilder::Finalize(const XOnlyPubKey& inner_key)
+{
+    /* Can only call this function when IsComplete() is true. */
+    assert(IsComplete());
+    m_inner_key = inner_key;
+    auto ret = m_inner_key.CreateTapTweak(m_stack.size() == 0 ? nullptr : &m_stack[0]->hash);
+    assert(ret.has_value());
+    std::tie(m_output_key, std::ignore) = *ret;
+    return *this;
+}
+
+WitnessV1Taproot TaprootBuilder::GetOutput() { return WitnessV1Taproot{m_output_key}; }
