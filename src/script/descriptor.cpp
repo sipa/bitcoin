@@ -496,7 +496,7 @@ protected:
      *  @param pubkeys The evaluations of the m_pubkey_args field.
      *  @param script The evaluation of m_subdescriptor_arg (or nullptr when m_subdescriptor_arg is nullptr).
      *  @param out A FlatSigningProvider to put scripts or public keys in that are necessary to the solver.
-     *             The script arguments to this function are automatically added, as is the origin info of the provided pubkeys.
+     *             The origin info of the provided pubkeys is automatically added.
      *  @return A vector with scriptPubKeys for this descriptor.
      */
     virtual std::vector<CScript> MakeScripts(const std::vector<CPubKey>& pubkeys, const CScript* script, FlatSigningProvider& out) const = 0;
@@ -596,7 +596,6 @@ public:
         }
         if (m_subdescriptor_arg) {
             for (const auto& subscript : subscripts) {
-                out.scripts.emplace(CScriptID(subscript), subscript);
                 std::vector<CScript> addscripts = MakeScripts(pubkeys, &subscript, out);
                 for (auto& addscript : addscripts) {
                     output_scripts.push_back(std::move(addscript));
@@ -779,7 +778,12 @@ public:
 class SHDescriptor final : public DescriptorImpl
 {
 protected:
-    std::vector<CScript> MakeScripts(const std::vector<CPubKey>&, const CScript* script, FlatSigningProvider&) const override { return Vector(GetScriptForDestination(ScriptHash(*script))); }
+    std::vector<CScript> MakeScripts(const std::vector<CPubKey>&, const CScript* script, FlatSigningProvider& out) const override
+    {
+        auto ret = Vector(GetScriptForDestination(ScriptHash(*script)));
+        if (ret.size()) out.scripts.emplace(CScriptID(*script), *script);
+        return ret;
+    }
 public:
     SHDescriptor(std::unique_ptr<DescriptorImpl> desc) : DescriptorImpl({}, std::move(desc), "sh") {}
 
@@ -796,7 +800,12 @@ public:
 class WSHDescriptor final : public DescriptorImpl
 {
 protected:
-    std::vector<CScript> MakeScripts(const std::vector<CPubKey>&, const CScript* script, FlatSigningProvider&) const override { return Vector(GetScriptForDestination(WitnessV0ScriptHash(*script))); }
+    std::vector<CScript> MakeScripts(const std::vector<CPubKey>&, const CScript* script, FlatSigningProvider& out) const override
+    {
+        auto ret = Vector(GetScriptForDestination(WitnessV0ScriptHash(*script)));
+        if (ret.size()) out.scripts.emplace(CScriptID(*script), *script);
+        return ret;
+    }
 public:
     WSHDescriptor(std::unique_ptr<DescriptorImpl> desc) : DescriptorImpl({}, std::move(desc), "wsh") {}
     Optional<OutputType> GetOutputType() const override { return OutputType::BECH32; }
