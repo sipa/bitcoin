@@ -200,9 +200,9 @@ bool ProduceSignature(const SigningProvider& provider, const BaseSignatureCreato
     std::vector<valtype> result;
     TxoutType whichType;
     bool solved = SignStep(provider, creator, fromPubKey, result, whichType, SigVersion::BASE, sigdata);
+    if (result.empty()) return false;
     bool P2SH = false;
     CScript subscript;
-    sigdata.scriptWitness.stack.clear();
 
     if (solved && whichType == TxoutType::SCRIPTHASH)
     {
@@ -212,37 +212,42 @@ bool ProduceSignature(const SigningProvider& provider, const BaseSignatureCreato
         subscript = CScript(result[0].begin(), result[0].end());
         sigdata.redeem_script = subscript;
         solved = solved && SignStep(provider, creator, subscript, result, whichType, SigVersion::BASE, sigdata) && whichType != TxoutType::SCRIPTHASH;
+        if (result.empty()) return false;
         P2SH = true;
     }
 
     if (solved && whichType == TxoutType::WITNESS_V0_KEYHASH)
     {
+        sigdata.witness = true;
         CScript witnessscript;
         witnessscript << OP_DUP << OP_HASH160 << ToByteVector(result[0]) << OP_EQUALVERIFY << OP_CHECKSIG;
         TxoutType subType;
         solved = solved && SignStep(provider, creator, witnessscript, result, subType, SigVersion::WITNESS_V0, sigdata);
-        sigdata.scriptWitness.stack = result;
-        sigdata.witness = true;
+        if (result.empty()) return false;
+        sigdata.scriptWitness.stack = std::move(result);
         result.clear();
     }
     else if (solved && whichType == TxoutType::WITNESS_V0_SCRIPTHASH)
     {
+        sigdata.witness = true;
         CScript witnessscript(result[0].begin(), result[0].end());
         sigdata.witness_script = witnessscript;
         TxoutType subType;
         solved = solved && SignStep(provider, creator, witnessscript, result, subType, SigVersion::WITNESS_V0, sigdata) && subType != TxoutType::SCRIPTHASH && subType != TxoutType::WITNESS_V0_SCRIPTHASH && subType != TxoutType::WITNESS_V0_KEYHASH;
+        if (result.empty()) return false;
         result.push_back(std::vector<unsigned char>(witnessscript.begin(), witnessscript.end()));
-        sigdata.scriptWitness.stack = result;
-        sigdata.witness = true;
+        sigdata.scriptWitness.stack = std::move(result);
         result.clear();
     } else if (solved && whichType == TxoutType::WITNESS_UNKNOWN) {
         sigdata.witness = true;
+        return false;
     }
 
     if (P2SH) {
         result.push_back(std::vector<unsigned char>(subscript.begin(), subscript.end()));
     }
     sigdata.scriptSig = PushAll(result);
+    if (!sigdata.witness) sigdata.scriptWitness.stack.clear();
 
     // Test solution
     sigdata.complete = solved && VerifyScript(sigdata.scriptSig, fromPubKey, &sigdata.scriptWitness, STANDARD_SCRIPT_VERIFY_FLAGS, creator.Checker());
