@@ -44,6 +44,11 @@ bool HidingSigningProvider::GetKeyOrigin(const CKeyID& keyid, KeyOriginInfo& inf
     return m_provider->GetKeyOrigin(keyid, info);
 }
 
+bool HidingSigningProvider::GetTaprootSpendData(const XOnlyPubKey& pk, TaprootSpendData& spenddata) const
+{
+    return m_provider->GetTaprootSpendData(pk, spenddata);
+}
+
 bool FlatSigningProvider::GetCScript(const CScriptID& scriptid, CScript& script) const { return LookupHelper(scripts, scriptid, script); }
 bool FlatSigningProvider::GetPubKey(const CKeyID& keyid, CPubKey& pubkey) const { return LookupHelper(pubkeys, keyid, pubkey); }
 bool FlatSigningProvider::GetKeyOrigin(const CKeyID& keyid, KeyOriginInfo& info) const
@@ -54,6 +59,7 @@ bool FlatSigningProvider::GetKeyOrigin(const CKeyID& keyid, KeyOriginInfo& info)
     return ret;
 }
 bool FlatSigningProvider::GetKey(const CKeyID& keyid, CKey& key) const { return LookupHelper(keys, keyid, key); }
+bool FlatSigningProvider::GetTaprootSpendData(const XOnlyPubKey& pk, TaprootSpendData& spenddata) const { return LookupHelper(tr_spenddata, pk, spenddata); }
 
 FlatSigningProvider Merge(const FlatSigningProvider& a, const FlatSigningProvider& b)
 {
@@ -66,6 +72,8 @@ FlatSigningProvider Merge(const FlatSigningProvider& a, const FlatSigningProvide
     ret.keys.insert(b.keys.begin(), b.keys.end());
     ret.origins = a.origins;
     ret.origins.insert(b.origins.begin(), b.origins.end());
+    ret.tr_spenddata = a.tr_spenddata;
+    ret.tr_spenddata.insert(b.tr_spenddata.begin(), b.tr_spenddata.end());
     return ret;
 }
 
