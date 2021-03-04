@@ -240,37 +240,51 @@ bool SignPSBTInput(const SigningProvider& provider, PartiallySignedTransaction& 
     SignatureData sigdata;
     input.FillSignatureData(sigdata);
 
-    // Get UTXO
+    // Get UTXOs
     bool require_witness_sig = false;
-    CTxOut utxo;
-
-    if (input.non_witness_utxo) {
-        // If we're taking our information from a non-witness UTXO, verify that it matches the prevout.
-        COutPoint prevout = tx.vin[index].prevout;
-        if (prevout.n >= input.non_witness_utxo->vout.size()) {
-            return false;
+    bool have_all_spent_outputs = true;
+    std::vector<CTxOut> utxos(tx.vin.size());
+    for (size_t idx = 0; idx < tx.vin.size(); ++idx) {
+        if (psbt.inputs.size() <= idx) {
+            have_all_spent_outputs = false;
+            continue;
         }
-        if (input.non_witness_utxo->GetHash() != prevout.hash) {
-            return false;
+        PSBTInput& input = psbt.inputs[idx];
+        if (input.non_witness_utxo) {
+            // If we're taking our information from a non-witness UTXO, verify that it matches the prevout.
+            const COutPoint& prevout = tx.vin[idx].prevout;
+            if (prevout.n < input.non_witness_utxo->vout.size() && input.non_witness_utxo->GetHash() == prevout.hash) {
+                utxos[idx] = input.non_witness_utxo->vout[prevout.n];
+                continue;
+            }
         }
-        utxo = input.non_witness_utxo->vout[prevout.n];
-    } else if (!input.witness_utxo.IsNull()) {
-        utxo = input.witness_utxo;
-        // When we're taking our information from a witness UTXO, we can't verify it is actually data from
-        // the output being spent. This is safe in case a witness signature is produced (which includes this
-        // information directly in the hash), but not for non-witness signatures. Remember that we require
-        // a witness signature in this situation.
-        require_witness_sig = true;
-    } else {
-        return false;
+        if (!input.witness_utxo.IsNull()) {
+            // When we're taking our information from a witness UTXO, we can't verify it is actually data from
+            // the output being spent. This is safe in case a witness signature is produced (which includes this
+            // information directly in the hash), but not for non-witness signatures. Remember that we require
+            // a witness signature in this situation.
+            if (idx == (size_t)index) require_witness_sig = true;
+            utxos[idx] = input.witness_utxo;
+            continue;
+        }
+        have_all_spent_outputs = false;
     }
+    CTxOut utxo = utxos[index];
+    // If we don't have the UTXO being signed for right now, give up.
+    if (utxo.IsNull()) return false;
 
     sigdata.witness = false;
     bool sig_complete;
     if (use_dummy) {
         sig_complete = ProduceSignature(provider, DUMMY_SIGNATURE_CREATOR, utxo.scriptPubKey, sigdata);
     } else {
-        MutableTransactionSignatureCreator creator(&tx, index, utxo.nValue, sighash);
+        PrecomputedTransactionData txdata;
+        if (have_all_spent_outputs) {
+            txdata.Init(tx, std::move(utxos), true);
+        } else {
+            txdata.Init(tx, {}, true);
+        }
+        MutableTransactionSignatureCreator creator(&tx, index, utxo.nValue, &txdata, sighash);
         sig_complete = ProduceSignature(provider, creator, utxo.scriptPubKey, sigdata);
     }
     // Verify that a witness signature was produced in case one was required.
