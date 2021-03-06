@@ -104,6 +104,46 @@ KEYS = [
             "4e8767edcf7d3d90258cfbbea01b784f4d2de813c4277b51279cf808bac410a2",
             "d42a2c280940bfc6ede971ae72cde2e1df96c6da7dab06a132900c6751ade208",
         ]
+    },
+    {
+        "xprv": "tprv8ZgxMBicQKsPeB5o5oCsN2dVxM2mtJiYERQEBRc4JNwC1DFGYaEdNkmh8jJYVPU76YhkFoRoWTdh1p3yQGykG8TfDW34dKgrgSx28gswUyL",
+        "xpub": "tpubD6NzVbkrYhZ4Xe7aySsTmSHcXNYi3duSoj11TweMiejaqhW3Ay4DZFPZJses4sfpk4b9VHRhn8v4cKTMjugMM3hqXcqSSmRdiW8QvASXjfY",
+        "pubs": [
+            "e360564b2e0e8d06681b6336a29d0750210e8f34afd9afb5e6fd5fe6dba26c81",
+            "76b4900f00a1dcce463b6d8e02b768518fce4f9ecd6679a13ad78ea1e4815ad3",
+            "5575556e263c8ed52e99ab02147cc05a738869afe0039911b5a60a780f4e43d2",
+            "593b00e2c8d4bd6dda0fd9e238888acf427bb4e128887fd5a40e0e9da78cbc01",
+        ]
+    },
+    {
+        "xprv": "tprv8ZgxMBicQKsPfEH6jHemkGDjZRnAaKFJVGH8pQU638E6SdbX9hxit1tK2sfFPfL6KS7v8FfUKxstbfEpzSymbdfBM9Y5UkrxErF9fJaKLK3",
+        "xpub": "tpubD6NzVbkrYhZ4YhJtcwKN9fsr8TJ6jeSD4Zsv6vWPTQ2VH7rHn6nK4WWBCzKK7FkdVVwm3iztCU1UmStY4hX6gRbBmp9UzK9C59dQEzeXS12",
+        "pubs": [
+            "7631cacec3343052d87ef4d0065f61dde82d7d2db0c1cc02ef61ef3c982ea763",
+            "c05e44a9e735d1b1bef62e2c0d886e6fb4923b2649b67828290f5cacc51c71b7",
+            "b33198b20701afe933226c92fd0e3d51d3f266f1113d864dbd026ae3166ef7f2",
+            "f99643ac3f4072ee4a949301e86963a9ca0ad57f2ef29f6b84fda037d7cac85b",
+        ]
+    },
+    {
+        "xprv": "tprv8ZgxMBicQKsPdNWU38dT6aGxtqJR4oYS5kPpLVBcuKiiu7gqTYqMMqhUG6DP7pPahzPQu36sWSmeLCP1C4AwqcR5FX2RyRoZfd4B8pAnSdX",
+        "xpub": "tpubD6NzVbkrYhZ4WqYFvnJ3Vyw5TrpME8jLf3zbd1DvKbX7jbwc5wewYLKLSFRzZWV6hZj7XhsXAy7fhE5jB25DiWyNM3ztXbsXHRVCrp5BiPY",
+        "pubs": [
+            "2258b1c3160be0864a541854eec9164a572f094f7562628281a8073bb89173a7",
+            "83df59d0a5c951cdd62b7ab225a62079f48d2a333a86e66c35420d101446e92e",
+            "2a654bf234d819055312f9ca03fad5836f9163b09cdd24d29678f694842b874a",
+            "aa0334ab910047387c912a21ec0dab806a47ffa38365060dbc5d47c18c6e66e7",
+        ]
+    },
+    {
+        "xprv": "tprv8mGPkMVz5mZuJDnC2NjjAv7E9Zqa5LCgX4zawbZu5nzTtLb5kGhPwycX4H1gtW1f5ZdTKTNtQJ61hk71F2TdcQ93EFDTpUcPBr98QRji615",
+        "xpub": "tpubDHxRtmYEE9FaBgoyv2QKaKmLibMWEfPb6NbNE7cCW4nripqrNfWz8UEPEPbHCrakwLvwFfsqoaf4pjX4gWStp4nECRf1QwBKPkLqnY8pHbj",
+        "pubs": [
+            "00a9da96087a72258f83b338ef7f0ea8cbbe05da5f18f091eb397d1ecbf7c3d3",
+            "b2749b74d51a78f5fe3ebb3a7c0ff266a468cade143dfa265c57e325177edf00",
+            "6b8747a6bbe4440d7386658476da51f6e49a220508a7ec77fe7bccc3e7baa916",
+            "4674bf4d9ebbe01bf0aceaca2472f63198655ecf2df810f8d69b38421972318e",
+        ]
     }
 ]
 
@@ -178,11 +218,8 @@ class WalletTaprootTest(BitcoinTestFramework):
             args.append(keys[j]['pubs'][i])
         return compute_taproot_address(*treefn(*args))
 
-    def do_test(self, comment, pattern, privmap, treefn, nkeys):
-        self.log.info("Testing %s" % comment)
-        keys = self.rand_keys(nkeys * 2)
-        keys_pay = keys[:nkeys]
-        keys_change = keys[nkeys:]
+    def do_test_sendtoaddress(self, comment, pattern, privmap, treefn, keys_pay, keys_change):
+        self.log.info("Testing %s through sendtoaddress" % comment)
         desc_pay = self.make_desc(pattern, privmap, keys_pay)
         desc_change = self.make_desc(pattern, privmap, keys_change)
         result = self.rpc_online.importdescriptors([{"desc": desc_pay, "active": True, "timestamp": "now"}])
@@ -191,23 +228,67 @@ class WalletTaprootTest(BitcoinTestFramework):
         assert(result[0]['success'])
         for i in range(4):
             addr_g = self.rpc_online.getnewaddress(address_type='bech32')
-            addr_r = self.make_addr(treefn, keys_pay, i)
-            assert_equal(addr_g, addr_r)
+            if treefn is not None:
+                addr_r = self.make_addr(treefn, keys_pay, i)
+                assert_equal(addr_g, addr_r)
             boring_balance = int(self.boring.getbalance() * 100000000)
             to_amnt = random.randrange(1000000, boring_balance)
             self.boring.sendtoaddress(address=addr_g, amount=Decimal(to_amnt) / 100000000, subtractfeefromamount=True)
             self.nodes[0].generatetoaddress(1, self.boring.getnewaddress())
-            tap_balance = int(self.rpc_online.getbalance() * 100000000)
-            ret_amnt = random.randrange(100000, tap_balance)
+            test_balance = int(self.rpc_online.getbalance() * 100000000)
+            ret_amnt = random.randrange(100000, test_balance)
             res = self.rpc_online.sendtoaddress(address=self.boring.getnewaddress(), amount=Decimal(ret_amnt) / 100000000, subtractfeefromamount=True)
-            self.rpc_online.gettransaction(res)
+            self.nodes[0].generatetoaddress(1, self.boring.getnewaddress())
+            assert(self.rpc_online.gettransaction(res)["confirmations"] > 0)
+
+    def do_test_psbt(self, comment, pattern, privmap, treefn, keys_pay, keys_change):
+        self.log.info("Testing %s through PSBT" % comment)
+        desc_pay = self.make_desc(pattern, privmap, keys_pay, False)
+        desc_change = self.make_desc(pattern, privmap, keys_change, False)
+        desc_pay_pub = self.make_desc(pattern, privmap, keys_pay, True)
+        desc_change_pub = self.make_desc(pattern, privmap, keys_change, True)
+        result = self.psbt_online.importdescriptors([{"desc": desc_pay_pub, "active": True, "timestamp": "now"}])
+        assert(result[0]['success'])
+        result = self.psbt_online.importdescriptors([{"desc": desc_change_pub, "active": True, "timestamp": "now", "internal": True}])
+        assert(result[0]['success'])
+        result = self.psbt_offline.importdescriptors([{"desc": desc_pay, "active": True, "timestamp": "now", "range": [0,100]}])
+        assert(result[0]['success'])
+        result = self.psbt_offline.importdescriptors([{"desc": desc_change, "active": True, "timestamp": "now", "internal": True, "range": [0,100]}])
+        assert(result[0]['success'])
+        for i in range(4):
+            addr_g = self.psbt_online.getnewaddress(address_type='bech32')
+            if treefn is not None:
+                addr_r = self.make_addr(treefn, keys_pay, i)
+                assert_equal(addr_g, addr_r)
+            boring_balance = int(self.boring.getbalance() * 100000000)
+            to_amnt = random.randrange(1000000, boring_balance)
+            self.boring.sendtoaddress(address=addr_g, amount=Decimal(to_amnt) / 100000000, subtractfeefromamount=True)
+            self.nodes[0].generatetoaddress(1, self.boring.getnewaddress())
+            test_balance = int(self.psbt_online.getbalance() * 100000000)
+            ret_amnt = random.randrange(100000, test_balance)
+            psbt = self.psbt_online.walletcreatefundedpsbt([], [{self.boring.getnewaddress(): Decimal(ret_amnt) / 100000000}], None, {"subtractFeeFromOutputs":[0]})['psbt']
+            res = self.psbt_offline.walletprocesspsbt(psbt)
+            assert(res['complete'])
+            rawtx = self.nodes[0].finalizepsbt(res['psbt'])['hex']
+            txid = self.nodes[0].sendrawtransaction(rawtx)
+            self.nodes[0].generatetoaddress(1, self.boring.getnewaddress())
+            assert(self.psbt_online.gettransaction(txid)['confirmations'] > 0)
+
+    def do_test(self, comment, pattern, privmap, treefn, nkeys):
+        keys = self.rand_keys(nkeys * 4)
+        self.do_test_sendtoaddress(comment, pattern, privmap, treefn, keys[0:nkeys], keys[nkeys:2*nkeys])
+        self.do_test_psbt(comment, pattern, privmap, treefn, keys[2*nkeys:3*nkeys], keys[3*nkeys:4*nkeys])
 
     def run_test(self):
         self.log.info("Creating wallets...")
         self.nodes[0].createwallet(wallet_name="boring")
-        self.nodes[0].createwallet(wallet_name="rpc_online", descriptors=True)
+        self.nodes[0].createwallet(wallet_name="rpc_online", descriptors=True, blank=True)
+        self.nodes[0].createwallet(wallet_name="psbt_online", descriptors=True, disable_private_keys=True, blank=True)
+        self.nodes[1].createwallet(wallet_name="psbt_offline", descriptors=True, blank=True)
         self.boring = self.nodes[0].get_wallet_rpc("boring")
         self.rpc_online = self.nodes[0].get_wallet_rpc("rpc_online")
+        self.psbt_online = self.nodes[0].get_wallet_rpc("psbt_online")
+        self.psbt_offline = self.nodes[1].get_wallet_rpc("psbt_offline")
 
         self.log.info("Mining blocks...")
         gen_addr = self.boring.getnewaddress()
@@ -228,10 +309,24 @@ class WalletTaprootTest(BitcoinTestFramework):
             1
         )
         self.do_test(
+            "wpkh(XPRV)",
+            "wpkh(%s/*)",
+            [True],
+            None,
+            1
+        )
+        self.do_test(
             "tr(XPRV,1:H,2:H,2:XPUB)",
             "tr(%s/*,1:pk($H),2:pk($H),2:pk(%s/*))",
             [True, False],
             lambda k1, k2: (key(k1), [pk(H_POINT), [pk(H_POINT), pk(k2)]]),
+            2
+        )
+        self.do_test(
+            "wsh(multi(1,XPRV,XPUB))",
+            "wsh(multi(1,%s/*,%s/*))",
+            [True, False],
+            None,
             2
         )
         self.do_test(
@@ -243,8 +338,18 @@ class WalletTaprootTest(BitcoinTestFramework):
         )
 
         self.log.info("Sending everything back...")
-        res = self.rpc_online.sendtoaddress(address=self.boring.getnewaddress(), amount=self.rpc_online.getbalance(), subtractfeefromamount=True)
-        self.rpc_online.gettransaction(res)
+
+        txid = self.rpc_online.sendtoaddress(address=self.boring.getnewaddress(), amount=self.rpc_online.getbalance(), subtractfeefromamount=True)
+        self.nodes[0].generatetoaddress(1, self.boring.getnewaddress())
+        assert(self.rpc_online.gettransaction(txid)["confirmations"] > 0)
+
+        psbt = self.psbt_online.walletcreatefundedpsbt([], [{self.boring.getnewaddress(): self.psbt_online.getbalance()}], None, {"subtractFeeFromOutputs": [0]})['psbt']
+        res = self.psbt_offline.walletprocesspsbt(psbt)
+        assert(res['complete'])
+        rawtx = self.nodes[0].finalizepsbt(res['psbt'])['hex']
+        txid = self.nodes[0].sendrawtransaction(rawtx)
+        self.nodes[0].generatetoaddress(1, self.boring.getnewaddress())
+        assert(self.psbt_online.gettransaction(txid)['confirmations'] > 0)
 
 if __name__ == '__main__':
     WalletTaprootTest().main()
