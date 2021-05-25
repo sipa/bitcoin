@@ -1809,16 +1809,14 @@ bool GenericTransactionSignatureChecker<T>::CheckSequence(const CScriptNum& nSeq
 template class GenericTransactionSignatureChecker<CTransaction>;
 template class GenericTransactionSignatureChecker<CMutableTransaction>;
 
-static bool ExecuteWitnessScript(const Span<const valtype>& stack_span, const CScript& scriptPubKey, unsigned int flags, SigVersion sigversion, const BaseSignatureChecker& checker, ScriptExecutionData& execdata, ScriptError* serror)
+static bool ExecuteWitnessScript(Span<const valtype> stack, Span<const unsigned char> script, unsigned int flags, SigVersion sigversion, const BaseSignatureChecker& checker, ScriptExecutionData& execdata, ScriptError* serror)
 {
-    std::vector<valtype> stack{stack_span.begin(), stack_span.end()};
-
     if (sigversion == SigVersion::TAPSCRIPT) {
         // OP_SUCCESSx processing overrides everything, including stack element size limits
-        CScript::const_iterator pc = scriptPubKey.begin();
-        while (pc < scriptPubKey.end()) {
+        Span<const unsigned char> pc{script};
+        while (pc.size()) {
             opcodetype opcode;
-            if (!scriptPubKey.GetOp(pc, opcode)) {
+            if (!GetScriptOp(pc, opcode, nullptr)) {
                 // Note how this condition would not be reached if an unknown OP_SUCCESSx was found
                 return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
             }
@@ -1841,11 +1839,12 @@ static bool ExecuteWitnessScript(const Span<const valtype>& stack_span, const CS
     }
 
     // Run the script interpreter.
-    if (!EvalScript(stack, scriptPubKey, flags, checker, sigversion, execdata, serror)) return false;
+    std::vector<valtype> mutable_stack(stack.begin(), stack.end());
+    if (!EvalScript(mutable_stack, script, flags, checker, sigversion, execdata, serror)) return false;
 
     // Scripts inside witness implicitly require cleanstack behaviour
-    if (stack.size() != 1) return set_error(serror, SCRIPT_ERR_CLEANSTACK);
-    if (!CastToBool(stack.back())) return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
+    if (mutable_stack.size() != 1) return set_error(serror, SCRIPT_ERR_CLEANSTACK);
+    if (!CastToBool(mutable_stack.back())) return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
     return true;
 }
 
@@ -1887,15 +1886,15 @@ static bool IsPushOnly(Span<const unsigned char> script)
     return true;
 }
 
-static bool VerifyTaprootCommitment(const std::vector<unsigned char>& control, const std::vector<unsigned char>& program, const CScript& script, uint256& tapleaf_hash)
+static bool VerifyTaprootCommitment(Span<const unsigned char> control, Span<const unsigned char> program, Span<const unsigned char> script, uint256& tapleaf_hash)
 {
     const int path_len = (control.size() - TAPROOT_CONTROL_BASE_SIZE) / TAPROOT_CONTROL_NODE_SIZE;
     //! The internal pubkey (x-only, so no Y coordinate parity).
-    const XOnlyPubKey p{uint256(std::vector<unsigned char>(control.begin() + 1, control.begin() + TAPROOT_CONTROL_BASE_SIZE))};
+    const XOnlyPubKey p{uint256(control.subspan(1, TAPROOT_CONTROL_BASE_SIZE - 1))};
     //! The output pubkey (taken from the scriptPubKey).
     const XOnlyPubKey q{uint256(program)};
     // Compute the tapleaf hash.
-    tapleaf_hash = (CHashWriter(HASHER_TAPLEAF) << uint8_t(control[0] & TAPROOT_LEAF_MASK) << script).GetSHA256();
+    tapleaf_hash = (CHashWriter(HASHER_TAPLEAF) << uint8_t(control[0] & TAPROOT_LEAF_MASK) << COMPACTSIZE(script.size()) << script).GetSHA256();
     // Compute the Merkle root from the leaf and the provided path.
     uint256 k = tapleaf_hash;
     for (int i = 0; i < path_len; ++i) {
@@ -1914,9 +1913,8 @@ static bool VerifyTaprootCommitment(const std::vector<unsigned char>& control, c
     return q.CheckPayToContract(p, k, control[0] & 1);
 }
 
-static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, const std::vector<unsigned char>& program, unsigned int flags, const BaseSignatureChecker& checker, ScriptError* serror, bool is_p2sh)
+static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, Span<const unsigned char> program, unsigned int flags, const BaseSignatureChecker& checker, ScriptError* serror, bool is_p2sh)
 {
-    CScript exec_script; //!< Actually executed script (last stack item in P2WSH; implied P2PKH script in P2WPKH; leaf script in P2TR)
     Span<const valtype> stack{witness.stack};
     ScriptExecutionData execdata;
 
@@ -1926,8 +1924,7 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
             if (stack.size() == 0) {
                 return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WITNESS_EMPTY);
             }
-            const valtype& script_bytes = SpanPopBack(stack);
-            exec_script = CScript(script_bytes.begin(), script_bytes.end());
+            const valtype& exec_script = SpanPopBack(stack);
             uint256 hash_exec_script;
             CSHA256().Write(exec_script.data(), exec_script.size()).Finalize(hash_exec_script.begin());
             if (memcmp(hash_exec_script.begin(), program.data(), 32)) {
@@ -1939,7 +1936,7 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
             if (stack.size() != 2) {
                 return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH); // 2 items in witness
             }
-            exec_script << OP_DUP << OP_HASH160 << program << OP_EQUALVERIFY << OP_CHECKSIG;
+            CScript exec_script = CScript() << OP_DUP << OP_HASH160 << program << OP_EQUALVERIFY << OP_CHECKSIG;
             return ExecuteWitnessScript(stack, exec_script, flags, SigVersion::WITNESS_V0, checker, execdata, serror);
         } else {
             return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WRONG_LENGTH);
@@ -1966,8 +1963,7 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
         } else {
             // Script path spending (stack size is >1 after removing optional annex)
             const valtype& control = SpanPopBack(stack);
-            const valtype& script_bytes = SpanPopBack(stack);
-            exec_script = CScript(script_bytes.begin(), script_bytes.end());
+            const valtype& exec_script = SpanPopBack(stack);
             if (control.size() < TAPROOT_CONTROL_BASE_SIZE || control.size() > TAPROOT_CONTROL_MAX_SIZE || ((control.size() - TAPROOT_CONTROL_BASE_SIZE) % TAPROOT_CONTROL_NODE_SIZE) != 0) {
                 return set_error(serror, SCRIPT_ERR_TAPROOT_WRONG_CONTROL_SIZE);
             }
@@ -1996,7 +1992,7 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
     // There is intentionally no return statement here, to be able to use "control reaches end of non-void function" warnings to detect gaps in the logic above.
 }
 
-bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness* witness, unsigned int flags, const BaseSignatureChecker& checker, ScriptError* serror)
+bool VerifyScript(Span<const unsigned char> scriptSig, Span<const unsigned char> scriptPubKey, const CScriptWitness* witness, unsigned int flags, const BaseSignatureChecker& checker, ScriptError* serror)
 {
     static const CScriptWitness emptyWitness;
     if (witness == nullptr) {
@@ -2028,11 +2024,9 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
 
     // Bare witness programs
     int witnessversion;
-    std::vector<unsigned char> witnessprogram;
-    Span<const unsigned char> witnessprogram_span;
+    Span<const unsigned char> witnessprogram;
     if (flags & SCRIPT_VERIFY_WITNESS) {
-        if (IsWitnessProgram(scriptPubKey, witnessversion, witnessprogram_span)) {
-            witnessprogram.assign(witnessprogram_span.begin(), witnessprogram_span.end());
+        if (IsWitnessProgram(scriptPubKey, witnessversion, witnessprogram)) {
             hadWitness = true;
             if (scriptSig.size() != 0) {
                 // The scriptSig must be _exactly_ CScript(), otherwise we reintroduce malleability.
@@ -2062,8 +2056,7 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
         // an empty stack and the EvalScript above would return false.
         assert(!stack.empty());
 
-        const valtype& pubKeySerialized = stack.back();
-        CScript pubKey2(pubKeySerialized.begin(), pubKeySerialized.end());
+        const valtype pubKey2 = std::move(stack.back());
         popstack(stack);
 
         if (!EvalScript(stack, pubKey2, flags, checker, SigVersion::BASE, serror))
@@ -2076,10 +2069,10 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
 
         // P2SH witness program
         if (flags & SCRIPT_VERIFY_WITNESS) {
-            if (IsWitnessProgram(pubKey2, witnessversion, witnessprogram_span)) {
-                witnessprogram.assign(witnessprogram_span.begin(), witnessprogram_span.end());
+            if (IsWitnessProgram(pubKey2, witnessversion, witnessprogram)) {
                 hadWitness = true;
-                if (scriptSig != CScript() << std::vector<unsigned char>(pubKey2.begin(), pubKey2.end())) {
+                const CScript expected_scriptsig = CScript() << pubKey2;
+                if (scriptSig != expected_scriptsig) {
                     // The scriptSig must be _exactly_ a single push of the redeemScript. Otherwise we
                     // reintroduce malleability.
                     return set_error(serror, SCRIPT_ERR_WITNESS_MALLEATED_P2SH);
