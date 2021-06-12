@@ -381,7 +381,7 @@ int RollingCuckooFilter::Find(uint32_t index, uint64_t fpr) const
     }
 }
 
-bool RollingCuckooFilter::AddEntryToBucket(DecodedBucket& bucket, uint64_t fpr, unsigned gen)
+bool RollingCuckooFilter::AddEntryToBucket(DecodedBucket& bucket, uint64_t fpr, unsigned gen) const
 {
     assert(fpr != 0);
     for (unsigned pos = 0; pos < BUCKET_SIZE; ++pos) {
@@ -393,43 +393,62 @@ bool RollingCuckooFilter::AddEntryToBucket(DecodedBucket& bucket, uint64_t fpr, 
     return false;
 }
 
-void RollingCuckooFilter::AddEntry(uint32_t index1, uint32_t index2, uint64_t fpr, unsigned gen)
+int RollingCuckooFilter::CountFree(const DecodedBucket& bucket) const
 {
-    if (m_rng.randbool()) std::swap(index1, index2);
+    int cnt = 0;
+    for (unsigned pos = 0; pos < BUCKET_SIZE; ++pos) {
+        cnt += (bucket.m_entries[pos].m_fpr == 0 || !IsActive(bucket.m_entries[pos].m_gen));
+    }
+    return cnt;
+}
 
-    // Try adding the entry to bucket1
+int RollingCuckooFilter::AddEntry(uint32_t index1, uint32_t index2, uint64_t fpr, unsigned gen, int access)
+{
     DecodedBucket bucket1 = LoadBucket(index1);
-    if (AddEntryToBucket(bucket1, fpr, gen)) {
+    DecodedBucket bucket2 = LoadBucket(index2);
+    int free1 = CountFree(bucket1);
+    int free2 = CountFree(bucket2);
+    if (free1 > 0 && (free1 >= free2)) {
+        AddEntryToBucket(bucket1, fpr, gen);
         SaveBucket(index1, std::move(bucket1));
-        return;
+        return access - 2;
     }
-
-    unsigned kicks = 0;
-    while (true) {
-        // Try adding the entry to bucket2
-        DecodedBucket bucket2 = LoadBucket(index2);
-        if (AddEntryToBucket(bucket2, fpr, gen)) {
-            SaveBucket(index2, std::move(bucket2));
-            return;
-        }
-
-        // If that fails, bail out if we've kicked enough.
-        if (kicks == m_params.m_max_kicks) break;
-
-        // Otherwise pick a position in bucket2 to evict
-        unsigned pos = m_rng.randbits(BUCKET_BITS);
-        std::swap(fpr, bucket2.m_entries[pos].m_fpr);
-        std::swap(gen, bucket2.m_entries[pos].m_gen);
+    if (free2 > free1) {
+        AddEntryToBucket(bucket2, fpr, gen);
         SaveBucket(index2, std::move(bucket2));
-        ++kicks;
-
-        // Compute the alternative index for the (fpr,gen) that was swapped out of bucket2.
-        index1 = OtherIndex(index2, fpr);
-        std::swap(index1, index2);
+        return access - 2;
     }
 
-    // We reached the m_max_kicks limit; add to overflow table instead.
+    if (m_rng.randbool()) {
+        std::swap(index1, index2);
+        bucket1 = bucket2;
+    }
+
+    access -= 2;
+
+    while (access) {
+        // Pick a position in bucket1 to evict
+        unsigned pos = m_rng.randbits(BUCKET_BITS);
+        std::swap(fpr, bucket1.m_entries[pos].m_fpr);
+        std::swap(gen, bucket1.m_entries[pos].m_gen);
+        SaveBucket(index1, std::move(bucket1));
+
+        // Compute the alternative index for the (fpr,gen) that was swapped out.
+        index2 = OtherIndex(index1, fpr);
+        std::swap(index1, index2);
+        bucket1 = LoadBucket(index1);
+        --access;
+
+        // Try adding the entry to the (now different) bucket1
+        if (AddEntryToBucket(bucket1, fpr, gen)) {
+            SaveBucket(index1, std::move(bucket1));
+            return access;
+        }
+    }
+
     m_overflow.emplace(std::make_pair(fpr, std::min(index1, index2)), gen);
+
+    return 0;
 }
 
 bool RollingCuckooFilter::Check(Span<const unsigned char> data) const
@@ -461,16 +480,7 @@ void RollingCuckooFilter::Insert(Span<const unsigned char> data)
         m_count_this_gen = 0;
         if (m_this_gen == 0 || m_this_gen == m_gens) {
             m_count_this_cycle = 0;
-        }
-        std::map<std::pair<uint64_t, uint32_t>, unsigned> overflow;
-        std::swap(overflow, m_overflow);
-        for (const auto& item : overflow) {
-            if (IsActive(item.second)) {
-                uint64_t fpr = item.first.first;
-                uint32_t index1 = item.first.second;
-                uint32_t index2 = OtherIndex(index1, fpr);
-                AddEntry(index1, index2, fpr, item.second);
-            }
+            m_swept_this_cycle = 0;
         }
     }
 
@@ -496,5 +506,15 @@ void RollingCuckooFilter::Insert(Span<const unsigned char> data)
         return;
     }
 
-    AddEntry(index1, index2, fpr, m_this_gen);
+    int access = AddEntry(index1, index2, fpr, m_this_gen, m_params.m_max_kicks);
+
+    while (access && !m_overflow.empty()) {
+        auto it = m_overflow.begin();
+        auto [key, gen] = *it;
+        auto [fpr, idx] = key;
+        m_overflow.erase(it);
+        if (IsActive(gen)) {
+            access = AddEntry(idx, OtherIndex(idx, fpr), fpr, gen, access);
+        }
+    }
 }

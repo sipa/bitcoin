@@ -109,6 +109,9 @@ private:
     //! Find whether fingerprint fpr is present (with active generation) in bucket with given index.
     int Find(uint32_t index, uint64_t fpr) const;
 
+    //! Count how many free positions (incl. inactive generations) there are in bucket.
+    int CountFree(const DecodedBucket& bucket) const;
+
     //! Compute the fingerprint for data.
     uint64_t Fingerprint(Span<const unsigned char> data) const;
 
@@ -119,10 +122,10 @@ private:
     uint32_t OtherIndex(uint32_t index, uint64_t fpr) const;
 
     //! Add (fpr,gen) to bucket if it has an empty entry; otherwise do nothing.
-    bool AddEntryToBucket(DecodedBucket& bucket, uint64_t fpr, unsigned gen);
+    bool AddEntryToBucket(DecodedBucket& bucket, uint64_t fpr, unsigned gen) const;
 
     //! Store (fpr,gen) in bucket index1 or index2; otherwise kick until space is found; as a last resort, store in overflow map.
-    void AddEntry(uint32_t index1, uint32_t index2, uint64_t fpr, unsigned gen);
+    int AddEntry(uint32_t index1, uint32_t index2, uint64_t fpr, unsigned gen, int access);
 
 public:
     //! Construct a rolling cuckoo filter with the specified parameters.

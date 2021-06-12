@@ -12,13 +12,13 @@
 
 BOOST_FIXTURE_TEST_SUITE(cuckoofilter_tests, BasicTestingSetup)
 
-#define WINDOW 5000000
+#define WINDOW 500000
 
 //#define Insert insert
 //#define Check contains
 
 BOOST_AUTO_TEST_CASE(cuckoofilter_test) {
-    RollingCuckooFilter rcf{WINDOW, 20, 0.85};
+    RollingCuckooFilter rcf{WINDOW, 27, 0.95};
 //    CRollingBloomFilter rcf{WINDOW, 0.000001};
 
     std::vector<unsigned char> data(8);
@@ -32,7 +32,11 @@ BOOST_AUTO_TEST_CASE(cuckoofilter_test) {
     uint64_t checks = 0;
     uint64_t fps = 0;
 
-    for (uint64_t c = WINDOW; c < 100000000; ++c) {
+    for (uint64_t c = WINDOW; c < 10*WINDOW; ++c) {
+        for (int j = 0; j < 10; ++j) {
+            WriteLE64(ptr, c - (j + 1) * (WINDOW / 12));
+            BOOST_CHECK(rcf.Check(data));
+        }
         for (int j = 0; j < 10; ++j) {
             WriteLE64(ptr, c + (j + 1) * (WINDOW / 12));
             checks += 1;
