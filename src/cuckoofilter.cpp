@@ -29,8 +29,8 @@ inline uint32_t SubtractMod(uint32_t x, uint32_t y, uint32_t m) { return ReduceO
 template<unsigned M, unsigned BITS, typename BType, typename CType>
 class GenerationCoder
 {
-    BType m_table_b[M];
-    CType m_table_c[M];
+    BType m_table_b[M] = {0};
+    CType m_table_c[M] = {0};
 
     static constexpr uint32_t A_FACTOR = (M*(M*(M + 3) + 2))/6;
 
@@ -55,7 +55,7 @@ public:
         return {a, b, bc - b, v};
     }
 
-    GenerationCoder()
+    constexpr GenerationCoder()
     {
         for (uint32_t i = 0; i < M; ++i) {
             m_table_b[i] = (i*(i*i + 3*(M*(M + 2 - i) - i) + 2)) / 6;
@@ -63,26 +63,66 @@ public:
         }
     }
 
+/*
+    void Selftest() const {
+        for (uint32_t a = 0; a < 2 * M; ++a) {
+            for (uint32_t b = 0; b < M; ++b) {
+                for (uint32_t c = 0; b + c < M; ++c) {
+                    for (uint32_t d = 0; b + c + d < M; ++d) {
+                        uint32_t enc = Encode(a, b, c, d);
+                        auto dec = Decode(enc);
+                        assert(dec[0] == a);
+                        assert(dec[1] == b);
+                        assert(dec[2] == c);
+                        assert(dec[3] == d);
+                    }
+                }
+            }
+        }
+    }
+*/
+
     static constexpr unsigned Range() { return M; }
     static constexpr unsigned Bits() { return BITS; }
 };
 
 /** Coder that packs (a=0..27, b=0..13, c=0..13-b, d=0..13-b-c) in 14 bits. */
-const GenerationCoder<14, 14, uint16_t, uint8_t> ENCODER_14;
+constexpr GenerationCoder<14, 14, uint16_t, uint8_t> ENCODER_14;
 /** Coder that packs (a=0..39, b=0..19, c=0..19-b, d=0..19-b-c) in 16 bits. */
-const GenerationCoder<20, 16, uint16_t, uint8_t> ENCODER_16;
+constexpr GenerationCoder<20, 16, uint16_t, uint8_t> ENCODER_16;
+/** Coder that packs (a=0..47, b=0..23, c=0..23-b, d=0..23-b-b) in 17 bits. */
+constexpr GenerationCoder<24, 17, uint16_t, uint16_t> ENCODER_17;
 /** Coder that packs (a=0..57, b=0..28, c=0..28-b, d=0..28-b-c) in 18 bits. */
-const GenerationCoder<29, 18, uint16_t, uint16_t> ENCODER_18;
+constexpr GenerationCoder<29, 18, uint16_t, uint16_t> ENCODER_18;
 /** Coder that packs (a=0..81, b=0..40, c=0..40-b, d=0..40-b-c) in 20 bits. */
-const GenerationCoder<41, 20, uint16_t, uint16_t> ENCODER_20;
+constexpr GenerationCoder<41, 20, uint16_t, uint16_t> ENCODER_20;
+/** Coder that packs (a=0..97, b=0..48, c=0..48-b, d=0..48-b-c) in 21 bits. */
+constexpr GenerationCoder<49, 21, uint16_t, uint16_t> ENCODER_21;
+
+/*
+class Checker {
+public:
+    Checker() {
+        ENCODER_14.Selftest();
+        ENCODER_16.Selftest();
+        ENCODER_17.Selftest();
+        ENCODER_18.Selftest();
+        ENCODER_20.Selftest();
+        ENCODER_21.Selftest();
+    }
+};
+static Checker checker;
+*/
 
 unsigned Generations(unsigned gen_cbits)
 {
     switch (gen_cbits) {
     case 14: return ENCODER_14.Range();
     case 16: return ENCODER_16.Range();
+    case 17: return ENCODER_17.Range();
     case 18: return ENCODER_18.Range();
     case 20: return ENCODER_20.Range();
+    case 21: return ENCODER_21.Range();
     }
     assert(false);
 }
@@ -92,8 +132,10 @@ uint32_t Encode(const std::array<uint32_t, 4>& data, unsigned compressed_bits)
     switch (compressed_bits) {
     case 14: return ENCODER_14.Encode(data[0], data[1], data[2], data[3]);
     case 16: return ENCODER_16.Encode(data[0], data[1], data[2], data[3]);
+    case 17: return ENCODER_17.Encode(data[0], data[1], data[2], data[3]);
     case 18: return ENCODER_18.Encode(data[0], data[1], data[2], data[3]);
     case 20: return ENCODER_20.Encode(data[0], data[1], data[2], data[3]);
+    case 21: return ENCODER_21.Encode(data[0], data[1], data[2], data[3]);
     }
     assert(false);
 }
@@ -103,15 +145,17 @@ std::array<uint32_t, 4> Decode(uint32_t v, unsigned compressed_bits)
     switch (compressed_bits) {
     case 14: return ENCODER_14.Decode(v);
     case 16: return ENCODER_16.Decode(v);
+    case 17: return ENCODER_17.Decode(v);
     case 18: return ENCODER_18.Decode(v);
     case 20: return ENCODER_20.Decode(v);
+    case 21: return ENCODER_21.Decode(v);
     }
     assert(false);
 }
 
 RollingCuckooFilter::Params ChooseParams(uint32_t window, unsigned fpbits, double alpha)
 {
-    static constexpr unsigned GEN_CBITS[] = {14, 16, 18, 20};
+    static constexpr unsigned GEN_CBITS[] = {14, 16, 17, 18, 20, 21};
     bool have_ret = false;
     RollingCuckooFilter::Params ret;
     if (fpbits < 10) fpbits = 10;
