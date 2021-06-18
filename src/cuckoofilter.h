@@ -26,18 +26,18 @@ public:
         uint32_t m_buckets;
         //! Number of insertions per generation.
         uint32_t m_gen_size;
-        //! Number of bits the high part of generation numbers are compressed into (per bucket).
-        unsigned m_gen_cbits;
+        //! Number of bits in a generation.
+        unsigned m_gen_bits;
         //! Number of fingerprint bits per entry.
         unsigned m_fpr_bits;
         //! Maximum number of kicks performed when inserting, before resorting to overflow table.
         unsigned m_max_kicks;
 
         //! Implied number of active generations.
-        unsigned Generations() const;
+        unsigned Generations() const { return unsigned{1} << (m_gen_bits - 1); }
 
         //! Implied number of bits for a serialized bucket.
-        unsigned BucketBits() const { return m_gen_cbits + (m_fpr_bits << BUCKET_BITS); }
+        unsigned BucketBits() const { return ((m_fpr_bits + m_gen_bits) << BUCKET_BITS); }
 
         //! Implied number of bits for the entire table.
         uint64_t TableBits() const { return uint64_t{BucketBits()} * m_buckets; }
@@ -97,6 +97,7 @@ private:
     struct DecodedBucket
     {
         DecodedEntry m_entries[BUCKET_SIZE];
+        int m_num_entries;
     };
 
     //! Determine if generation gen is currently active.
