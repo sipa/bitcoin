@@ -7,7 +7,7 @@
 #include <bloom.h>
 #include <cuckoofilter.h>
 
-#define WINDOW 50000
+#define WINDOW 5000
 
 namespace {
 
@@ -21,7 +21,7 @@ static void RollingBloomBench(benchmark::Bench& bench)
         WriteLE64(data.data(), num++);
         filter.insert(data);
     }
-    bench.minEpochIterations(100000).run([&] {
+    bench.minEpochIterations(1000000).run([&] {
         if (TenFails) {
             for (int k = 0; k < 10; ++k) {
                 WriteLE64(data.data(), num + (WINDOW / 12) * (k + 1));
@@ -42,14 +42,14 @@ static void RollingBloomBench(benchmark::Bench& bench)
 template<int AlphaPct, bool TenFails, bool TenSuccess>
 static void RollingCuckooBench(benchmark::Bench& bench)
 {
-    RollingCuckooFilter filter(WINDOW, 20, 0.01 * AlphaPct);
+    RollingCuckooFilter filter(WINDOW, 20, 0.01 * AlphaPct, 20);
     std::vector<unsigned char> data(8);
     uint64_t num = 0;
     for (unsigned j = 0; j < WINDOW; ++j) {
         WriteLE64(data.data(), num++);
         filter.Insert(data);
     }
-    bench.minEpochIterations(100000).run([&] {
+    bench.minEpochIterations(1000000).run([&] {
         if (TenFails) {
             for (int k = 0; k < 10; ++k) {
                 WriteLE64(data.data(), num + (WINDOW / 12) * (k + 1));
@@ -65,6 +65,7 @@ static void RollingCuckooBench(benchmark::Bench& bench)
         WriteLE64(data.data(), num++);
         filter.Insert(data);
     });
+    fprintf(stderr, "Max overflow = %llu\n", (unsigned long long)filter.MaxOverflow());
 }
 
 void RollingBloom_Insert(benchmark::Bench& state) { RollingBloomBench<false, false>(state); }

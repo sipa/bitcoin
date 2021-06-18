@@ -153,7 +153,7 @@ std::array<uint32_t, 4> Decode(uint32_t v, unsigned compressed_bits)
     assert(false);
 }
 
-RollingCuckooFilter::Params ChooseParams(uint32_t window, unsigned fpbits, double alpha)
+RollingCuckooFilter::Params ChooseParams(uint32_t window, unsigned fpbits, double alpha, int max_access)
 {
     static constexpr unsigned GEN_CBITS[] = {14, 16, 17, 18, 20, 21};
     bool have_ret = false;
@@ -178,13 +178,17 @@ RollingCuckooFilter::Params ChooseParams(uint32_t window, unsigned fpbits, doubl
         }
     }
     assert(have_ret);
-    double real_alpha = (double)ret.m_gen_size * ret.Generations() / (ret.m_buckets << RollingCuckooFilter::BUCKET_BITS);
-    if (real_alpha < 0.850001) {
-        ret.m_max_kicks = std::ceil(std::max(16.0, 2.884501 * std::log(window) - 2.0));
-    } else if (real_alpha < 0.900001) {
-        ret.m_max_kicks = std::ceil(std::max(29.0, 5.104926 * std::log(window) - 5.0));
-    } else if (real_alpha < 0.950001) {
-        ret.m_max_kicks = std::ceil(std::max(125.0, 18.75451 * std::log(window) - 25.0));
+    if (max_access) {
+        ret.m_max_kicks = max_access;
+    } else {
+        double real_alpha = (double)ret.m_gen_size * ret.Generations() / (ret.m_buckets << RollingCuckooFilter::BUCKET_BITS);
+        if (real_alpha < 0.850001) {
+            ret.m_max_kicks = std::ceil(std::max(16.0, 2.884501 * std::log(window) - 2.0));
+        } else if (real_alpha < 0.900001) {
+            ret.m_max_kicks = std::ceil(std::max(29.0, 5.104926 * std::log(window) - 5.0));
+        } else if (real_alpha < 0.950001) {
+            ret.m_max_kicks = std::ceil(std::max(125.0, 18.75451 * std::log(window) - 25.0));
+        }
     }
     return ret;
 }
@@ -203,8 +207,8 @@ bool RollingCuckooFilter::IsActive(uint32_t gen) const
     return false;
 }
 
-RollingCuckooFilter::RollingCuckooFilter(uint32_t window, unsigned fpbits, double alpha, bool deterministic) :
-    RollingCuckooFilter(ChooseParams(window, fpbits, alpha), deterministic) {}
+RollingCuckooFilter::RollingCuckooFilter(uint32_t window, unsigned fpbits, double alpha, int max_access, bool deterministic) :
+    RollingCuckooFilter(ChooseParams(window, fpbits, alpha, max_access), deterministic) {}
 
 RollingCuckooFilter::RollingCuckooFilter(const Params& params, bool deterministic) :
     m_params(params),
@@ -447,6 +451,7 @@ int RollingCuckooFilter::AddEntry(uint32_t index1, uint32_t index2, uint64_t fpr
     }
 
     m_overflow.emplace(std::make_pair(fpr, std::min(index1, index2)), gen);
+    m_max_overflow = std::max(m_max_overflow, m_overflow.size());
 
     return 0;
 }

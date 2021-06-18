@@ -86,6 +86,8 @@ private:
     //! Overflow table ((fpr, min(bucket1, bucket1)) -> gen)
     std::map<std::pair<uint64_t, uint32_t>, unsigned> m_overflow;
 
+    size_t m_max_overflow = 0;
+
     struct DecodedEntry
     {
         uint64_t m_fpr;
@@ -132,13 +134,15 @@ public:
     RollingCuckooFilter(const Params& param, bool deterministic);
 
     //! Construct a rolling cuckoo filter, choosing parameters automatically.
-    RollingCuckooFilter(uint32_t window, unsigned fpbits, double alpha, bool deterministic = false);
+    RollingCuckooFilter(uint32_t window, unsigned fpbits, double alpha, int max_access = 0, bool deterministic = false);
 
     //! Check if data is present.
     bool Check(Span<const unsigned char> data) const;
 
     //! Insert data.
     void Insert(Span<const unsigned char> data);
+
+    size_t MaxOverflow() const { return m_max_overflow; }
 };
 
 
