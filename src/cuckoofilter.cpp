@@ -406,51 +406,30 @@ int RollingCuckooFilter::CountFree(const DecodedBucket& bucket) const
     return cnt;
 }
 
-int RollingCuckooFilter::AddEntry(uint32_t index1, uint32_t index2, uint64_t fpr, unsigned gen, int access)
+int RollingCuckooFilter::AddEntry(DecodedBucket& bucket, uint32_t index1, uint32_t index2, uint64_t fpr, unsigned gen, int access)
 {
-    DecodedBucket bucket1 = LoadBucket(index1);
-    DecodedBucket bucket2 = LoadBucket(index2);
-    int free1 = CountFree(bucket1);
-    int free2 = CountFree(bucket2);
-    if (free1 > 0 && (free1 >= free2)) {
-        AddEntryToBucket(bucket1, fpr, gen);
-        SaveBucket(index1, std::move(bucket1));
-        return access - 2;
-    }
-    if (free2 > free1) {
-        AddEntryToBucket(bucket2, fpr, gen);
-        SaveBucket(index2, std::move(bucket2));
-        return access - 2;
-    }
+    while (access > 1) {
+        // Try adding the entry to bucket
+        if (AddEntryToBucket(bucket, fpr, gen)) {
+            SaveBucket(index1, std::move(bucket));
+            return access;
+        }
 
-    if (m_rng.randbool()) {
-        std::swap(index1, index2);
-        bucket1 = bucket2;
-    }
-
-    access -= 2;
-
-    while (access) {
-        // Pick a position in bucket1 to evict
+        // Pick a position in bucket to evict
         unsigned pos = m_rng.randbits(BUCKET_BITS);
-        std::swap(fpr, bucket1.m_entries[pos].m_fpr);
-        std::swap(gen, bucket1.m_entries[pos].m_gen);
-        SaveBucket(index1, std::move(bucket1));
+        std::swap(fpr, bucket.m_entries[pos].m_fpr);
+        std::swap(gen, bucket.m_entries[pos].m_gen);
+        SaveBucket(index1, std::move(bucket));
 
         // Compute the alternative index for the (fpr,gen) that was swapped out.
         index2 = OtherIndex(index1, fpr);
         std::swap(index1, index2);
-        bucket1 = LoadBucket(index1);
         --access;
-
-        // Try adding the entry to the (now different) bucket1
-        if (AddEntryToBucket(bucket1, fpr, gen)) {
-            SaveBucket(index1, std::move(bucket1));
-            return access;
-        }
+        bucket = LoadBucket(index1);
     }
 
-    m_overflow.emplace(std::make_pair(fpr, std::min(index1, index2)), gen);
+    uint32_t min_index = std::min(index1, index2);
+    m_overflow.emplace(std::make_pair(fpr, min_index), std::make_pair(gen, index1 != min_index));
     m_max_overflow = std::max(m_max_overflow, m_overflow.size());
 
     return 0;
@@ -492,34 +471,67 @@ void RollingCuckooFilter::Insert(Span<const unsigned char> data)
     ++m_count_this_cycle;
     ++m_count_this_gen;
 
+    int max_access = m_params.m_max_kicks;
+
     uint64_t fpr = Fingerprint(data);
     uint64_t index1 = Index1(data);
+    --max_access;
     int fnd1 = Find(index1, fpr);
     if (fnd1 != -1) {
+        // Entry already present in index1; update generation there.
         DecodedBucket bucket = LoadBucket(index1);
         bucket.m_entries[fnd1].m_gen = m_this_gen;
         SaveBucket(index1, std::move(bucket));
-        return;
+    } else {
+        uint64_t index2 = OtherIndex(index1, fpr);
+        --max_access;
+        int fnd2 = Find(index2, fpr);
+        if (fnd2 != -1) {
+            // Entry already present in index2; update generation there;
+            DecodedBucket bucket = LoadBucket(index2);
+            bucket.m_entries[fnd2].m_gen = m_this_gen;
+            SaveBucket(index2, std::move(bucket));
+        } else {
+            DecodedBucket bucket1 = LoadBucket(index1);
+            int free1 = CountFree(bucket1);
+            if (free1 == BUCKET_SIZE) {
+                // Bucket1 is entirely empty. Store it there.
+                AddEntryToBucket(bucket1, fpr, m_this_gen);
+                SaveBucket(index1, std::move(bucket1));
+            } else {
+                DecodedBucket bucket2 = LoadBucket(index2);
+                int free2 = CountFree(bucket2);
+                if (free2 > free1) {
+                    // Bucket2 has more space than bucket1; store it there.
+                    AddEntryToBucket(bucket2, fpr, m_this_gen);
+                    SaveBucket(index2, std::move(bucket2));
+                } else if (free1) {
+                    // Bucket1 has some space, and bucket2 has not more space.
+                    AddEntryToBucket(bucket1, fpr, m_this_gen);
+                    SaveBucket(index1, std::move(bucket1));
+                } else {
+                    // No space in either bucket. Start an insertion cycle randomly.
+                    if (m_rng.randbool()) {
+                        max_access = AddEntry(bucket1, index1, index2, fpr, m_this_gen, max_access + 1);
+                    } else {
+                        max_access = AddEntry(bucket2, index2, index1, fpr, m_this_gen, max_access + 1);
+                    }
+                }
+            }
+        }
     }
 
-    uint64_t index2 = OtherIndex(index1, fpr);
-    int fnd2 = Find(index2, fpr);
-    if (fnd2 != -1) {
-        DecodedBucket bucket = LoadBucket(index2);
-        bucket.m_entries[fnd2].m_gen = m_this_gen;
-        SaveBucket(index2, std::move(bucket));
-        return;
-    }
-
-    int access = AddEntry(index1, index2, fpr, m_this_gen, m_params.m_max_kicks);
-
-    while (access && !m_overflow.empty()) {
+    while (max_access && !m_overflow.empty()) {
         auto it = m_overflow.begin();
-        auto [key, gen] = *it;
-        auto [fpr, idx] = key;
+        auto [key, value] = *it;
+        auto [gen, max_is_next] = value;
+        auto [fpr, index1] = key;
+        uint32_t index2 = OtherIndex(index1, fpr);
+        if (max_is_next) std::swap(index1, index2);
         m_overflow.erase(it);
         if (IsActive(gen)) {
-            access = AddEntry(idx, OtherIndex(idx, fpr), fpr, gen, access);
+            DecodedBucket bucket = LoadBucket(index1);
+            max_access = AddEntry(bucket, index1, index2, fpr, gen, max_access);
         }
     }
 }

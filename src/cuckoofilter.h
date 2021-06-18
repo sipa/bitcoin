@@ -83,8 +83,8 @@ private:
     //! The actual bit-packed table.
     BitPack m_data;
 
-    //! Overflow table ((fpr, min(bucket1, bucket1)) -> gen)
-    std::map<std::pair<uint64_t, uint32_t>, unsigned> m_overflow;
+    //! Overflow table ((fpr, min(bucket1, bucket2)) -> (gen, max(bucket1, bucket2) is next))
+    std::map<std::pair<uint64_t, uint32_t>, std::pair<unsigned, bool>> m_overflow;
 
     size_t m_max_overflow = 0;
 
@@ -127,7 +127,9 @@ private:
     bool AddEntryToBucket(DecodedBucket& bucket, uint64_t fpr, unsigned gen) const;
 
     //! Store (fpr,gen) in bucket index1 or index2; otherwise kick until space is found; as a last resort, store in overflow map.
-    int AddEntry(uint32_t index1, uint32_t index2, uint64_t fpr, unsigned gen, int access);
+    //! Bucket must be preloaded with the contents of position index1. max_access is the maximum number of buckets that are allowed
+    //! to be accessed before giving up. The return value is max_access-(number of accessed buckets).
+    int AddEntry(DecodedBucket& bucket, uint32_t index1, uint32_t index2, uint64_t fpr, unsigned gen, int max_access);
 
 public:
     //! Construct a rolling cuckoo filter with the specified parameters.
