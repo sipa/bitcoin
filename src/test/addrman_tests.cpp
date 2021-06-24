@@ -38,37 +38,33 @@ public:
         insecure_rand = FastRandomContext(true);
     }
 
-    CAddrInfo* Find(const CNetAddr& addr, int* pnId = nullptr)
+    const CAddrInfo* Find(const CNetAddr& addr)
     {
         LOCK(cs);
-        return CAddrMan::Find(addr, pnId);
+        auto it = m_index.get<ByAddress>().find(std::pair<const CNetAddr&, bool>{addr, false});
+        if (it == m_index.get<ByAddress>().end()) return nullptr;
+        return &*it;
     }
 
-    CAddrInfo* Create(const CAddress& addr, const CNetAddr& addrSource, int* pnId = nullptr)
+    const CAddrInfo* Create(const CAddress& addr, const CNetAddr& source)
     {
         LOCK(cs);
-        return CAddrMan::Create(addr, addrSource, pnId);
+        return &*Insert(CAddrInfo(addr, source), false);
     }
 
-    void Delete(int nId)
+    void Delete(const CAddrInfo* item)
     {
         LOCK(cs);
-        CAddrMan::Delete(nId);
+        Erase(m_index.iterator_to(*item));
     }
 
     // Used to test deserialization
     std::pair<int, int> GetBucketAndEntry(const CAddress& addr)
     {
         LOCK(cs);
-        int nId = mapAddr[addr];
-        for (int bucket = 0; bucket < ADDRMAN_NEW_BUCKET_COUNT; ++bucket) {
-            for (int entry = 0; entry < ADDRMAN_BUCKET_SIZE; ++entry) {
-                if (nId == vvNew[bucket][entry]) {
-                    return std::pair<int, int>(bucket, entry);
-                }
-            }
-        }
-        return std::pair<int, int>(-1, -1);
+        auto it = m_index.get<ByAddress>().find(std::pair<const CNetAddr&, bool>{addr, false});
+        if (it == m_index.get<ByAddress>().end()) return {-1, -1};
+        return std::pair<int, int>{it->m_bucket, it->m_bucketpos};
     }
 
     // Simulates connection failure so that we can test eviction of offline nodes
@@ -331,17 +327,17 @@ BOOST_AUTO_TEST_CASE(addrman_find)
     BOOST_CHECK(addrman.Add(addr3, source1));
 
     // Test: ensure Find returns an IP matching what we searched on.
-    CAddrInfo* info1 = addrman.Find(addr1);
+    const CAddrInfo* info1 = addrman.Find(addr1);
     BOOST_REQUIRE(info1);
     BOOST_CHECK_EQUAL(info1->ToString(), "250.1.2.1:8333");
 
     // Test 18; Find does not discriminate by port number.
-    CAddrInfo* info2 = addrman.Find(addr2);
+    const CAddrInfo* info2 = addrman.Find(addr2);
     BOOST_REQUIRE(info2);
     BOOST_CHECK_EQUAL(info2->ToString(), info1->ToString());
 
     // Test: Find returns another IP matching what we searched on.
-    CAddrInfo* info3 = addrman.Find(addr3);
+    const CAddrInfo* info3 = addrman.Find(addr3);
     BOOST_REQUIRE(info3);
     BOOST_CHECK_EQUAL(info3->ToString(), "251.255.2.1:8333");
 }
@@ -355,13 +351,12 @@ BOOST_AUTO_TEST_CASE(addrman_create)
     CAddress addr1 = CAddress(ResolveService("250.1.2.1", 8333), NODE_NONE);
     CNetAddr source1 = ResolveIP("250.1.2.1");
 
-    int nId;
-    CAddrInfo* pinfo = addrman.Create(addr1, source1, &nId);
+    const CAddrInfo* pinfo = addrman.Create(addr1, source1);
 
     // Test: The result should be the same as the input addr.
     BOOST_CHECK_EQUAL(pinfo->ToString(), "250.1.2.1:8333");
 
-    CAddrInfo* info2 = addrman.Find(addr1);
+    const CAddrInfo* info2 = addrman.Find(addr1);
     BOOST_CHECK_EQUAL(info2->ToString(), "250.1.2.1:8333");
 }
 
@@ -375,14 +370,13 @@ BOOST_AUTO_TEST_CASE(addrman_delete)
     CAddress addr1 = CAddress(ResolveService("250.1.2.1", 8333), NODE_NONE);
     CNetAddr source1 = ResolveIP("250.1.2.1");
 
-    int nId;
-    addrman.Create(addr1, source1, &nId);
+    const CAddrInfo* info = addrman.Create(addr1, source1);
 
     // Test: Delete should actually delete the addr.
     BOOST_CHECK_EQUAL(addrman.size(), 1U);
-    addrman.Delete(nId);
+    addrman.Delete(info);
     BOOST_CHECK_EQUAL(addrman.size(), 0U);
-    CAddrInfo* info2 = addrman.Find(addr1);
+    const CAddrInfo* info2 = addrman.Find(addr1);
     BOOST_CHECK(info2 == nullptr);
 }
 
