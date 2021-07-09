@@ -86,7 +86,11 @@ private:
     OverflowTable m_overflow;
     OverflowTable::iterator m_overflow_reinsert = m_overflow.end();
 
-    size_t m_max_overflow = 0;
+    size_t m_total_gens{0};
+    double m_num_overflow{0};
+    double m_sum_overflow{0};
+    double m_quad_overflow{0};
+    size_t m_max_overflow{0};
 
     struct DecodedEntry
     {
@@ -141,7 +145,8 @@ public:
     //! Insert data.
     void Insert(Span<const unsigned char> data);
 
-    size_t MaxOverflow() const { return m_max_overflow; }
+    double AvgOverflow() const { return m_sum_overflow / m_num_overflow; }
+    double VarOverflow() const { return (m_quad_overflow - m_sum_overflow * m_sum_overflow / m_num_overflow) / m_num_overflow; }
 };
 
 

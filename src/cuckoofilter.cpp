@@ -462,6 +462,13 @@ void RollingCuckooFilter::Insert(Span<const unsigned char> data)
         // Start a new generation
         m_this_gen = ReduceOnce(m_this_gen + 1, m_gens * 2);
         m_count_this_gen = 0;
+        m_total_gens += 1;
+        if (m_total_gens >= 3*m_gens) {
+            m_num_overflow += 1.0;
+            m_sum_overflow += m_max_overflow;
+            m_quad_overflow += m_max_overflow * m_max_overflow;
+        }
+        m_max_overflow = 0;
         if (m_this_gen == 0 || m_this_gen == m_gens) {
             m_count_this_cycle = 0;
             m_swept_this_cycle = 0;
@@ -531,4 +538,5 @@ void RollingCuckooFilter::Insert(Span<const unsigned char> data)
             max_access = AddEntry(bucket, index1, index2, fpr, gen, max_access);
         }
     }
+    m_max_overflow = std::max(m_max_overflow, m_overflow.size());
 }

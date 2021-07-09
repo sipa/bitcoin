@@ -6,6 +6,7 @@
 #include <bench/bench.h>
 #include <bloom.h>
 #include <cuckoofilter.h>
+#include <math.h>
 
 #define WINDOW 5000
 
@@ -65,7 +66,8 @@ static void RollingCuckooBench(benchmark::Bench& bench)
         WriteLE64(data.data(), num++);
         filter.Insert(data);
     });
-    fprintf(stderr, "Max overflow = %llu\n", (unsigned long long)filter.MaxOverflow());
+    fprintf(stderr, "Avg overflow = %g\n", filter.AvgOverflow());
+    fprintf(stderr, "StdDev overflow = %g\n", sqrt(filter.VarOverflow()));
 }
 
 void RollingBloom_Insert(benchmark::Bench& state) { RollingBloomBench<false, false>(state); }
