@@ -67,7 +67,7 @@ static void RollingCuckooBench(benchmark::Bench& bench)
         filter.Insert(data);
     });
     fprintf(stderr, "Avg overflow = %g\n", filter.AvgOverflow());
-    fprintf(stderr, "StdDev overflow = %g\n", sqrt(filter.VarOverflow()));
+    fprintf(stderr, "Var overflow = %g\n", filter.VarOverflow());
 }
 
 void RollingBloom_Insert(benchmark::Bench& state) { RollingBloomBench<false, false>(state); }
