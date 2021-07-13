@@ -38,19 +38,19 @@ public:
         insecure_rand = FastRandomContext(true);
     }
 
-    CAddrInfo* Find(const CNetAddr& addr, int* pnId = nullptr)
+    CAddrInfo* Find(const CNetAddr& addr, int64_t* pnId = nullptr)
     {
         LOCK(cs);
         return CAddrMan::Find(addr, pnId);
     }
 
-    CAddrInfo* Create(const CAddress& addr, const CNetAddr& addrSource, int* pnId = nullptr)
+    CAddrInfo* Create(const CAddress& addr, const CNetAddr& addrSource, int64_t* pnId = nullptr)
     {
         LOCK(cs);
         return CAddrMan::Create(addr, addrSource, pnId);
     }
 
-    void Delete(int nId)
+    void Delete(int64_t nId)
     {
         LOCK(cs);
         CAddrMan::Delete(nId);
@@ -60,7 +60,7 @@ public:
     std::pair<int, int> GetBucketAndEntry(const CAddress& addr)
     {
         LOCK(cs);
-        int nId = mapAddr[addr];
+        int64_t nId = mapAddr[addr];
         for (int bucket = 0; bucket < ADDRMAN_NEW_BUCKET_COUNT; ++bucket) {
             for (int entry = 0; entry < ADDRMAN_BUCKET_SIZE; ++entry) {
                 if (nId == vvNew[bucket][entry]) {
@@ -355,7 +355,7 @@ BOOST_AUTO_TEST_CASE(addrman_create)
     CAddress addr1 = CAddress(ResolveService("250.1.2.1", 8333), NODE_NONE);
     CNetAddr source1 = ResolveIP("250.1.2.1");
 
-    int nId;
+    int64_t nId;
     CAddrInfo* pinfo = addrman.Create(addr1, source1, &nId);
 
     // Test: The result should be the same as the input addr.
@@ -375,7 +375,7 @@ BOOST_AUTO_TEST_CASE(addrman_delete)
     CAddress addr1 = CAddress(ResolveService("250.1.2.1", 8333), NODE_NONE);
     CNetAddr source1 = ResolveIP("250.1.2.1");
 
-    int nId;
+    int64_t nId;
     addrman.Create(addr1, source1, &nId);
 
     // Test: Delete should actually delete the addr.
