@@ -1,16 +1,16 @@
-// Copyright (c) 2016 The Bitcoin Core developers
+// Copyright (c) 2016-2018 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include "bench.h"
+#include <bench/bench.h>
 
-#include "chainparams.h"
-#include "validation.h"
-#include "streams.h"
-#include "consensus/validation.h"
+#include <chainparams.h>
+#include <validation.h>
+#include <streams.h>
+#include <consensus/validation.h>
 
 namespace block_bench {
-#include "bench/data/block413567.raw.h"
+#include <bench/data/block413567.raw.h>
 } // namespace block_bench
 
 // These are the two major time-sinks which happen after we have fully received
@@ -20,7 +20,7 @@ namespace block_bench {
 static void DeserializeBlockTest(benchmark::State& state)
 {
     CDataStream stream((const char*)block_bench::block413567,
-            (const char*)&block_bench::block413567[sizeof(block_bench::block413567)],
+            (const char*)block_bench::block413567 + sizeof(block_bench::block413567),
             SER_NETWORK, PROTOCOL_VERSION);
     char a = '\0';
     stream.write(&a, 1); // Prevent compaction
@@ -28,14 +28,15 @@ static void DeserializeBlockTest(benchmark::State& state)
     while (state.KeepRunning()) {
         CBlock block;
         stream >> block;
-        assert(stream.Rewind(sizeof(block_bench::block413567)));
+        bool rewound = stream.Rewind(sizeof(block_bench::block413567));
+        assert(rewound);
     }
 }
 
 static void DeserializeAndCheckBlockTest(benchmark::State& state)
 {
     CDataStream stream((const char*)block_bench::block413567,
-            (const char*)&block_bench::block413567[sizeof(block_bench::block413567)],
+            (const char*)block_bench::block413567 + sizeof(block_bench::block413567),
             SER_NETWORK, PROTOCOL_VERSION);
     char a = '\0';
     stream.write(&a, 1); // Prevent compaction
@@ -45,12 +46,14 @@ static void DeserializeAndCheckBlockTest(benchmark::State& state)
     while (state.KeepRunning()) {
         CBlock block; // Note that CBlock caches its checked state, so we need to recreate it here
         stream >> block;
-        assert(stream.Rewind(sizeof(block_bench::block413567)));
+        bool rewound = stream.Rewind(sizeof(block_bench::block413567));
+        assert(rewound);
 
         CValidationState validationState;
-        assert(CheckBlock(block, validationState, chainParams->GetConsensus()));
+        bool checked = CheckBlock(block, validationState, chainParams->GetConsensus());
+        assert(checked);
     }
 }
 
-BENCHMARK(DeserializeBlockTest);
-BENCHMARK(DeserializeAndCheckBlockTest);
+BENCHMARK(DeserializeBlockTest, 130);
+BENCHMARK(DeserializeAndCheckBlockTest, 160);

@@ -30,6 +30,11 @@
         <translation>Padam alamat semasa yang dipilih dari senaraiyang dipilih dari senarai</translation>
     </message>
     <message>
+        <source>Enter address or label to search</source>
+        <translation>Masukkan alamat atau label untuk carian
+</translation>
+    </message>
+    <message>
         <source>Export the data in the current tab to a file</source>
         <translation>
 Alihkan fail data ke dalam tab semasa</translation>
@@ -131,6 +136,11 @@ Alihkan fail data ke dalam tab semasa</translation>
     <message>
         <source>Repeat new passphrase</source>
         <translation>Ulangi frasa laluan baru</translation>
+    </message>
+    <message>
+        <source>Show password</source>
+        <translation>Tunjukkan kata laluan
+</translation>
     </message>
     <message>
         <source>Enter the new passphrase to the wallet.&lt;br/&gt;Please use a passphrase of &lt;b&gt;ten or more random characters&lt;/b&gt;, or &lt;b&gt;eight or more words&lt;/b&gt;.</source>
@@ -319,6 +329,31 @@ Alihkan fail data ke dalam tab semasa</translation>
         <translation>Buka &amp;URI...</translation>
     </message>
     <message>
+        <source>Wallet:</source>
+        <translation>dompet</translation>
+    </message>
+    <message>
+        <source>default wallet</source>
+        <translation>dompet lalai
+</translation>
+    </message>
+    <message>
+        <source>Click to disable network activity.</source>
+        <translation>Tekan untuk lumpuhkan rangkaian</translation>
+    </message>
+    <message>
+        <source>Network activity disabled.</source>
+        <translation>Aktiviti rangkaian dilumpuhkan</translation>
+    </message>
+    <message>
+        <source>Click to enable network activity again.</source>
+        <translation>Tekan untuk mengaktifkan rangkain semula</translation>
+    </message>
+    <message>
+        <source>Syncing Headers (%1%)...</source>
+        <translation>Penyelarasn tajuk (%1%)...</translation>
+    </message>
+    <message>
         <source>Reindexing blocks on disk...</source>
         <translation>Reindexi blok pada cakera...</translation>
     </message>
@@ -329,6 +364,85 @@ Alihkan fail data ke dalam tab semasa</translation>
     <message>
         <source>Backup wallet to another location</source>
         <translation>Wallet sandaran ke lokasi lain</translation>
+    </message>
+    <message>
+        <source>Change the passphrase used for wallet encryption</source>
+        <translation>Tukar kata laluan untuk dompet disulitkan</translation>
+    </message>
+    <message>
+        <source>&amp;Debug window</source>
+        <translation>Tetingkap windows</translation>
+    </message>
+    <message>
+        <source>Open debugging and diagnostic console</source>
+        <translation>buka debug dan konsol diagnostik</translation>
+    </message>
+    <message>
+        <source>&amp;Verify message...</source>
+        <translation>sahkan mesej</translation>
+    </message>
+    <message>
+        <source>Bitcoin</source>
+        <translation>Bitcoin</translation>
+    </message>
+    <message>
+        <source>Wallet</source>
+        <translation>dompet</translation>
+    </message>
+    <message>
+        <source>&amp;Send</source>
+        <translation>hantar</translation>
+    </message>
+    <message>
+        <source>&amp;Receive</source>
+        <translation>terima</translation>
+    </message>
+    <message>
+        <source>&amp;Show / Hide</source>
+        <translation>&amp;tunjuk/sembunyi</translation>
+    </message>
+    <message>
+        <source>Show or hide the main Window</source>
+        <translation>tunjuk atau sembunyi tetingkap utama</translation>
+    </message>
+    <message>
+        <source>Encrypt the private keys that belong to your wallet</source>
+        <translation>sulitkan kata laluan milik peribadi anda </translation>
+    </message>
+    <message>
+        <source>Sign messages with your Bitcoin addresses to prove you own them</source>
+        <translation>sahkan mesej bersama alamat bitcoin anda untuk menunjukkan alamat ini anda punya</translation>
+    </message>
+    <message>
+        <source>Verify messages to ensure they were signed with specified Bitcoin addresses</source>
+        <translation>Sahkan mesej untuk memastikan mereka telah ditandatangani dengan alamat Bitcoin yang ditentukan</translation>
+    </message>
+    <message>
+        <source>&amp;File</source>
+        <translation>fail</translation>
+    </message>
+    <message>
+        <source>&amp;Settings</source>
+        <translation>tetapan</translation>
+    </message>
+    <message>
+        <source>&amp;Help</source>
+        <translation>tolong</translation>
+    </message>
+    <message>
+        <source>Tabs toolbar</source>
+        <translation>Bar alat tab
+</translation>
+    </message>
+    <message>
+        <source>Request payments (generates QR codes and bitcoin: URIs)</source>
+        <translation>Request payments (generates QR codes and bitcoin: URIs)
+</translation>
+    </message>
+    <message>
+        <source>Show the list of used sending addresses and labels</source>
+        <translation>Tunjukkan senarai alamat dan label yang digunakan
+</translation>
     </message>
     </context>
 <context>
@@ -357,6 +471,10 @@ Alihkan fail data ke dalam tab semasa</translation>
     </context>
 <context>
     <name>Intro</name>
+    <message>
+        <source>Bitcoin</source>
+        <translation>Bitcoin</translation>
+    </message>
     </context>
 <context>
     <name>ModalOverlay</name>
@@ -387,6 +505,11 @@ Alihkan fail data ke dalam tab semasa</translation>
     </context>
 <context>
     <name>RPCConsole</name>
+    <message>
+        <source>default wallet</source>
+        <translation>dompet lalai
+</translation>
+    </message>
     </context>
 <context>
     <name>ReceiveCoinsDialog</name>
@@ -404,6 +527,10 @@ Alihkan fail data ke dalam tab semasa</translation>
     <message>
         <source>Label</source>
         <translation>Label</translation>
+    </message>
+    <message>
+        <source>Wallet</source>
+        <translation>dompet</translation>
     </message>
     </context>
 <context>

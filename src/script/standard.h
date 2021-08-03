@@ -1,13 +1,13 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
-// Copyright (c) 2009-2016 The Bitcoin Core developers
+// Copyright (c) 2009-2018 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #ifndef BITCOIN_SCRIPT_STANDARD_H
 #define BITCOIN_SCRIPT_STANDARD_H
 
-#include "script/interpreter.h"
-#include "uint256.h"
+#include <script/interpreter.h>
+#include <uint256.h>
 
 #include <boost/variant.hpp>
 
@@ -23,7 +23,7 @@ class CScriptID : public uint160
 {
 public:
     CScriptID() : uint160() {}
-    CScriptID(const CScript& in);
+    explicit CScriptID(const CScript& in);
     CScriptID(const uint160& in) : uint160(in) {}
 };
 
@@ -73,8 +73,20 @@ public:
     friend bool operator<(const CNoDestination &a, const CNoDestination &b) { return true; }
 };
 
-struct WitnessV0ScriptHash : public uint256 {};
-struct WitnessV0KeyHash : public uint160 {};
+struct WitnessV0ScriptHash : public uint256
+{
+    WitnessV0ScriptHash() : uint256() {}
+    explicit WitnessV0ScriptHash(const uint256& hash) : uint256(hash) {}
+    explicit WitnessV0ScriptHash(const CScript& script);
+    using uint256::uint256;
+};
+
+struct WitnessV0KeyHash : public uint160
+{
+    WitnessV0KeyHash() : uint160() {}
+    explicit WitnessV0KeyHash(const uint160& hash) : uint160(hash) {}
+    using uint160::uint160;
+};
 
 //! CTxDestination subtype to encode any future Witness version
 struct WitnessUnknown
@@ -123,11 +135,10 @@ const char* GetTxnOutputType(txnouttype t);
  * script hash, for P2PKH it will contain the key hash, etc.
  *
  * @param[in]   scriptPubKey   Script to parse
- * @param[out]  typeRet        The script type
  * @param[out]  vSolutionsRet  Vector of parsed pubkeys and hashes
- * @return                     True if script matches standard template
+ * @return                     The script type. TX_NONSTANDARD represents a failed solve.
  */
-bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, std::vector<std::vector<unsigned char> >& vSolutionsRet);
+txnouttype Solver(const CScript& scriptPubKey, std::vector<std::vector<unsigned char>>& vSolutionsRet);
 
 /**
  * Parse a standard scriptPubKey for the destination address. Assigns result to
@@ -144,6 +155,10 @@ bool ExtractDestination(const CScript& scriptPubKey, CTxDestination& addressRet)
  * addressRet is populated with a single value and nRequiredRet is set to 1.
  * Returns true if successful. Currently does not extract address from
  * pay-to-witness scripts.
+ *
+ * Note: this function confuses destinations (a subset of CScripts that are
+ * encodable as an address) with key identifiers (of keys involved in a
+ * CScript), and its use should be phased out.
  */
 bool ExtractDestinations(const CScript& scriptPubKey, txnouttype& typeRet, std::vector<CTxDestination>& addressRet, int& nRequiredRet);
 
@@ -164,6 +179,9 @@ CScript GetScriptForMultisig(int nRequired, const std::vector<CPubKey>& keys);
  * Generate a pay-to-witness script for the given redeem script. If the redeem
  * script is P2PK or P2PKH, this returns a P2WPKH script, otherwise it returns a
  * P2WSH script.
+ *
+ * TODO: replace calls to GetScriptForWitness with GetScriptForDestination using
+ * the various witness-specific CTxDestination subtypes.
  */
 CScript GetScriptForWitness(const CScript& redeemscript);
 

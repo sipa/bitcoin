@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2016 The Bitcoin Core developers
+// Copyright (c) 2015-2018 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 //
@@ -8,7 +8,7 @@
 #define BITCOIN_CRYPTO_AES_H
 
 extern "C" {
-#include "crypto/ctaes/ctaes.h"
+#include <crypto/ctaes/ctaes.h>
 }
 
 static const int AES_BLOCKSIZE = 16;
