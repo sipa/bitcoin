@@ -1,14 +1,28 @@
-#ifndef GUICONSTANTS_H
-#define GUICONSTANTS_H
+// Copyright (c) 2011-2020 The Bitcoin Core developers
+// Distributed under the MIT software license, see the accompanying
+// file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-/* Milliseconds between model updates */
-static const int MODEL_UPDATE_DELAY = 250;
+#ifndef BITCOIN_QT_GUICONSTANTS_H
+#define BITCOIN_QT_GUICONSTANTS_H
+
+#include <chrono>
+#include <cstdint>
+
+using namespace std::chrono_literals;
+
+/* A delay between model updates */
+static constexpr auto MODEL_UPDATE_DELAY{250ms};
+
+/* A delay between shutdown pollings */
+static constexpr auto SHUTDOWN_POLLING_DELAY{200ms};
 
 /* AskPassphraseDialog -- Maximum passphrase length */
 static const int MAX_PASSPHRASE_SIZE = 1024;
 
 /* BitcoinGUI -- Size of icons in status bar */
 static const int STATUSBAR_ICONSIZE = 16;
+
+static const bool DEFAULT_SPLASHSCREEN = true;
 
 /* Invalid field background style */
 #define STYLE_INVALID "background:#FF8080"
@@ -19,19 +33,30 @@ static const int STATUSBAR_ICONSIZE = 16;
 #define COLOR_NEGATIVE QColor(255, 0, 0)
 /* Transaction list -- bare address (without label) */
 #define COLOR_BAREADDRESS QColor(140, 140, 140)
+/* Transaction list -- TX status decoration - danger, tx needs attention */
+#define COLOR_TX_STATUS_DANGER QColor(200, 100, 100)
+/* Transaction list -- TX status decoration - default color */
+#define COLOR_BLACK QColor(0, 0, 0)
 
 /* Tooltips longer than this (in characters) are converted into rich text,
    so that they can be word-wrapped.
  */
 static const int TOOLTIP_WRAP_THRESHOLD = 80;
 
-/* Maximum allowed URI length */
-static const int MAX_URI_LENGTH = 255;
+/* Number of frames in spinner animation */
+#define SPINNER_FRAMES 36
 
-/* Maximum somewhat-sane size of a payment request file */
-static const int MAX_PAYMENT_REQUEST_SIZE = 50000; // bytes
+#define QAPP_ORG_NAME "Bitcoin"
+#define QAPP_ORG_DOMAIN "bitcoin.org"
+#define QAPP_APP_NAME_DEFAULT "Bitcoin-Qt"
+#define QAPP_APP_NAME_TESTNET "Bitcoin-Qt-testnet"
+#define QAPP_APP_NAME_SIGNET "Bitcoin-Qt-signet"
+#define QAPP_APP_NAME_REGTEST "Bitcoin-Qt-regtest"
 
-/* QRCodeDialog -- size of exported QR Code image */
-#define EXPORT_IMAGE_SIZE 256
+/* One gigabyte (GB) in bytes */
+static constexpr uint64_t GB_BYTES{1000000000};
 
-#endif // GUICONSTANTS_H
+// Default prune target displayed in GUI.
+static constexpr int DEFAULT_PRUNE_TARGET_GB{2};
+
+#endif // BITCOIN_QT_GUICONSTANTS_H

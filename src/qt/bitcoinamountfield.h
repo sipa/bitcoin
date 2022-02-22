@@ -1,10 +1,17 @@
-#ifndef BITCOINAMOUNTFIELD_H
-#define BITCOINAMOUNTFIELD_H
+// Copyright (c) 2011-2021 The Bitcoin Core developers
+// Distributed under the MIT software license, see the accompanying
+// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+
+#ifndef BITCOIN_QT_BITCOINAMOUNTFIELD_H
+#define BITCOIN_QT_BITCOINAMOUNTFIELD_H
+
+#include <consensus/amount.h>
 
 #include <QWidget>
 
+class AmountSpinBox;
+
 QT_BEGIN_NAMESPACE
-class QDoubleSpinBox;
 class QValueComboBox;
 QT_END_NAMESPACE
 
@@ -14,13 +21,27 @@ class BitcoinAmountField: public QWidget
 {
     Q_OBJECT
 
-    Q_PROPERTY(qint64 value READ value WRITE setValue NOTIFY textChanged USER true)
+    // ugly hack: for some unknown reason CAmount (instead of qint64) does not work here as expected
+    // discussion: https://github.com/bitcoin/bitcoin/pull/5117
+    Q_PROPERTY(qint64 value READ value WRITE setValue NOTIFY valueChanged USER true)
 
 public:
-    explicit BitcoinAmountField(QWidget *parent = 0);
+    explicit BitcoinAmountField(QWidget *parent = nullptr);
 
-    qint64 value(bool *valid=0) const;
-    void setValue(qint64 value);
+    CAmount value(bool *value=nullptr) const;
+    void setValue(const CAmount& value);
+
+    /** If allow empty is set to false the field will be set to the minimum allowed value if left empty. **/
+    void SetAllowEmpty(bool allow);
+
+    /** Set the minimum value in satoshis **/
+    void SetMinValue(const CAmount& value);
+
+    /** Set the maximum value in satoshis **/
+    void SetMaxValue(const CAmount& value);
+
+    /** Set single step in satoshis **/
+    void setSingleStep(const CAmount& step);
 
     /** Make read-only **/
     void setReadOnly(bool fReadOnly);
@@ -36,29 +57,28 @@ public:
     /** Make field empty and ready for new input. */
     void clear();
 
+    /** Enable/Disable. */
+    void setEnabled(bool fEnabled);
+
     /** Qt messes up the tab chain by default in some cases (issue https://bugreports.qt-project.org/browse/QTBUG-10907),
         in these cases we have to set it up manually.
     */
     QWidget *setupTabChain(QWidget *prev);
 
-signals:
-    void textChanged();
+Q_SIGNALS:
+    void valueChanged();
 
 protected:
     /** Intercept focus-in event and ',' key presses */
-    bool eventFilter(QObject *object, QEvent *event);
+    bool eventFilter(QObject *object, QEvent *event) override;
 
 private:
-    QDoubleSpinBox *amount;
+    AmountSpinBox *amount;
     QValueComboBox *unit;
-    int currentUnit;
 
-    void setText(const QString &text);
-    QString text() const;
-
-private slots:
+private Q_SLOTS:
     void unitChanged(int idx);
 
 };
 
-#endif // BITCOINAMOUNTFIELD_H
+#endif // BITCOIN_QT_BITCOINAMOUNTFIELD_H

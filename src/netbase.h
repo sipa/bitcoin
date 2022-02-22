@@ -1,155 +1,250 @@
-// Copyright (c) 2009-2012 The Bitcoin developers
-// Distributed under the MIT/X11 software license, see the accompanying
+// Copyright (c) 2009-2021 The Bitcoin Core developers
+// Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
+
 #ifndef BITCOIN_NETBASE_H
 #define BITCOIN_NETBASE_H
 
 #if defined(HAVE_CONFIG_H)
-#include "bitcoin-config.h"
+#include <config/bitcoin-config.h>
 #endif
 
+#include <compat.h>
+#include <netaddress.h>
+#include <serialize.h>
+#include <util/sock.h>
+
+#include <functional>
+#include <memory>
+#include <stdint.h>
 #include <string>
+#include <type_traits>
 #include <vector>
-
-#include "serialize.h"
-#include "compat.h"
-
-extern int nConnectTimeout;
-
-#ifdef WIN32
-// In MSVC, this is defined as a macro, undefine it to prevent a compile and link error
-#undef SetPort
-#endif
-
-enum Network
-{
-    NET_UNROUTABLE,
-    NET_IPV4,
-    NET_IPV6,
-    NET_TOR,
-
-    NET_MAX,
-};
 
 extern int nConnectTimeout;
 extern bool fNameLookup;
 
-/** IP address (IPv6, or IPv4 using mapped IPv6 range (::FFFF:0:0/96)) */
-class CNetAddr
+//! -timeout default
+static const int DEFAULT_CONNECT_TIMEOUT = 5000;
+//! -dns default
+static const int DEFAULT_NAME_LOOKUP = true;
+
+enum class ConnectionDirection {
+    None = 0,
+    In = (1U << 0),
+    Out = (1U << 1),
+    Both = (In | Out),
+};
+static inline ConnectionDirection& operator|=(ConnectionDirection& a, ConnectionDirection b) {
+    using underlying = typename std::underlying_type<ConnectionDirection>::type;
+    a = ConnectionDirection(underlying(a) | underlying(b));
+    return a;
+}
+static inline bool operator&(ConnectionDirection a, ConnectionDirection b) {
+    using underlying = typename std::underlying_type<ConnectionDirection>::type;
+    return (underlying(a) & underlying(b));
+}
+
+class proxyType
 {
-    protected:
-        unsigned char ip[16]; // in network byte order
+public:
+    proxyType(): randomize_credentials(false) {}
+    explicit proxyType(const CService &_proxy, bool _randomize_credentials=false): proxy(_proxy), randomize_credentials(_randomize_credentials) {}
 
-    public:
-        CNetAddr();
-        CNetAddr(const struct in_addr& ipv4Addr);
-        explicit CNetAddr(const char *pszIp, bool fAllowLookup = false);
-        explicit CNetAddr(const std::string &strIp, bool fAllowLookup = false);
-        void Init();
-        void SetIP(const CNetAddr& ip);
-        bool SetSpecial(const std::string &strName); // for Tor addresses
-        bool IsIPv4() const;    // IPv4 mapped address (::FFFF:0:0/96, 0.0.0.0/0)
-        bool IsIPv6() const;    // IPv6 address (not mapped IPv4, not Tor)
-        bool IsRFC1918() const; // IPv4 private networks (10.0.0.0/8, 192.168.0.0/16, 172.16.0.0/12)
-        bool IsRFC3849() const; // IPv6 documentation address (2001:0DB8::/32)
-        bool IsRFC3927() const; // IPv4 autoconfig (169.254.0.0/16)
-        bool IsRFC3964() const; // IPv6 6to4 tunnelling (2002::/16)
-        bool IsRFC4193() const; // IPv6 unique local (FC00::/15)
-        bool IsRFC4380() const; // IPv6 Teredo tunnelling (2001::/32)
-        bool IsRFC4843() const; // IPv6 ORCHID (2001:10::/28)
-        bool IsRFC4862() const; // IPv6 autoconfig (FE80::/64)
-        bool IsRFC6052() const; // IPv6 well-known prefix (64:FF9B::/96)
-        bool IsRFC6145() const; // IPv6 IPv4-translated address (::FFFF:0:0:0/96)
-        bool IsTor() const;
-        bool IsLocal() const;
-        bool IsRoutable() const;
-        bool IsValid() const;
-        bool IsMulticast() const;
-        enum Network GetNetwork() const;
-        std::string ToString() const;
-        std::string ToStringIP() const;
-        unsigned int GetByte(int n) const;
-        uint64 GetHash() const;
-        bool GetInAddr(struct in_addr* pipv4Addr) const;
-        std::vector<unsigned char> GetGroup() const;
-        int GetReachabilityFrom(const CNetAddr *paddrPartner = NULL) const;
-        void print() const;
+    bool IsValid() const { return proxy.IsValid(); }
 
-#ifdef USE_IPV6
-        CNetAddr(const struct in6_addr& pipv6Addr);
-        bool GetIn6Addr(struct in6_addr* pipv6Addr) const;
-#endif
-
-        friend bool operator==(const CNetAddr& a, const CNetAddr& b);
-        friend bool operator!=(const CNetAddr& a, const CNetAddr& b);
-        friend bool operator<(const CNetAddr& a, const CNetAddr& b);
-
-        IMPLEMENT_SERIALIZE
-            (
-             READWRITE(FLATDATA(ip));
-            )
+    CService proxy;
+    bool randomize_credentials;
 };
 
-/** A combination of a network address (CNetAddr) and a (TCP) port */
-class CService : public CNetAddr
+/** Credentials for proxy authentication */
+struct ProxyCredentials
 {
-    protected:
-        unsigned short port; // host order
-
-    public:
-        CService();
-        CService(const CNetAddr& ip, unsigned short port);
-        CService(const struct in_addr& ipv4Addr, unsigned short port);
-        CService(const struct sockaddr_in& addr);
-        explicit CService(const char *pszIpPort, int portDefault, bool fAllowLookup = false);
-        explicit CService(const char *pszIpPort, bool fAllowLookup = false);
-        explicit CService(const std::string& strIpPort, int portDefault, bool fAllowLookup = false);
-        explicit CService(const std::string& strIpPort, bool fAllowLookup = false);
-        void Init();
-        void SetPort(unsigned short portIn);
-        unsigned short GetPort() const;
-        bool GetSockAddr(struct sockaddr* paddr, socklen_t *addrlen) const;
-        bool SetSockAddr(const struct sockaddr* paddr);
-        friend bool operator==(const CService& a, const CService& b);
-        friend bool operator!=(const CService& a, const CService& b);
-        friend bool operator<(const CService& a, const CService& b);
-        std::vector<unsigned char> GetKey() const;
-        std::string ToString() const;
-        std::string ToStringPort() const;
-        std::string ToStringIPPort() const;
-        void print() const;
-
-#ifdef USE_IPV6
-        CService(const struct in6_addr& ipv6Addr, unsigned short port);
-        CService(const struct sockaddr_in6& addr);
-#endif
-
-        IMPLEMENT_SERIALIZE
-            (
-             CService* pthis = const_cast<CService*>(this);
-             READWRITE(FLATDATA(ip));
-             unsigned short portN = htons(port);
-             READWRITE(portN);
-             if (fRead)
-                 pthis->port = ntohs(portN);
-            )
+    std::string username;
+    std::string password;
 };
 
-typedef std::pair<CService, int> proxyType;
+/**
+ * Wrapper for getaddrinfo(3). Do not use directly: call Lookup/LookupHost/LookupNumeric/LookupSubNet.
+ */
+std::vector<CNetAddr> WrappedGetAddrInfo(const std::string& name, bool allow_lookup);
 
-enum Network ParseNetwork(std::string net);
-void SplitHostPort(std::string in, int &portOut, std::string &hostOut);
-bool SetProxy(enum Network net, CService addrProxy, int nSocksVersion = 5);
+enum Network ParseNetwork(const std::string& net);
+std::string GetNetworkName(enum Network net);
+/** Return a vector of publicly routable Network names; optionally append NET_UNROUTABLE. */
+std::vector<std::string> GetNetworkNames(bool append_unroutable = false);
+bool SetProxy(enum Network net, const proxyType &addrProxy);
 bool GetProxy(enum Network net, proxyType &proxyInfoOut);
 bool IsProxy(const CNetAddr &addr);
-bool SetNameProxy(CService addrProxy, int nSocksVersion = 5);
+/**
+ * Set the name proxy to use for all connections to nodes specified by a
+ * hostname. After setting this proxy, connecting to a node specified by a
+ * hostname won't result in a local lookup of said hostname, rather, connect to
+ * the node by asking the name proxy for a proxy connection to the hostname,
+ * effectively delegating the hostname lookup to the specified proxy.
+ *
+ * This delegation increases privacy for those who set the name proxy as they no
+ * longer leak their external hostname queries to their DNS servers.
+ *
+ * @returns Whether or not the operation succeeded.
+ *
+ * @note SOCKS5's support for UDP-over-SOCKS5 has been considered, but no SOCK5
+ *       server in common use (most notably Tor) actually implements UDP
+ *       support, and a DNS resolver is beyond the scope of this project.
+ */
+bool SetNameProxy(const proxyType &addrProxy);
 bool HaveNameProxy();
-bool LookupHost(const char *pszName, std::vector<CNetAddr>& vIP, unsigned int nMaxSolutions = 0, bool fAllowLookup = true);
-bool LookupHostNumeric(const char *pszName, std::vector<CNetAddr>& vIP, unsigned int nMaxSolutions = 0);
-bool Lookup(const char *pszName, CService& addr, int portDefault = 0, bool fAllowLookup = true);
-bool Lookup(const char *pszName, std::vector<CService>& vAddr, int portDefault = 0, bool fAllowLookup = true, unsigned int nMaxSolutions = 0);
-bool LookupNumeric(const char *pszName, CService& addr, int portDefault = 0);
-bool ConnectSocket(const CService &addr, SOCKET& hSocketRet, int nTimeout = nConnectTimeout);
-bool ConnectSocketByName(CService &addr, SOCKET& hSocketRet, const char *pszDest, int portDefault = 0, int nTimeout = nConnectTimeout);
+bool GetNameProxy(proxyType &nameProxyOut);
 
-#endif
+using DNSLookupFn = std::function<std::vector<CNetAddr>(const std::string&, bool)>;
+extern DNSLookupFn g_dns_lookup;
+
+/**
+ * Resolve a host string to its corresponding network addresses.
+ *
+ * @param name    The string representing a host. Could be a name or a numerical
+ *                IP address (IPv6 addresses in their bracketed form are
+ *                allowed).
+ * @param[out] vIP The resulting network addresses to which the specified host
+ *                 string resolved.
+ *
+ * @returns Whether or not the specified host string successfully resolved to
+ *          any resulting network addresses.
+ *
+ * @see Lookup(const std::string&, std::vector<CService>&, uint16_t, bool, unsigned int, DNSLookupFn)
+ *      for additional parameter descriptions.
+ */
+bool LookupHost(const std::string& name, std::vector<CNetAddr>& vIP, unsigned int nMaxSolutions, bool fAllowLookup, DNSLookupFn dns_lookup_function = g_dns_lookup);
+
+/**
+ * Resolve a host string to its first corresponding network address.
+ *
+ * @see LookupHost(const std::string&, std::vector<CNetAddr>&, uint16_t, bool, DNSLookupFn)
+ *      for additional parameter descriptions.
+ */
+bool LookupHost(const std::string& name, CNetAddr& addr, bool fAllowLookup, DNSLookupFn dns_lookup_function = g_dns_lookup);
+
+/**
+ * Resolve a service string to its corresponding service.
+ *
+ * @param name    The string representing a service. Could be a name or a
+ *                numerical IP address (IPv6 addresses should be in their
+ *                disambiguated bracketed form), optionally followed by a uint16_t port
+ *                number. (e.g. example.com:8333 or
+ *                [2001:db8:85a3:8d3:1319:8a2e:370:7348]:420)
+ * @param[out] vAddr The resulting services to which the specified service string
+ *                   resolved.
+ * @param portDefault The default port for resulting services if not specified
+ *                    by the service string.
+ * @param fAllowLookup Whether or not hostname lookups are permitted. If yes,
+ *                     external queries may be performed.
+ * @param nMaxSolutions The maximum number of results we want, specifying 0
+ *                      means "as many solutions as we get."
+ *
+ * @returns Whether or not the service string successfully resolved to any
+ *          resulting services.
+ */
+bool Lookup(const std::string& name, std::vector<CService>& vAddr, uint16_t portDefault, bool fAllowLookup, unsigned int nMaxSolutions, DNSLookupFn dns_lookup_function = g_dns_lookup);
+
+/**
+ * Resolve a service string to its first corresponding service.
+ *
+ * @see Lookup(const std::string&, std::vector<CService>&, uint16_t, bool, unsigned int, DNSLookupFn)
+ *      for additional parameter descriptions.
+ */
+bool Lookup(const std::string& name, CService& addr, uint16_t portDefault, bool fAllowLookup, DNSLookupFn dns_lookup_function = g_dns_lookup);
+
+/**
+ * Resolve a service string with a numeric IP to its first corresponding
+ * service.
+ *
+ * @returns The resulting CService if the resolution was successful, [::]:0 otherwise.
+ *
+ * @see Lookup(const std::string&, std::vector<CService>&, uint16_t, bool, unsigned int, DNSLookupFn)
+ *      for additional parameter descriptions.
+ */
+CService LookupNumeric(const std::string& name, uint16_t portDefault = 0, DNSLookupFn dns_lookup_function = g_dns_lookup);
+
+/**
+ * Parse and resolve a specified subnet string into the appropriate internal
+ * representation.
+ *
+ * @param[in]  subnet_str  A string representation of a subnet of the form
+ *                         `network address [ "/", ( CIDR-style suffix | netmask ) ]`
+ *                         e.g. "2001:db8::/32", "192.0.2.0/255.255.255.0" or "8.8.8.8".
+ * @param[out] subnet_out  Internal subnet representation, if parsable/resolvable
+ *                         from `subnet_str`.
+ * @returns whether the operation succeeded or not.
+ */
+bool LookupSubNet(const std::string& subnet_str, CSubNet& subnet_out);
+
+/**
+ * Create a TCP socket in the given address family.
+ * @param[in] address_family The socket is created in the same address family as this address.
+ * @return pointer to the created Sock object or unique_ptr that owns nothing in case of failure
+ */
+std::unique_ptr<Sock> CreateSockTCP(const CService& address_family);
+
+/**
+ * Socket factory. Defaults to `CreateSockTCP()`, but can be overridden by unit tests.
+ */
+extern std::function<std::unique_ptr<Sock>(const CService&)> CreateSock;
+
+/**
+ * Try to connect to the specified service on the specified socket.
+ *
+ * @param addrConnect The service to which to connect.
+ * @param sock The socket on which to connect.
+ * @param nTimeout Wait this many milliseconds for the connection to be
+ *                 established.
+ * @param manual_connection Whether or not the connection was manually requested
+ *                          (e.g. through the addnode RPC)
+ *
+ * @returns Whether or not a connection was successfully made.
+ */
+bool ConnectSocketDirectly(const CService &addrConnect, const Sock& sock, int nTimeout, bool manual_connection);
+
+/**
+ * Connect to a specified destination service through a SOCKS5 proxy by first
+ * connecting to the SOCKS5 proxy.
+ *
+ * @param proxy The SOCKS5 proxy.
+ * @param strDest The destination service to which to connect.
+ * @param port The destination port.
+ * @param sock The socket on which to connect to the SOCKS5 proxy.
+ * @param nTimeout Wait this many milliseconds for the connection to the SOCKS5
+ *                 proxy to be established.
+ * @param[out] outProxyConnectionFailed Whether or not the connection to the
+ *                                      SOCKS5 proxy failed.
+ *
+ * @returns Whether or not the operation succeeded.
+ */
+bool ConnectThroughProxy(const proxyType& proxy, const std::string& strDest, uint16_t port, const Sock& sock, int nTimeout, bool& outProxyConnectionFailed);
+
+/** Disable or enable blocking-mode for a socket */
+bool SetSocketNonBlocking(const SOCKET& hSocket, bool fNonBlocking);
+/** Set the TCP_NODELAY flag on a socket */
+bool SetSocketNoDelay(const SOCKET& hSocket);
+void InterruptSocks5(bool interrupt);
+
+/**
+ * Connect to a specified destination service through an already connected
+ * SOCKS5 proxy.
+ *
+ * @param strDest The destination fully-qualified domain name.
+ * @param port The destination port.
+ * @param auth The credentials with which to authenticate with the specified
+ *             SOCKS5 proxy.
+ * @param socket The SOCKS5 proxy socket.
+ *
+ * @returns Whether or not the operation succeeded.
+ *
+ * @note The specified SOCKS5 proxy socket must already be connected to the
+ *       SOCKS5 proxy.
+ *
+ * @see <a href="https://www.ietf.org/rfc/rfc1928.txt">RFC1928: SOCKS Protocol
+ *      Version 5</a>
+ */
+bool Socks5(const std::string& strDest, uint16_t port, const ProxyCredentials* auth, const Sock& socket);
+
+#endif // BITCOIN_NETBASE_H

@@ -1,162 +1,325 @@
-Mac OS X Build Instructions and Notes
-====================================
-This guide will show you how to build bitcoind(headless client) for OSX.
+# macOS Build Guide
 
-Notes
------
+**Updated for MacOS [11.2](https://www.apple.com/macos/big-sur/)**
 
-* See [readme-qt.md](readme-qt.md) for instructions on building Bitcoin-Qt, the
-graphical user interface.
-* Tested on OS X 10.5 through 10.8 on Intel processors only. PPC is not
-supported because it is big-endian.
-* All of the commands should be executed in a Terminal application. The
-built-in one is located in `/Applications/Utilities`.
+This guide describes how to build bitcoind, command-line utilities, and GUI on macOS
 
-Preparation
------------
+**Note:** The following is for Intel Macs only!
 
-You need to install XCode with all the options checked so that the compiler
-and everything is available in /usr not just /Developer. XCode should be
-available on your OS X installation media, but if not, you can get the
-current version from https://developer.apple.com/xcode/. If you install
-Xcode 4.3 or later, you'll need to install its command line tools. This can
-be done in `Xcode > Preferences > Downloads > Components` and generally must
-be re-done or updated every time Xcode is updated.
+## Dependencies
 
-There's an assumption that you already have `git` installed, as well. If
-not, it's the path of least resistance to install [Github for Mac](https://mac.github.com/)
-(OS X 10.7+) or
-[Git for OS X](https://code.google.com/p/git-osx-installer/). It is also
-available via Homebrew or MacPorts.
+The following dependencies are **required**:
 
-You will also need to install [Homebrew](http://mxcl.github.io/homebrew/)
-or [MacPorts](https://www.macports.org/) in order to install library
-dependencies. It's largely a religious decision which to choose, but, as of
-December 2012, MacPorts is a little easier because you can just install the
-dependencies immediately - no other work required. If you're unsure, read
-the instructions through first in order to assess what you want to do.
-Homebrew is a little more popular among those newer to OS X.
+Library                                                    | Purpose    | Description
+-----------------------------------------------------------|------------|----------------------
+[automake](https://formulae.brew.sh/formula/automake)      | Build      | Generate makefile
+[libtool](https://formulae.brew.sh/formula/libtool)        | Build      | Shared library support
+[pkg-config](https://formulae.brew.sh/formula/pkg-config)  | Build      | Configure compiler and linker flags
+[boost](https://formulae.brew.sh/formula/boost)            | Utility    | Library for threading, data structures, etc
+[libevent](https://formulae.brew.sh/formula/libevent)      | Networking | OS independent asynchronous networking
 
-The installation of the actual dependencies is covered in the Instructions
-sections below.
+The following dependencies are **optional**:
 
-Instructions: MacPorts
-----------------------
+Library                                                         | Purpose          | Description
+--------------------------------------------------------------- |------------------|----------------------
+[berkeley-db@4](https://formulae.brew.sh/formula/berkeley-db@4) | Berkeley DB      | Wallet storage (only needed when wallet enabled)
+[qt@5](https://formulae.brew.sh/formula/qt@5)                   | GUI              | GUI toolkit (only needed when GUI enabled)
+[qrencode](https://formulae.brew.sh/formula/qrencode)           | QR codes in GUI  | Generating QR codes (only needed when GUI enabled)
+[zeromq](https://formulae.brew.sh/formula/zeromq)               | ZMQ notification | Allows generating ZMQ notifications (requires ZMQ version >= 4.0.0)
+[sqlite](https://formulae.brew.sh/formula/sqlite)               | SQLite DB        | Wallet storage (only needed when wallet enabled)
+[miniupnpc](https://formulae.brew.sh/formula/miniupnpc)         | UPnP Support     | Firewall-jumping support (needed for port mapping support)
+[libnatpmp](https://formulae.brew.sh/formula/libnatpmp)         | NAT-PMP Support  | Firewall-jumping support (needed for port mapping support)
+[python3](https://formulae.brew.sh/formula/python@3.9)          | Testing          | Python Interpreter (only needed when running the test suite)
 
-### Install dependencies
+The following dependencies are **optional** packages required for deploying:
 
-Installing the dependencies using MacPorts is very straightforward.
+Library                                             | Purpose          | Description
+----------------------------------------------------|------------------|----------------------
+[ds_store](https://pypi.org/project/ds-store/)      | Deploy Dependency| Examine and modify .DS_Store files
+[mac_alias](https://pypi.org/project/mac-alias/)    | Deploy Dependency| Generate/Read binary alias and bookmark records
 
-    sudo port install boost db48@+no_java openssl miniupnpc
+See [dependencies.md](dependencies.md) for a complete overview.
 
-### Building `bitcoind`
+## Preparation
 
-1. Clone the github tree to get the source code and go into the directory.
+The commands in this guide should be executed in a Terminal application.
+macOS comes with a built-in Terminal located in:
 
-        git clone git@github.com:bitcoin/bitcoin.git bitcoin
-        cd bitcoin
+```
+/Applications/Utilities/Terminal.app
+```
 
-2.  Build bitcoind:
+### 1. Xcode Command Line Tools
 
-        cd src
-        make -f makefile.osx
+The Xcode Command Line Tools are a collection of build tools for macOS.
+These tools must be installed in order to build Bitcoin Core from source.
 
-3.  It is a good idea to build and run the unit tests, too:
+To install, run the following command from your terminal:
 
-        make -f makefile.osx test
+``` bash
+xcode-select --install
+```
 
-Instructions: HomeBrew
-----------------------
+Upon running the command, you should see a popup appear.
+Click on `Install` to continue the installation process.
 
-#### Install dependencies using Homebrew
+### 2. Homebrew Package Manager
 
-        brew install boost miniupnpc openssl berkeley-db4
+Homebrew is a package manager for macOS that allows one to install packages from the command line easily.
+While several package managers are available for macOS, this guide will focus on Homebrew as it is the most popular.
+Since the examples in this guide which walk through the installation of a package will use Homebrew, it is recommended that you install it to follow along.
+Otherwise, you can adapt the commands to your package manager of choice.
 
-Note: After you have installed the dependencies, you should check that the Brew installed version of OpenSSL is the one available for compilation. You can check this by typing
+To install the Homebrew package manager, see: https://brew.sh
 
-        openssl version
+Note: If you run into issues while installing Homebrew or pulling packages, refer to [Homebrew's troubleshooting page](https://docs.brew.sh/Troubleshooting).
 
-into Terminal. You should see OpenSSL 1.0.1e 11 Feb 2013.
+### 3. Install Required Dependencies
 
-If not, you can ensure that the Brew OpenSSL is correctly linked by running
+The first step is to download the required dependencies.
+These dependencies represent the packages required to get a barebones installation up and running.
+To install, run the following from your terminal:
 
-        brew link openssl --force
+``` bash
+brew install automake libtool boost pkg-config libevent
+```
 
-Rerunning "openssl version" should now return the correct version.
+### 4. Clone Bitcoin repository
 
-### Building `bitcoind`
+`git` should already be installed by default on your system.
+Now that all the required dependencies are installed, let's clone the Bitcoin Core repository to a directory.
+All build scripts and commands will run from this directory.
 
-1. Clone the github tree to get the source code and go into the directory.
+``` bash
+git clone https://github.com/bitcoin/bitcoin.git
+```
 
-        git clone git@github.com:bitcoin/bitcoin.git bitcoin
-        cd bitcoin
+### 5. Install Optional Dependencies
 
-2.  Modify source in order to pick up the `openssl` library.
+#### Wallet Dependencies
 
-    Edit `makefile.osx` to account for library location differences. There's a
-    diff in `contrib/homebrew/makefile.osx.patch` that shows what you need to
-    change, or you can just patch by doing
+It is not necessary to build wallet functionality to run `bitcoind` or  `bitcoin-qt`.
+To enable legacy wallets, you must install `berkeley-db@4`.
+To enable [descriptor wallets](https://github.com/bitcoin/bitcoin/blob/master/doc/descriptors.md), `sqlite` is required.
+Skip `berkeley-db@4` if you intend to *exclusively* use descriptor wallets.
 
-        patch -p1 < contrib/homebrew/makefile.osx.patch
+###### Legacy Wallet Support
 
-3.  Build bitcoind:
+`berkeley-db@4` is required to enable support for legacy wallets.
+Skip if you don't intend to use legacy wallets.
 
-        cd src
-        make -f makefile.osx
+``` bash
+brew install berkeley-db@4
+```
 
-4.  It is a good idea to build and run the unit tests, too:
+###### Descriptor Wallet Support
 
-        make -f makefile.osx test
+Note: Apple has included a useable `sqlite` package since macOS 10.14.
+You may not need to install this package.
 
-Creating a release build
-------------------------
+`sqlite` is required to enable support for descriptor wallets.
+Skip if you don't intend to use descriptor wallets.
 
-A bitcoind binary is not included in the Bitcoin-Qt.app bundle. You can ignore
-this section if you are building `bitcoind` for your own use.
+``` bash
+brew install sqlite
+```
+---
 
-If you are building `bitcoind` for others, your build machine should be set up
-as follows for maximum compatibility:
+#### GUI Dependencies
 
-All dependencies should be compiled with these flags:
+###### Qt
 
-    -mmacosx-version-min=10.5 -arch i386 -isysroot /Developer/SDKs/MacOSX10.5.sdk
+Bitcoin Core includes a GUI built with the cross-platform Qt Framework.
+To compile the GUI, we need to install `qt@5`.
+Skip if you don't intend to use the GUI.
 
-For MacPorts, that means editing your macports.conf and setting
-`macosx_deployment_target` and `build_arch`:
+``` bash
+brew install qt@5
+```
 
-    macosx_deployment_target=10.5
-    build_arch=i386
+Ensure that the `qt@5` package is installed, not the `qt` package.
+If 'qt' is installed, the build process will fail.
+if installed, remove the `qt` package with the following command:
 
-... and then uninstalling and re-installing, or simply rebuilding, all ports.
+``` bash
+brew uninstall qt
+```
 
-As of December 2012, the `boost` port does not obey `macosx_deployment_target`.
-Download `http://gavinandresen-bitcoin.s3.amazonaws.com/boost_macports_fix.zip`
-for a fix. Some ports also seem to obey either `build_arch` or
-`macosx_deployment_target`, but not both at the same time. For example, building
-on an OS X 10.6 64-bit machine fails. Official release builds of Bitcoin-Qt are
-compiled on an OS X 10.6 32-bit machine to workaround that problem.
+Note: Building with Qt binaries downloaded from the Qt website is not officially supported.
+See the notes in [#7714](https://github.com/bitcoin/bitcoin/issues/7714).
 
-Once dependencies are compiled, creating `Bitcoin-Qt.app` is easy:
+###### qrencode
 
-    make -f Makefile.osx RELEASE=1
+The GUI can encode addresses in a QR Code. To build in QR support for the GUI, install `qrencode`.
+Skip if not using the GUI or don't want QR code functionality.
 
-Running
--------
+``` bash
+brew install qrencode
+```
+---
 
-It's now available at `./bitcoind`, provided that you are still in the `src`
-directory. We have to first create the RPC configuration file, though.
+#### Port Mapping Dependencies
 
-Run `./bitcoind` to get the filename where it should be put, or just try these
-commands:
+###### miniupnpc
 
-    echo -e "rpcuser=bitcoinrpc\nrpcpassword=$(xxd -l 16 -p /dev/urandom)" > "/Users/${USER}/Library/Application Support/Bitcoin/bitcoin.conf"
-    chmod 600 "/Users/${USER}/Library/Application Support/Bitcoin/bitcoin.conf"
+miniupnpc may be used for UPnP port mapping.
+Skip if you do not need this functionality.
 
-When next you run it, it will start downloading the blockchain, but it won't
-output anything while it's doing this. This process may take several hours.
+``` bash
+brew install miniupnpc
+```
 
-Other commands:
+###### libnatpmp
 
-    ./bitcoind --help  # for a list of command-line options.
-    ./bitcoind -daemon # to start the bitcoin daemon.
-    ./bitcoind help    # When the daemon is running, to get a list of RPC commands
+libnatpmp may be used for NAT-PMP port mapping.
+Skip if you do not need this functionality.
+
+``` bash
+brew install libnatpmp
+```
+
+Note: UPnP and NAT-PMP support will be compiled in and disabled by default.
+Check out the [further configuration](#further-configuration) section for more information.
+
+---
+
+#### ZMQ Dependencies
+
+Support for ZMQ notifications requires the following dependency.
+Skip if you do not need ZMQ functionality.
+
+``` bash
+brew install zeromq
+```
+
+ZMQ is automatically compiled in and enabled if the dependency is detected.
+Check out the [further configuration](#further-configuration) section for more information.
+
+For more information on ZMQ, see: [zmq.md](zmq.md)
+
+---
+
+#### Test Suite Dependencies
+
+There is an included test suite that is useful for testing code changes when developing.
+To run the test suite (recommended), you will need to have Python 3 installed:
+
+``` bash
+brew install python
+```
+
+---
+
+#### Deploy Dependencies
+
+You can deploy a `.dmg` containing the Bitcoin Core application using `make deploy`.
+This command depends on a couple of python packages, so it is required that you have `python` installed.
+
+Ensuring that `python` is installed, you can install the deploy dependencies by running the following commands in your terminal:
+
+``` bash
+pip3 install ds_store mac_alias
+```
+
+## Building Bitcoin Core
+
+### 1. Configuration
+
+There are many ways to configure Bitcoin Core, here are a few common examples:
+
+##### Wallet (BDB + SQlite) Support, No GUI:
+
+If `berkeley-db@4` is installed, then legacy wallet support will be built.
+If `berkeley-db@4` is not installed, then this will throw an error.
+If `sqlite` is installed, then descriptor wallet support will also be built.
+Additionally, this explicitly disables the GUI.
+
+``` bash
+./autogen.sh
+./configure --with-gui=no
+```
+
+##### Wallet (only SQlite) and GUI Support:
+
+This explicitly enables the GUI and disables legacy wallet support.
+If `qt` is not installed, this will throw an error.
+If `sqlite` is installed then descriptor wallet functionality will be built.
+If `sqlite` is not installed, then wallet functionality will be disabled.
+
+``` bash
+./autogen.sh
+./configure --without-bdb --with-gui=yes
+```
+
+##### No Wallet or GUI
+
+``` bash
+./autogen.sh
+./configure --without-wallet --with-gui=no
+```
+
+##### Further Configuration
+
+You may want to dig deeper into the configuration options to achieve your desired behavior.
+Examine the output of the following command for a full list of configuration options:
+
+``` bash
+./configure -help
+```
+
+### 2. Compile
+
+After configuration, you are ready to compile.
+Run the following in your terminal to compile Bitcoin Core:
+
+``` bash
+make        # use "-j N" here for N parallel jobs
+make check  # Run tests if Python 3 is available
+```
+
+### 3. Deploy (optional)
+
+You can also create a  `.dmg` containing the `.app` bundle by running the following command:
+
+``` bash
+make deploy
+```
+
+## Running Bitcoin Core
+
+Bitcoin Core should now be available at `./src/bitcoind`.
+If you compiled support for the GUI, it should be available at `./src/qt/bitcoin-qt`.
+
+The first time you run `bitcoind` or `bitcoin-qt`, it will start downloading the blockchain.
+This process could take many hours, or even days on slower than average systems.
+
+By default, blockchain and wallet data files will be stored in:
+
+``` bash
+/Users/${USER}/Library/Application Support/Bitcoin/
+```
+
+Before running, you may create an empty configuration file:
+
+```shell
+mkdir -p "/Users/${USER}/Library/Application Support/Bitcoin"
+
+touch "/Users/${USER}/Library/Application Support/Bitcoin/bitcoin.conf"
+
+chmod 600 "/Users/${USER}/Library/Application Support/Bitcoin/bitcoin.conf"
+```
+
+You can monitor the download process by looking at the debug.log file:
+
+```shell
+tail -f $HOME/Library/Application\ Support/Bitcoin/debug.log
+```
+
+## Other commands:
+
+```shell
+./src/bitcoind -daemon      # Starts the bitcoin daemon.
+./src/bitcoin-cli --help    # Outputs a list of command-line options.
+./src/bitcoin-cli help      # Outputs a list of RPC commands when the daemon is running.
+./src/qt/bitcoin-qt -server # Starts the bitcoin-qt server mode, allows bitcoin-cli control
+```

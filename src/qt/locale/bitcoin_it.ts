@@ -1,179 +1,120 @@
-<?xml version="1.0" ?><!DOCTYPE TS><TS language="it" version="2.0">
-<context>
-    <name>AboutDialog</name>
-    <message>
-        <location filename="../forms/aboutdialog.ui" line="+14"/>
-        <source>About Bitcoin</source>
-        <translation>&amp;Info su Bitcoin</translation>
-    </message>
-    <message>
-        <location line="+39"/>
-        <source>&lt;b&gt;Bitcoin&lt;/b&gt; version</source>
-        <translation>Versione di &lt;b&gt;Bitcoin&lt;/b&gt;</translation>
-    </message>
-    <message>
-        <location line="+57"/>
-        <source>
-This is experimental software.
-
-Distributed under the MIT/X11 software license, see the accompanying file COPYING or http://www.opensource.org/licenses/mit-license.php.
-
-This product includes software developed by the OpenSSL Project for use in the OpenSSL Toolkit (http://www.openssl.org/) and cryptographic software written by Eric Young (eay@cryptsoft.com) and UPnP software written by Thomas Bernard.</source>
-        <translation>
-Questo è un software sperimentale.
-
-Distribuito sotto la licenza software MIT/X11, vedi il file COPYING incluso oppure su http://www.opensource.org/licenses/mit-license.php.
-
-Questo prodotto include software sviluppato dal progetto OpenSSL per l&apos;uso del Toolkit OpenSSL (http://www.openssl.org/), software crittografico scritto da Eric Young (eay@cryptsoft.com) e software UPnP scritto da Thomas Bernard.</translation>
-    </message>
-    <message>
-        <location filename="../aboutdialog.cpp" line="+14"/>
-        <source>Copyright</source>
-        <translation>Copyright</translation>
-    </message>
-    <message>
-        <location line="+0"/>
-        <source>The Bitcoin developers</source>
-        <translation>Sviluppatori di Bitcoin</translation>
-    </message>
-</context>
+<TS language="it" version="2.1">
 <context>
     <name>AddressBookPage</name>
     <message>
-        <location filename="../forms/addressbookpage.ui" line="+14"/>
-        <source>Address Book</source>
-        <translation>Rubrica</translation>
+        <source>Right-click to edit address or label</source>
+        <translation>Fai clic con il tasto destro del mouse per modificare l'indirizzo oppure l'etichetta</translation>
     </message>
     <message>
-        <location line="+19"/>
-        <source>Double-click to edit address or label</source>
-        <translation>Fai doppio click per modificare o cancellare l&apos;etichetta</translation>
-    </message>
-    <message>
-        <location line="+27"/>
         <source>Create a new address</source>
         <translation>Crea un nuovo indirizzo</translation>
     </message>
     <message>
-        <location line="+14"/>
+        <source>&amp;New</source>
+        <translation>&amp;Nuovo</translation>
+    </message>
+    <message>
         <source>Copy the currently selected address to the system clipboard</source>
-        <translation>Copia l&apos;indirizzo attualmente selezionato nella clipboard</translation>
+        <translation>Copia negli appunti del sistema l'indirizzo attualmente selezionato</translation>
     </message>
     <message>
-        <location line="-11"/>
-        <source>&amp;New Address</source>
-        <translation>&amp;Nuovo indirizzo</translation>
+        <source>&amp;Copy</source>
+        <translation>&amp;Copia</translation>
     </message>
     <message>
-        <location filename="../addressbookpage.cpp" line="+63"/>
-        <source>These are your Bitcoin addresses for receiving payments. You may want to give a different one to each sender so you can keep track of who is paying you.</source>
-        <translation>Questi sono i tuoi indirizzi Bitcoin per ricevere pagamenti. Potrai darne uno diverso ad ognuno per tenere così traccia di chi ti sta pagando.</translation>
+        <source>C&amp;lose</source>
+        <translation>C&amp;hiudi</translation>
     </message>
     <message>
-        <location filename="../forms/addressbookpage.ui" line="+14"/>
-        <source>&amp;Copy Address</source>
-        <translation>&amp;Copia l&apos;indirizzo</translation>
-    </message>
-    <message>
-        <location line="+11"/>
-        <source>Show &amp;QR Code</source>
-        <translation>Mostra il codice &amp;QR</translation>
-    </message>
-    <message>
-        <location line="+11"/>
-        <source>Sign a message to prove you own a Bitcoin address</source>
-        <translation>Firma un messaggio per dimostrare di possedere questo indirizzo</translation>
-    </message>
-    <message>
-        <location line="+3"/>
-        <source>Sign &amp;Message</source>
-        <translation>Firma il &amp;messaggio</translation>
-    </message>
-    <message>
-        <location line="+25"/>
         <source>Delete the currently selected address from the list</source>
-        <translation>Cancella l&apos;indirizzo attualmente selezionato dalla lista</translation>
+        <translation>Rimuovi dalla lista l'indirizzo attualmente selezionato</translation>
     </message>
     <message>
-        <location line="+27"/>
+        <source>Enter address or label to search</source>
+        <translation>Inserisci un indirizzo o un'etichetta da cercare</translation>
+    </message>
+    <message>
         <source>Export the data in the current tab to a file</source>
-        <translation>Esporta i dati nella tabella corrente su un file</translation>
+        <translation>Esporta su file i dati contenuti nella tabella corrente</translation>
     </message>
     <message>
-        <location line="+3"/>
         <source>&amp;Export</source>
         <translation>&amp;Esporta</translation>
     </message>
     <message>
-        <location line="-44"/>
-        <source>Verify a message to ensure it was signed with a specified Bitcoin address</source>
-        <translation>Verifica un messaggio per accertarsi che sia firmato con un indirizzo Bitcoin specifico</translation>
-    </message>
-    <message>
-        <location line="+3"/>
-        <source>&amp;Verify Message</source>
-        <translation>&amp;Verifica Messaggio</translation>
-    </message>
-    <message>
-        <location line="+14"/>
         <source>&amp;Delete</source>
-        <translation>&amp;Cancella</translation>
+        <translation>&amp;Elimina</translation>
     </message>
     <message>
-        <location filename="../addressbookpage.cpp" line="-5"/>
+        <source>Choose the address to send coins to</source>
+        <translation>Scegli l'indirizzo a cui inviare bitcoin</translation>
+    </message>
+    <message>
+        <source>Choose the address to receive coins with</source>
+        <translation>Scegli l'indirizzo su cui ricevere bitcoin.</translation>
+    </message>
+    <message>
+        <source>C&amp;hoose</source>
+        <translation>Sc&amp;egli</translation>
+    </message>
+    <message>
+        <source>Sending addresses</source>
+        <translation>Indirizzi d'invio</translation>
+    </message>
+    <message>
+        <source>Receiving addresses</source>
+        <translation>Indirizzi di ricezione</translation>
+    </message>
+    <message>
         <source>These are your Bitcoin addresses for sending payments. Always check the amount and the receiving address before sending coins.</source>
-        <translation>Questi sono i tuoi indirizzi Bitcoin per inviare pagamenti. Controlla sempre l&apos;importo e l&apos;indirizzo del beneficiario prima di inviare  bitcoin</translation>
+        <translation>Questi sono i tuoi indirizzi Bitcoin per l'invio di pagamenti. Controlla sempre l'importo e l'indirizzo del beneficiario prima di inviare bitcoin.</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <source>These are your Bitcoin addresses for receiving payments. Use the 'Create new receiving address' button in the receive tab to create new addresses.
+Signing is only possible with addresses of the type 'legacy'.</source>
+        <translation>Questi sono i tuoi indirizzi Bitcoin per ricevere pagamenti. Usa il tasto "Crea nuovo indirizzo ricevente" nella schermata "Ricevi" per creare nuovi indirizzi.
+E' possibile firmare solo con indirizzi di tipo "legacy".</translation>
+    </message>
+    <message>
+        <source>&amp;Copy Address</source>
+        <translation>&amp;Copia indirizzo</translation>
+    </message>
+    <message>
         <source>Copy &amp;Label</source>
-        <translation>Copia &amp;l&apos;etichetta</translation>
+        <translation>Copia &amp;etichetta</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>&amp;Edit</source>
         <translation>&amp;Modifica</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Send &amp;Coins</source>
-        <translation>Invia &amp;Bitcoin</translation>
+        <source>Export Address List</source>
+        <translation>Esporta elenco degli indirizzi</translation>
     </message>
     <message>
-        <location line="+265"/>
-        <source>Export Address Book Data</source>
-        <translation>Esporta gli indirizzi della rubrica</translation>
-    </message>
-    <message>
-        <location line="+1"/>
         <source>Comma separated file (*.csv)</source>
-        <translation>Testo CSV (*.csv)</translation>
+        <translation>File diviso da virgole  (*.csv)</translation>
     </message>
     <message>
-        <location line="+13"/>
-        <source>Error exporting</source>
-        <translation>Errore nell&apos;esportazione</translation>
+        <source>Exporting Failed</source>
+        <translation>Esportazione fallita</translation>
     </message>
     <message>
-        <location line="+0"/>
-        <source>Could not write to file %1.</source>
-        <translation>Impossibile scrivere sul file %1.</translation>
+        <source>There was an error trying to save the address list to %1. Please try again.</source>
+        <translation>Si è verificato un errore nel salvare l'elenco degli indirizzi su %1. Provare di nuovo.</translation>
     </message>
 </context>
 <context>
     <name>AddressTableModel</name>
     <message>
-        <location filename="../addresstablemodel.cpp" line="+144"/>
         <source>Label</source>
         <translation>Etichetta</translation>
     </message>
     <message>
-        <location line="+0"/>
         <source>Address</source>
         <translation>Indirizzo</translation>
     </message>
     <message>
-        <location line="+36"/>
         <source>(no label)</source>
         <translation>(nessuna etichetta)</translation>
     </message>
@@ -181,577 +122,820 @@ Questo prodotto include software sviluppato dal progetto OpenSSL per l&apos;uso 
 <context>
     <name>AskPassphraseDialog</name>
     <message>
-        <location filename="../forms/askpassphrasedialog.ui" line="+26"/>
         <source>Passphrase Dialog</source>
         <translation>Finestra passphrase</translation>
     </message>
     <message>
-        <location line="+21"/>
         <source>Enter passphrase</source>
         <translation>Inserisci la passphrase</translation>
     </message>
     <message>
-        <location line="+14"/>
         <source>New passphrase</source>
         <translation>Nuova passphrase</translation>
     </message>
     <message>
-        <location line="+14"/>
         <source>Repeat new passphrase</source>
-        <translation>Ripeti la passphrase</translation>
+        <translation>Ripeti la nuova passphrase</translation>
     </message>
     <message>
-        <location filename="../askpassphrasedialog.cpp" line="+33"/>
-        <source>Enter the new passphrase to the wallet.&lt;br/&gt;Please use a passphrase of &lt;b&gt;10 or more random characters&lt;/b&gt;, or &lt;b&gt;eight or more words&lt;/b&gt;.</source>
-        <translation>Inserisci la passphrase per il portamonete.&lt;br/&gt;Per piacere usare unapassphrase di &lt;b&gt;10 o più caratteri casuali&lt;/b&gt;, o &lt;b&gt;otto o più parole&lt;/b&gt;.</translation>
+        <source>Show passphrase</source>
+        <translation>Mostra passphrase</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Encrypt wallet</source>
-        <translation>Cifra il portamonete</translation>
+        <translation>Cifra il portafoglio</translation>
     </message>
     <message>
-        <location line="+3"/>
         <source>This operation needs your wallet passphrase to unlock the wallet.</source>
-        <translation>Quest&apos;operazione necessita della passphrase per sbloccare il portamonete.</translation>
+        <translation>Questa operazione necessita della passphrase per sbloccare il portafoglio.</translation>
     </message>
     <message>
-        <location line="+5"/>
         <source>Unlock wallet</source>
-        <translation>Sblocca il portamonete</translation>
+        <translation>Sblocca il portafoglio</translation>
     </message>
     <message>
-        <location line="+3"/>
         <source>This operation needs your wallet passphrase to decrypt the wallet.</source>
-        <translation>Quest&apos;operazione necessita della passphrase per decifrare il portamonete,</translation>
+        <translation>Questa operazione necessita della passphrase per decifrare il portafoglio.</translation>
     </message>
     <message>
-        <location line="+5"/>
         <source>Decrypt wallet</source>
-        <translation>Decifra il portamonete</translation>
+        <translation>Decifra il portafoglio</translation>
     </message>
     <message>
-        <location line="+3"/>
         <source>Change passphrase</source>
         <translation>Cambia la passphrase</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Enter the old and new passphrase to the wallet.</source>
-        <translation>Inserisci la vecchia e la nuova passphrase per il portamonete.</translation>
-    </message>
-    <message>
-        <location line="+46"/>
         <source>Confirm wallet encryption</source>
-        <translation>Conferma la cifratura del portamonete</translation>
+        <translation>Conferma la cifratura del portafoglio</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Warning: If you encrypt your wallet and lose your passphrase, you will &lt;b&gt;LOSE ALL OF YOUR BITCOINS&lt;/b&gt;!</source>
-        <translation>Attenzione: se si cifra il portamonete e si perde la frase d&apos;ordine, &lt;b&gt;SI PERDERANNO TUTTI I PROPRI BITCOIN&lt;/b&gt;!</translation>
+        <translation>Attenzione: Se si cifra il portafoglio e si perde la passphrase &lt;b&gt;TUTTI I PROPRI BITCOIN ANDRANNO PERSI&lt;/b&gt;!</translation>
     </message>
     <message>
-        <location line="+0"/>
         <source>Are you sure you wish to encrypt your wallet?</source>
-        <translation>Si è sicuri di voler cifrare il portamonete?</translation>
+        <translation>Sei sicuro di voler cifrare il portafoglio?</translation>
     </message>
     <message>
-        <location line="+15"/>
-        <source>IMPORTANT: Any previous backups you have made of your wallet file should be replaced with the newly generated, encrypted wallet file. For security reasons, previous backups of the unencrypted wallet file will become useless as soon as you start using the new, encrypted wallet.</source>
-        <translation>IMPORTANTE: qualsiasi backup del portafoglio effettuato precedentemente dovrebbe essere sostituito con il file del portafoglio criptato appena generato. Per ragioni di sicurezza, i backup precedenti del file del portafoglio non criptato diventeranno inservibili non appena si inizi ad usare il nuovo portafoglio criptato.</translation>
-    </message>
-    <message>
-        <location line="+100"/>
-        <location line="+24"/>
-        <source>Warning: The Caps Lock key is on!</source>
-        <translation>Attenzione: tasto Blocco maiuscole attivo.</translation>
-    </message>
-    <message>
-        <location line="-130"/>
-        <location line="+58"/>
         <source>Wallet encrypted</source>
-        <translation>Portamonete cifrato</translation>
+        <translation>Portafoglio cifrato</translation>
     </message>
     <message>
-        <location line="-56"/>
-        <source>Bitcoin will close now to finish the encryption process. Remember that encrypting your wallet cannot fully protect your bitcoins from being stolen by malware infecting your computer.</source>
-        <translation>Bitcoin verrà ora chiuso per finire il processo di crittazione. Ricorda che criptare il tuo portamonete non può fornire una protezione totale contro furti causati da malware che dovessero infettare il tuo computer.</translation>
+        <source>Enter the new passphrase for the wallet.&lt;br/&gt;Please use a passphrase of &lt;b&gt;ten or more random characters&lt;/b&gt;, or &lt;b&gt;eight or more words&lt;/b&gt;.</source>
+        <translation>Inserisci la nuova passphrase per il portafoglio. Assicurati di usare una passphrase di dieci o più caratteri casuali, oppure otto o più parole.</translation>
     </message>
     <message>
-        <location line="+13"/>
-        <location line="+7"/>
-        <location line="+42"/>
-        <location line="+6"/>
+        <source>Enter the old passphrase and new passphrase for the wallet.</source>
+        <translation>Inserisci la vecchia passphrase e la nuova passphrase per il portafoglio.</translation>
+    </message>
+    <message>
+        <source>Remember that encrypting your wallet cannot fully protect your bitcoins from being stolen by malware infecting your computer.</source>
+        <translation>Ricorda che la cifratura del portamonete non protegge del tutto i tuoi bitcoin dal furto da parte di malware che infettasse il tuo computer.</translation>
+    </message>
+    <message>
+        <source>Wallet to be encrypted</source>
+        <translation>Portafoglio  da criptare.</translation>
+    </message>
+    <message>
+        <source>Your wallet is about to be encrypted. </source>
+        <translation>Il tuo portafoglio sta per essere criptato.</translation>
+    </message>
+    <message>
+        <source>Your wallet is now encrypted. </source>
+        <translation>Il tuo portafoglio è ora criptato.</translation>
+    </message>
+    <message>
+        <source>IMPORTANT: Any previous backups you have made of your wallet file should be replaced with the newly generated, encrypted wallet file. For security reasons, previous backups of the unencrypted wallet file will become useless as soon as you start using the new, encrypted wallet.</source>
+        <translation>IMPORTANTE: qualsiasi backup del portafoglio effettuato in precedenza dovrà essere sostituito con il file del portafoglio cifrato appena generato. Per ragioni di sicurezza, i precedenti backup del file del portafoglio non cifrato diventeranno inservibili non appena si inizierà ad utilizzare il nuovo portafoglio cifrato.</translation>
+    </message>
+    <message>
         <source>Wallet encryption failed</source>
-        <translation>Cifratura del portamonete fallita</translation>
+        <translation>Cifratura portafoglio fallita</translation>
     </message>
     <message>
-        <location line="-54"/>
         <source>Wallet encryption failed due to an internal error. Your wallet was not encrypted.</source>
-        <translation>Cifratura del portamonete fallita a causa di un errore interno. Il portamonete non è stato cifrato.</translation>
+        <translation>La cifratura del portafoglio non è riuscita a causa di un errore interno. Il portafoglio personale non è stato cifrato.</translation>
     </message>
     <message>
-        <location line="+7"/>
-        <location line="+48"/>
         <source>The supplied passphrases do not match.</source>
-        <translation>Le passphrase inserite non corrispondono.</translation>
+        <translation>Le passphrase fornite non corrispondono.</translation>
     </message>
     <message>
-        <location line="-37"/>
         <source>Wallet unlock failed</source>
-        <translation>Sblocco del portamonete fallito</translation>
+        <translation>Sbloccaggio del portafoglio fallito</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <location line="+11"/>
-        <location line="+19"/>
         <source>The passphrase entered for the wallet decryption was incorrect.</source>
-        <translation>La passphrase inserita per la decifrazione del portamonete è errata.</translation>
+        <translation>La passphrase inserita per decifrare il tuo portafoglio non è corretta.</translation>
     </message>
     <message>
-        <location line="-20"/>
         <source>Wallet decryption failed</source>
-        <translation>Decifrazione del portamonete fallita</translation>
+        <translation>Decrittazione del portafoglio fallita.</translation>
     </message>
     <message>
-        <location line="+14"/>
         <source>Wallet passphrase was successfully changed.</source>
-        <translation>Passphrase del portamonete modificata con successo.</translation>
+        <translation>La modifica della passphrase del portafoglio è riuscita.</translation>
+    </message>
+    <message>
+        <source>Warning: The Caps Lock key is on!</source>
+        <translation>Attenzione: è attivo il tasto Blocco maiuscole (Caps lock)!</translation>
+    </message>
+</context>
+<context>
+    <name>BanTableModel</name>
+    <message>
+        <source>IP/Netmask</source>
+        <translation>IP/Netmask</translation>
+    </message>
+    <message>
+        <source>Banned Until</source>
+        <translation>Bannato fino a</translation>
     </message>
 </context>
 <context>
     <name>BitcoinGUI</name>
     <message>
-        <location filename="../bitcoingui.cpp" line="+254"/>
         <source>Sign &amp;message...</source>
-        <translation>Firma il &amp;messaggio...</translation>
+        <translation>Firma &amp;messaggio...</translation>
     </message>
     <message>
-        <location line="+246"/>
         <source>Synchronizing with network...</source>
-        <translation>Sto sincronizzando con la rete...</translation>
+        <translation>Sincronizzazione con la rete in corso...</translation>
     </message>
     <message>
-        <location line="-321"/>
         <source>&amp;Overview</source>
         <translation>&amp;Sintesi</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Show general overview of wallet</source>
         <translation>Mostra lo stato generale del portamonete</translation>
     </message>
     <message>
-        <location line="+20"/>
         <source>&amp;Transactions</source>
         <translation>&amp;Transazioni</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Browse transaction history</source>
-        <translation>Cerca nelle transazioni</translation>
+        <translation>Mostra la cronologia delle transazioni</translation>
     </message>
     <message>
-        <location line="+7"/>
-        <source>Edit the list of stored addresses and labels</source>
-        <translation>Modifica la lista degli indirizzi salvati e delle etichette</translation>
-    </message>
-    <message>
-        <location line="-14"/>
-        <source>Show the list of addresses for receiving payments</source>
-        <translation>Mostra la lista di indirizzi su cui ricevere pagamenti</translation>
-    </message>
-    <message>
-        <location line="+31"/>
         <source>E&amp;xit</source>
         <translation>&amp;Esci</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Quit application</source>
         <translation>Chiudi applicazione</translation>
     </message>
     <message>
-        <location line="+7"/>
-        <source>Show information about Bitcoin</source>
-        <translation>Mostra informazioni su Bitcoin</translation>
+        <source>&amp;About %1</source>
+        <translation>&amp;Informazioni su %1</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <source>Show information about %1</source>
+        <translation>Mostra informazioni su %1</translation>
+    </message>
+    <message>
         <source>About &amp;Qt</source>
         <translation>Informazioni su &amp;Qt</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Show information about Qt</source>
-        <translation>Mostra informazioni su Qt</translation>
+        <translation>Mostra le informazioni su Qt</translation>
     </message>
     <message>
-        <location line="+2"/>
         <source>&amp;Options...</source>
         <translation>&amp;Opzioni...</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <source>Modify configuration options for %1</source>
+        <translation>Modifica le opzioni di configurazione per %1</translation>
+    </message>
+    <message>
         <source>&amp;Encrypt Wallet...</source>
-        <translation>&amp;Cifra il portamonete...</translation>
+        <translation>&amp;Cifra portafoglio...</translation>
     </message>
     <message>
-        <location line="+3"/>
         <source>&amp;Backup Wallet...</source>
-        <translation>&amp;Backup Portamonete...</translation>
+        <translation>&amp;Backup portafoglio...</translation>
     </message>
     <message>
-        <location line="+2"/>
         <source>&amp;Change Passphrase...</source>
-        <translation>&amp;Cambia la passphrase...</translation>
+        <translation>&amp;Cambia passphrase...</translation>
     </message>
     <message>
-        <location line="+251"/>
-        <source>Importing blocks from disk...</source>
-        <translation>Importa blocchi dal disco...</translation>
+        <source>Open &amp;URI...</source>
+        <translation>Apri &amp;URI...</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <source>Create Wallet...</source>
+        <translation>Crea Portafoglio...</translation>
+    </message>
+    <message>
+        <source>Create a new wallet</source>
+        <translation>Crea un nuovo portafoglio</translation>
+    </message>
+    <message>
+        <source>Wallet:</source>
+        <translation>Portafoglio:</translation>
+    </message>
+    <message>
+        <source>Click to disable network activity.</source>
+        <translation>Clicca per disattivare la rete.</translation>
+    </message>
+    <message>
+        <source>Network activity disabled.</source>
+        <translation>Attività di rete disabilitata</translation>
+    </message>
+    <message>
+        <source>Click to enable network activity again.</source>
+        <translation>Clicca per abilitare nuovamente l'attività di rete</translation>
+    </message>
+    <message>
+        <source>Syncing Headers (%1%)...</source>
+        <translation>Sincronizzazione Headers (%1%)...</translation>
+    </message>
+    <message>
         <source>Reindexing blocks on disk...</source>
         <translation>Re-indicizzazione blocchi su disco...</translation>
     </message>
     <message>
-        <location line="-319"/>
+        <source>Proxy is &lt;b&gt;enabled&lt;/b&gt;: %1</source>
+        <translation>Il Proxy è &lt;b&gt;abilitato&lt;/b&gt;:%1</translation>
+    </message>
+    <message>
         <source>Send coins to a Bitcoin address</source>
-        <translation>Invia monete ad un indirizzo bitcoin</translation>
+        <translation>Invia fondi ad un indirizzo Bitcoin</translation>
     </message>
     <message>
-        <location line="+52"/>
-        <source>Modify configuration options for Bitcoin</source>
-        <translation>Modifica configurazione opzioni per bitcoin</translation>
-    </message>
-    <message>
-        <location line="+12"/>
         <source>Backup wallet to another location</source>
-        <translation>Backup portamonete in un&apos;altra locazione</translation>
+        <translation>Effettua il backup del portafoglio</translation>
     </message>
     <message>
-        <location line="+2"/>
         <source>Change the passphrase used for wallet encryption</source>
-        <translation>Cambia la passphrase per la cifratura del portamonete</translation>
+        <translation>Cambia la passphrase utilizzata per la cifratura del portafoglio</translation>
     </message>
     <message>
-        <location line="+6"/>
-        <source>&amp;Debug window</source>
-        <translation>Finestra &amp;Debug</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Open debugging and diagnostic console</source>
-        <translation>Apri la console di degugging e diagnostica</translation>
-    </message>
-    <message>
-        <location line="-4"/>
         <source>&amp;Verify message...</source>
         <translation>&amp;Verifica messaggio...</translation>
     </message>
     <message>
-        <location line="-183"/>
-        <location line="+6"/>
-        <location line="+508"/>
-        <source>Bitcoin</source>
-        <translation>Bitcoin</translation>
-    </message>
-    <message>
-        <location line="-514"/>
-        <location line="+6"/>
-        <source>Wallet</source>
-        <translation>Portamonete</translation>
-    </message>
-    <message>
-        <location line="+107"/>
         <source>&amp;Send</source>
-        <translation>&amp;Spedisci</translation>
+        <translation>&amp;Invia</translation>
     </message>
     <message>
-        <location line="+7"/>
         <source>&amp;Receive</source>
         <translation>&amp;Ricevi</translation>
     </message>
     <message>
-        <location line="+14"/>
-        <source>&amp;Addresses</source>
-        <translation>&amp;Indirizzi</translation>
-    </message>
-    <message>
-        <location line="+23"/>
-        <location line="+2"/>
-        <source>&amp;About Bitcoin</source>
-        <translation>&amp;Info su Bitcoin</translation>
-    </message>
-    <message>
-        <location line="+10"/>
-        <location line="+2"/>
         <source>&amp;Show / Hide</source>
-        <translation>&amp;Mostra/Nascondi</translation>
+        <translation>&amp;Mostra / Nascondi</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Show or hide the main Window</source>
         <translation>Mostra o nascondi la Finestra principale</translation>
     </message>
     <message>
-        <location line="+3"/>
         <source>Encrypt the private keys that belong to your wallet</source>
-        <translation>Crittografa le chiavi private che appartengono al tuo portafoglio</translation>
+        <translation>Cifra le chiavi private che appartengono al tuo portamonete</translation>
     </message>
     <message>
-        <location line="+7"/>
         <source>Sign messages with your Bitcoin addresses to prove you own them</source>
-        <translation>Firma i messaggi con il tuo indirizzo Bitcoin per dimostrare di possederli</translation>
+        <translation>Firma messaggi con i tuoi indirizzi Bitcoin per dimostrarne il possesso</translation>
     </message>
     <message>
-        <location line="+2"/>
         <source>Verify messages to ensure they were signed with specified Bitcoin addresses</source>
-        <translation>Verifica i messaggi per accertarsi che siano stati firmati con gli indirizzi Bitcoin specificati</translation>
+        <translation>Verifica che i messaggi siano stati firmati con gli indirizzi Bitcoin specificati</translation>
     </message>
     <message>
-        <location line="+28"/>
         <source>&amp;File</source>
         <translation>&amp;File</translation>
     </message>
     <message>
-        <location line="+7"/>
         <source>&amp;Settings</source>
         <translation>&amp;Impostazioni</translation>
     </message>
     <message>
-        <location line="+6"/>
         <source>&amp;Help</source>
         <translation>&amp;Aiuto</translation>
     </message>
     <message>
-        <location line="+9"/>
         <source>Tabs toolbar</source>
-        <translation>Barra degli strumenti &quot;Tabs&quot;</translation>
+        <translation>Barra degli strumenti</translation>
     </message>
     <message>
-        <location line="-228"/>
-        <location line="+288"/>
-        <source>[testnet]</source>
-        <translation>[testnet]</translation>
+        <source>Request payments (generates QR codes and bitcoin: URIs)</source>
+        <translation>Richiedi pagamenti (genera codici QR e bitcoin: URI)</translation>
     </message>
     <message>
-        <location line="-5"/>
-        <location line="+5"/>
-        <source>Bitcoin client</source>
-        <translation>Bitcoin client</translation>
+        <source>Show the list of used sending addresses and labels</source>
+        <translation>Mostra la lista degli indirizzi di invio utilizzati</translation>
+    </message>
+    <message>
+        <source>Show the list of used receiving addresses and labels</source>
+        <translation>Mostra la lista degli indirizzi di ricezione utilizzati</translation>
+    </message>
+    <message>
+        <source>&amp;Command-line options</source>
+        <translation>Opzioni della riga di &amp;comando</translation>
     </message>
     <message numerus="yes">
-        <location line="+121"/>
         <source>%n active connection(s) to Bitcoin network</source>
-        <translation><numerusform>%n connessione attiva alla rete Bitcoin</numerusform><numerusform>%n connessioni attive alla rete Bitcoin</numerusform></translation>
+        <translation><numerusform>%n connessione attiva alla rete Bitcoin</numerusform><numerusform>%n connessioni alla rete Bitcoin attive</numerusform></translation>
     </message>
     <message>
-        <location line="+22"/>
-        <source>No block source available...</source>
-        <translation>Nessun blocco di codice sorgente disponibile</translation>
+        <source>Indexing blocks on disk...</source>
+        <translation>Indicizzando i blocchi su disco...</translation>
     </message>
     <message>
-        <location line="+12"/>
-        <source>Processed %1 of %2 (estimated) blocks of transaction history.</source>
-        <translation>Processati %1 di %2 (circa) blocchi della cronologia transazioni.</translation>
-    </message>
-    <message>
-        <location line="+4"/>
-        <source>Processed %1 blocks of transaction history.</source>
-        <translation>Processati %1 blocchi della cronologia transazioni.</translation>
+        <source>Processing blocks on disk...</source>
+        <translation>Elaborazione dei blocchi su disco...</translation>
     </message>
     <message numerus="yes">
-        <location line="+20"/>
-        <source>%n hour(s)</source>
-        <translation><numerusform>%n ora</numerusform><numerusform>%n ore</numerusform></translation>
-    </message>
-    <message numerus="yes">
-        <location line="+4"/>
-        <source>%n day(s)</source>
-        <translation><numerusform>%n giorno</numerusform><numerusform>%n giorni</numerusform></translation>
-    </message>
-    <message numerus="yes">
-        <location line="+4"/>
-        <source>%n week(s)</source>
-        <translation><numerusform>%n settimana</numerusform><numerusform>%n settimane</numerusform></translation>
+        <source>Processed %n block(s) of transaction history.</source>
+        <translation><numerusform>Elaborato %n blocco dello storico transazioni.</numerusform><numerusform>Elaborati %n blocchi dello storico delle transazioni.</numerusform></translation>
     </message>
     <message>
-        <location line="+4"/>
         <source>%1 behind</source>
-        <translation>%1 dietro</translation>
+        <translation>Indietro di %1</translation>
     </message>
     <message>
-        <location line="+14"/>
         <source>Last received block was generated %1 ago.</source>
-        <translation>L&apos;ultimo blocco ricevuto è stato generato %1 fa.</translation>
+        <translation>L'ultimo blocco ricevuto è stato generato %1 fa.</translation>
     </message>
     <message>
-        <location line="+2"/>
         <source>Transactions after this will not yet be visible.</source>
-        <translation>Transazioni successive a questa non saranno ancora visibili.</translation>
+        <translation>Le transazioni effettuate successivamente non sono ancora visibili.</translation>
     </message>
     <message>
-        <location line="+22"/>
         <source>Error</source>
         <translation>Errore</translation>
     </message>
     <message>
-        <location line="+3"/>
         <source>Warning</source>
         <translation>Attenzione</translation>
     </message>
     <message>
-        <location line="+3"/>
         <source>Information</source>
         <translation>Informazioni</translation>
     </message>
     <message>
-        <location line="+70"/>
-        <source>This transaction is over the size limit. You can still send it for a fee of %1, which goes to the nodes that process your transaction and helps to support the network. Do you want to pay the fee?</source>
-        <translation>Questa transazione è superiore al limite di dimensione. È comunque possibile inviarla con una commissione di %1, che va ai nodi che processano la tua transazione e contribuisce a sostenere la rete. Vuoi pagare la commissione?</translation>
-    </message>
-    <message>
-        <location line="-140"/>
         <source>Up to date</source>
         <translation>Aggiornato</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <source>&amp;Load PSBT from file...</source>
+        <translation>&amp;Carica PSBT da file...</translation>
+    </message>
+    <message>
+        <source>Load Partially Signed Bitcoin Transaction</source>
+        <translation>Carica Partially Signed Bitcoin Transaction</translation>
+    </message>
+    <message>
+        <source>Load PSBT from clipboard...</source>
+        <translation>Carica PSBT dagli appunti...</translation>
+    </message>
+    <message>
+        <source>Load Partially Signed Bitcoin Transaction from clipboard</source>
+        <translation>Carica Partially Signed Bitcoin Transaction dagli appunti</translation>
+    </message>
+    <message>
+        <source>Node window</source>
+        <translation>Finestra del nodo</translation>
+    </message>
+    <message>
+        <source>Open node debugging and diagnostic console</source>
+        <translation>Apri il debug del nodo e la console diagnostica</translation>
+    </message>
+    <message>
+        <source>&amp;Sending addresses</source>
+        <translation>Indirizzi di &amp;spedizione</translation>
+    </message>
+    <message>
+        <source>&amp;Receiving addresses</source>
+        <translation>Indirizzi di &amp;ricezione</translation>
+    </message>
+    <message>
+        <source>Open a bitcoin: URI</source>
+        <translation>Apri un bitcoin: URI</translation>
+    </message>
+    <message>
+        <source>Open Wallet</source>
+        <translation>Apri il Portafoglio</translation>
+    </message>
+    <message>
+        <source>Open a wallet</source>
+        <translation>Apri un portafoglio</translation>
+    </message>
+    <message>
+        <source>Close Wallet...</source>
+        <translation>Chiudi il Portafoglio...</translation>
+    </message>
+    <message>
+        <source>Close wallet</source>
+        <translation>Chiudi il portafoglio</translation>
+    </message>
+    <message>
+        <source>Close All Wallets...</source>
+        <translation>Chiudi Tutti i Portafogli...</translation>
+    </message>
+    <message>
+        <source>Close all wallets</source>
+        <translation>Chiudi tutti i portafogli</translation>
+    </message>
+    <message>
+        <source>Show the %1 help message to get a list with possible Bitcoin command-line options</source>
+        <translation>Mostra il messaggio di aiuto di %1 per ottenere una lista di opzioni di comando per Bitcoin</translation>
+    </message>
+    <message>
+        <source>&amp;Mask values</source>
+        <translation>&amp;Valori della maschera</translation>
+    </message>
+    <message>
+        <source>Mask the values in the Overview tab</source>
+        <translation>Maschera i valori nella sezione "Panoramica"</translation>
+    </message>
+    <message>
+        <source>default wallet</source>
+        <translation>Portafoglio predefinito:</translation>
+    </message>
+    <message>
+        <source>No wallets available</source>
+        <translation>Nessun portafoglio disponibile</translation>
+    </message>
+    <message>
+        <source>&amp;Window</source>
+        <translation>&amp;Finestra</translation>
+    </message>
+    <message>
+        <source>Minimize</source>
+        <translation>Minimizza</translation>
+    </message>
+    <message>
+        <source>Zoom</source>
+        <translation>Zoom</translation>
+    </message>
+    <message>
+        <source>Main Window</source>
+        <translation>Finestra principale</translation>
+    </message>
+    <message>
+        <source>%1 client</source>
+        <translation>%1 client</translation>
+    </message>
+    <message>
+        <source>Connecting to peers...</source>
+        <translation>Connessione ai peers</translation>
+    </message>
+    <message>
         <source>Catching up...</source>
         <translation>In aggiornamento...</translation>
     </message>
     <message>
-        <location line="+113"/>
-        <source>Confirm transaction fee</source>
-        <translation>Conferma compenso transazione</translation>
+        <source>Error: %1</source>
+        <translation>Errore: %1</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <source>Warning: %1</source>
+        <translation>Attenzione: %1</translation>
+    </message>
+    <message>
+        <source>Date: %1
+</source>
+        <translation>Data: %1
+</translation>
+    </message>
+    <message>
+        <source>Amount: %1
+</source>
+        <translation>Quantità: %1
+</translation>
+    </message>
+    <message>
+        <source>Wallet: %1
+</source>
+        <translation>Portafoglio: %1
+</translation>
+    </message>
+    <message>
+        <source>Type: %1
+</source>
+        <translation>Tipo: %1
+</translation>
+    </message>
+    <message>
+        <source>Label: %1
+</source>
+        <translation>Etichetta: %1
+</translation>
+    </message>
+    <message>
+        <source>Address: %1
+</source>
+        <translation>Indirizzo: %1
+</translation>
+    </message>
+    <message>
         <source>Sent transaction</source>
         <translation>Transazione inviata</translation>
     </message>
     <message>
-        <location line="+0"/>
         <source>Incoming transaction</source>
         <translation>Transazione ricevuta</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Date: %1
-Amount: %2
-Type: %3
-Address: %4
-</source>
-        <translation>Data: %1
-Quantità: %2
-Tipo: %3
-Indirizzo: %4
-
-</translation>
+        <source>HD key generation is &lt;b&gt;enabled&lt;/b&gt;</source>
+        <translation>La creazione della chiave HD è &lt;b&gt;abilitata&lt;/b&gt;</translation>
     </message>
     <message>
-        <location line="+33"/>
-        <location line="+23"/>
-        <source>URI handling</source>
-        <translation>Gestione URI</translation>
+        <source>HD key generation is &lt;b&gt;disabled&lt;/b&gt;</source>
+        <translation>La creazione della chiave HD è &lt;b&gt;disabilitata&lt;/b&gt;</translation>
     </message>
     <message>
-        <location line="-23"/>
-        <location line="+23"/>
-        <source>URI can not be parsed! This can be caused by an invalid Bitcoin address or malformed URI parameters.</source>
-        <translation>Impossibile interpretare l&apos;URI! Ciò può essere causato da un indirizzo Bitcoin invalido o da parametri URI non corretti.</translation>
+        <source>Private key &lt;b&gt;disabled&lt;/b&gt;</source>
+        <translation>Chiava privata &lt;b&gt; disabilitata &lt;/b&gt;</translation>
     </message>
     <message>
-        <location line="+17"/>
         <source>Wallet is &lt;b&gt;encrypted&lt;/b&gt; and currently &lt;b&gt;unlocked&lt;/b&gt;</source>
-        <translation>Il portamonete è &lt;b&gt;cifrato&lt;/b&gt; e attualmente &lt;b&gt;sbloccato&lt;/b&gt;</translation>
+        <translation>Il portamonete è &lt;b&gt;cifrato&lt;/b&gt; ed attualmente &lt;b&gt;sbloccato&lt;/b&gt;</translation>
     </message>
     <message>
-        <location line="+8"/>
         <source>Wallet is &lt;b&gt;encrypted&lt;/b&gt; and currently &lt;b&gt;locked&lt;/b&gt;</source>
-        <translation>Il portamonete è &lt;b&gt;cifrato&lt;/b&gt; e attualmente &lt;b&gt;bloccato&lt;/b&gt;</translation>
+        <translation>Il portamonete è &lt;b&gt;cifrato&lt;/b&gt; ed attualmente &lt;b&gt;bloccato&lt;/b&gt;</translation>
     </message>
     <message>
-        <location filename="../bitcoin.cpp" line="+110"/>
-        <source>A fatal error occurred. Bitcoin can no longer continue safely and will quit.</source>
-        <translation>Riscontrato un errore irreversibile. Bitcoin non può più continuare in sicurezza e verrà terminato.</translation>
+        <source>Original message:</source>
+        <translation>Messaggio originale:</translation>
+    </message>
+    <message>
+        <source>A fatal error occurred. %1 can no longer continue safely and will quit.</source>
+        <translation>Si è verificato un errore critico. %1 non può più continuare in maniera sicura e verrà chiuso.</translation>
     </message>
 </context>
 <context>
-    <name>ClientModel</name>
+    <name>CoinControlDialog</name>
     <message>
-        <location filename="../clientmodel.cpp" line="+105"/>
-        <source>Network Alert</source>
-        <translation>Avviso di rete</translation>
+        <source>Coin Selection</source>
+        <translation>Selezione coin</translation>
+    </message>
+    <message>
+        <source>Quantity:</source>
+        <translation>Quantità:</translation>
+    </message>
+    <message>
+        <source>Bytes:</source>
+        <translation>Byte:</translation>
+    </message>
+    <message>
+        <source>Amount:</source>
+        <translation>Importo:</translation>
+    </message>
+    <message>
+        <source>Fee:</source>
+        <translation>Commissione:</translation>
+    </message>
+    <message>
+        <source>Dust:</source>
+        <translation>Trascurabile:</translation>
+    </message>
+    <message>
+        <source>After Fee:</source>
+        <translation>Dopo Commissione:</translation>
+    </message>
+    <message>
+        <source>Change:</source>
+        <translation>Resto:</translation>
+    </message>
+    <message>
+        <source>(un)select all</source>
+        <translation>(de)seleziona tutto</translation>
+    </message>
+    <message>
+        <source>Tree mode</source>
+        <translation>Modalità Albero</translation>
+    </message>
+    <message>
+        <source>List mode</source>
+        <translation>Modalità Lista</translation>
+    </message>
+    <message>
+        <source>Amount</source>
+        <translation>Importo</translation>
+    </message>
+    <message>
+        <source>Received with label</source>
+        <translation>Ricevuto con l'etichetta</translation>
+    </message>
+    <message>
+        <source>Received with address</source>
+        <translation>Ricevuto con l'indirizzo</translation>
+    </message>
+    <message>
+        <source>Date</source>
+        <translation>Data</translation>
+    </message>
+    <message>
+        <source>Confirmations</source>
+        <translation>Conferme</translation>
+    </message>
+    <message>
+        <source>Confirmed</source>
+        <translation>Confermato</translation>
+    </message>
+    <message>
+        <source>Copy address</source>
+        <translation>Copia indirizzo</translation>
+    </message>
+    <message>
+        <source>Copy label</source>
+        <translation>Copia etichetta</translation>
+    </message>
+    <message>
+        <source>Copy amount</source>
+        <translation>Copia l'importo</translation>
+    </message>
+    <message>
+        <source>Copy transaction ID</source>
+        <translation>Copia l'ID transazione</translation>
+    </message>
+    <message>
+        <source>Lock unspent</source>
+        <translation>Bloccare non spesi</translation>
+    </message>
+    <message>
+        <source>Unlock unspent</source>
+        <translation>Sbloccare non spesi</translation>
+    </message>
+    <message>
+        <source>Copy quantity</source>
+        <translation>Copia quantità</translation>
+    </message>
+    <message>
+        <source>Copy fee</source>
+        <translation>Copia commissione</translation>
+    </message>
+    <message>
+        <source>Copy after fee</source>
+        <translation>Copia dopo commissione</translation>
+    </message>
+    <message>
+        <source>Copy bytes</source>
+        <translation>Copia byte</translation>
+    </message>
+    <message>
+        <source>Copy dust</source>
+        <translation>Copia trascurabile</translation>
+    </message>
+    <message>
+        <source>Copy change</source>
+        <translation>Copia resto</translation>
+    </message>
+    <message>
+        <source>(%1 locked)</source>
+        <translation>(%1 bloccato)</translation>
+    </message>
+    <message>
+        <source>yes</source>
+        <translation>sì</translation>
+    </message>
+    <message>
+        <source>no</source>
+        <translation>no</translation>
+    </message>
+    <message>
+        <source>This label turns red if any recipient receives an amount smaller than the current dust threshold.</source>
+        <translation>Questa etichetta diventerà rossa se uno qualsiasi dei destinatari riceverà un importo inferiore alla corrente soglia minima per la movimentazione della valuta.</translation>
+    </message>
+    <message>
+        <source>Can vary +/- %1 satoshi(s) per input.</source>
+        <translation>Può variare di +/- %1 satoshi per input.</translation>
+    </message>
+    <message>
+        <source>(no label)</source>
+        <translation>(nessuna etichetta)</translation>
+    </message>
+    <message>
+        <source>change from %1 (%2)</source>
+        <translation>cambio da %1 (%2)</translation>
+    </message>
+    <message>
+        <source>(change)</source>
+        <translation>(resto)</translation>
+    </message>
+</context>
+<context>
+    <name>CreateWalletActivity</name>
+    <message>
+        <source>Creating Wallet &lt;b&gt;%1&lt;/b&gt;...</source>
+        <translation>Creando il Portafoglio &lt;b&gt;%1&lt;/b&gt;...</translation>
+    </message>
+    <message>
+        <source>Create wallet failed</source>
+        <translation>Creazione portafoglio fallita</translation>
+    </message>
+    <message>
+        <source>Create wallet warning</source>
+        <translation>Creazione portafoglio attenzione</translation>
+    </message>
+</context>
+<context>
+    <name>CreateWalletDialog</name>
+    <message>
+        <source>Create Wallet</source>
+        <translation>Crea Portafoglio.</translation>
+    </message>
+    <message>
+        <source>Wallet Name</source>
+        <translation>Nome Portafoglio</translation>
+    </message>
+    <message>
+        <source>Encrypt the wallet. The wallet will be encrypted with a passphrase of your choice.</source>
+        <translation>Cripta il portafoglio. Il portafoglio sarà criptato con una passphrase a tua scelta.</translation>
+    </message>
+    <message>
+        <source>Encrypt Wallet</source>
+        <translation>Cripta Portafoglio</translation>
+    </message>
+    <message>
+        <source>Disable private keys for this wallet. Wallets with private keys disabled will have no private keys and cannot have an HD seed or imported private keys. This is ideal for watch-only wallets.</source>
+        <translation>Disabilita chiavi private per questo portafoglio. Un portafoglio con chiavi private disabilitate non può avere o importare chiavi private e non può avere un HD seed. Questo è ideale per portafogli watch-only.</translation>
+    </message>
+    <message>
+        <source>Disable Private Keys</source>
+        <translation>Disabilita Chiavi Private</translation>
+    </message>
+    <message>
+        <source>Make a blank wallet. Blank wallets do not initially have private keys or scripts. Private keys and addresses can be imported, or an HD seed can be set, at a later time.</source>
+        <translation>Crea un portafoglio vuoto. I portafogli vuoti non hanno inizialmente nessuna chiave privata o script. Chiavi private e indirizzi possono essere importati, o un HD seed può essere impostato, in seguito.</translation>
+    </message>
+    <message>
+        <source>Make Blank Wallet</source>
+        <translation>Crea Portafoglio Vuoto</translation>
+    </message>
+    <message>
+        <source>Use descriptors for scriptPubKey management</source>
+        <translation>Usa descriptors per gestione scriptPubKey</translation>
+    </message>
+    <message>
+        <source>Descriptor Wallet</source>
+        <translation>Descrizione del Portafoglio</translation>
+    </message>
+    <message>
+        <source>Create</source>
+        <translation>Crea</translation>
     </message>
 </context>
 <context>
     <name>EditAddressDialog</name>
     <message>
-        <location filename="../forms/editaddressdialog.ui" line="+14"/>
         <source>Edit Address</source>
-        <translation>Modifica l&apos;indirizzo</translation>
+        <translation>Modifica l'indirizzo</translation>
     </message>
     <message>
-        <location line="+11"/>
         <source>&amp;Label</source>
         <translation>&amp;Etichetta</translation>
     </message>
     <message>
-        <location line="+10"/>
-        <source>The label associated with this address book entry</source>
-        <translation>L&apos;etichetta associata a questo indirizzo nella rubrica</translation>
+        <source>The label associated with this address list entry</source>
+        <translation>L'etichetta associata con questa voce della lista degli indirizzi</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <source>The address associated with this address list entry. This can only be modified for sending addresses.</source>
+        <translation>L'indirizzo associato con questa voce della lista degli indirizzi. Può essere modificato solo per gli indirizzi d'invio.</translation>
+    </message>
+    <message>
         <source>&amp;Address</source>
         <translation>&amp;Indirizzo</translation>
     </message>
     <message>
-        <location line="+10"/>
-        <source>The address associated with this address book entry. This can only be modified for sending addresses.</source>
-        <translation>L&apos;indirizzo associato a questa voce della rubrica. Si può modificare solo negli indirizzi di spedizione.</translation>
-    </message>
-    <message>
-        <location filename="../editaddressdialog.cpp" line="+21"/>
-        <source>New receiving address</source>
-        <translation>Nuovo indirizzo di ricezione</translation>
-    </message>
-    <message>
-        <location line="+4"/>
         <source>New sending address</source>
-        <translation>Nuovo indirizzo d&apos;invio</translation>
+        <translation>Nuovo indirizzo d'invio</translation>
     </message>
     <message>
-        <location line="+3"/>
         <source>Edit receiving address</source>
         <translation>Modifica indirizzo di ricezione</translation>
     </message>
     <message>
-        <location line="+4"/>
         <source>Edit sending address</source>
-        <translation>Modifica indirizzo d&apos;invio</translation>
+        <translation>Modifica indirizzo d'invio</translation>
     </message>
     <message>
-        <location line="+76"/>
-        <source>The entered address &quot;%1&quot; is already in the address book.</source>
-        <translation>L&apos;indirizzo inserito &quot;%1&quot; è già in rubrica.</translation>
+        <source>The entered address "%1" is not a valid Bitcoin address.</source>
+        <translation>L'indirizzo inserito "%1" non è un indirizzo bitcoin valido.</translation>
     </message>
     <message>
-        <location line="-5"/>
-        <source>The entered address &quot;%1&quot; is not a valid Bitcoin address.</source>
-        <translation>L&apos;indirizzo inserito &quot;%1&quot; non è un indirizzo bitcoin valido.</translation>
+        <source>Address "%1" already exists as a receiving address with label "%2" and so cannot be added as a sending address.</source>
+        <translation>L'indirizzo "%1" esiste già come indirizzo di ricezione con l'etichetta "%2" e quindi non può essere aggiunto come indirizzo di invio.</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <source>The entered address "%1" is already in the address book with label "%2".</source>
+        <translation>L'indirizzo inserito "%1" è già nella rubrica con l'etichetta "%2".</translation>
+    </message>
+    <message>
         <source>Could not unlock wallet.</source>
-        <translation>Impossibile sbloccare il portamonete.</translation>
+        <translation>Impossibile sbloccare il portafoglio.</translation>
     </message>
     <message>
-        <location line="+5"/>
         <source>New key generation failed.</source>
         <translation>Generazione della nuova chiave non riuscita.</translation>
     </message>
@@ -759,1323 +943,2267 @@ Indirizzo: %4
 <context>
     <name>FreespaceChecker</name>
     <message>
-        <location filename="../intro.cpp" line="+61"/>
         <source>A new data directory will be created.</source>
         <translation>Sarà creata una nuova cartella dati.</translation>
     </message>
     <message>
-        <location line="+22"/>
         <source>name</source>
-        <translation>Nome</translation>
+        <translation>nome</translation>
     </message>
     <message>
-        <location line="+2"/>
         <source>Directory already exists. Add %1 if you intend to create a new directory here.</source>
-        <translation>La cartella esiste già. Aggiungi %1 se intendi creare qui una nuova cartella.</translation>
+        <translation>Cartella già esistente. Aggiungi %1 se intendi creare qui una nuova cartella.</translation>
     </message>
     <message>
-        <location line="+3"/>
         <source>Path already exists, and is not a directory.</source>
-        <translation>Percorso già esistente, e non è una cartella.</translation>
+        <translation>Il percorso è già esistente e non è una cartella.</translation>
     </message>
     <message>
-        <location line="+7"/>
         <source>Cannot create data directory here.</source>
-        <translation>Qui non è possibile creare una cartella dati.</translation>
+        <translation>Impossibile creare una cartella dati qui.</translation>
     </message>
 </context>
 <context>
-    <name>GUIUtil::HelpMessageBox</name>
+    <name>HelpMessageDialog</name>
     <message>
-        <location filename="../guiutil.cpp" line="+517"/>
-        <location line="+13"/>
-        <source>Bitcoin-Qt</source>
-        <translation>Bitcoin-Qt</translation>
-    </message>
-    <message>
-        <location line="-13"/>
         <source>version</source>
         <translation>versione</translation>
     </message>
     <message>
-        <location line="+2"/>
-        <source>Usage:</source>
-        <translation>Utilizzo:</translation>
+        <source>About %1</source>
+        <translation>Informazioni %1</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>command-line options</source>
-        <translation>opzioni riga di comando</translation>
-    </message>
-    <message>
-        <location line="+4"/>
-        <source>UI options</source>
-        <translation>UI opzioni</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Set language, for example &quot;de_DE&quot; (default: system locale)</source>
-        <translation>Imposta lingua, ad esempio &quot;it_IT&quot; (predefinita: lingua di sistema)</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Start minimized</source>
-        <translation>Parti in icona
-</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Show splash screen on startup (default: 1)</source>
-        <translation>Mostra finestra di presentazione all&apos;avvio (default: 1)</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Choose data directory on startup (default: 0)</source>
-        <translation>Scegli una cartella dati all&apos;avvio (predefinito: 0)</translation>
+        <source>Command-line options</source>
+        <translation>Opzioni della riga di comando</translation>
     </message>
 </context>
 <context>
     <name>Intro</name>
     <message>
-        <location filename="../forms/intro.ui" line="+14"/>
         <source>Welcome</source>
         <translation>Benvenuto</translation>
     </message>
     <message>
-        <location line="+9"/>
-        <source>Welcome to Bitcoin-Qt.</source>
-        <translation>Benvenuto su Bitcoin-Qt</translation>
+        <source>Welcome to %1.</source>
+        <translation>Benvenuto su %1.</translation>
     </message>
     <message>
-        <location line="+26"/>
-        <source>As this is the first time the program is launched, you can choose where Bitcoin-Qt will store its data.</source>
-        <translation>Visto che questa è la prima volta che il programma viene lanciato, puoi scegliere dove Bitcoin-Qt salverà i suoi dati.</translation>
+        <source>As this is the first time the program is launched, you can choose where %1 will store its data.</source>
+        <translation>Dato che questa è la prima volta che il programma viene lanciato, puoi scegliere dove %1 salverà i suoi dati.</translation>
     </message>
     <message>
-        <location line="+10"/>
-        <source>Bitcoin-Qt will download and store a copy of the Bitcoin block chain. At least %1GB of data will be stored in this directory, and it will grow over time. The wallet will also be stored in this directory.</source>
-        <translation>Bitcoin-Qt scaricherà e salverà una copia del block chain di Bitcoin. Almeno %1GB di dati saranno salvati in questa cartella, e aumenteranno col tempo. Anche il portafoglio sarà salvato in questa cartella.</translation>
+        <source>When you click OK, %1 will begin to download and process the full %4 block chain (%2GB) starting with the earliest transactions in %3 when %4 initially launched.</source>
+        <translation>Quando fai click su OK, %1 comincerà a scaricare e processare l'intera %4 block chain (%2GB) a partire dalla prime transazioni del %3 quando %4 venne inaugurato.</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <source>Reverting this setting requires re-downloading the entire blockchain. It is faster to download the full chain first and prune it later. Disables some advanced features.</source>
+        <translation>Cambiare questa impostazione richiede di riscaricare l'intera blockchain. E' più veloce scaricare prima tutta la chain e poi fare prune. Disabilita alcune impostazioni avanzate.</translation>
+    </message>
+    <message>
+        <source>This initial synchronisation is very demanding, and may expose hardware problems with your computer that had previously gone unnoticed. Each time you run %1, it will continue downloading where it left off.</source>
+        <translation>La sincronizzazione iniziale è molto dispendiosa e potrebbe mettere in luce problemi di harware del tuo computer che erano prima passati inosservati. Ogni volta che lanci %1 continuerà a scaricare da dove l'avevi lasciato.</translation>
+    </message>
+    <message>
+        <source>If you have chosen to limit block chain storage (pruning), the historical data must still be downloaded and processed, but will be deleted afterward to keep your disk usage low.</source>
+        <translation>Se hai scelto di limitare l'immagazzinamento della block chain (operazione nota come "pruning" o "potatura"), i dati storici devono comunque essere scaricati e processati, ma verranno cancellati in seguito per mantenere basso l'utilizzo del tuo disco.</translation>
+    </message>
+    <message>
         <source>Use the default data directory</source>
-        <translation>Usa la cartella dati predefinita.</translation>
+        <translation>Usa la cartella dati predefinita</translation>
     </message>
     <message>
-        <location line="+7"/>
         <source>Use a custom data directory:</source>
         <translation>Usa una cartella dati personalizzata:</translation>
     </message>
     <message>
-        <location filename="../intro.cpp" line="+100"/>
+        <source>Bitcoin</source>
+        <translation>Bitcoin</translation>
+    </message>
+    <message>
+        <source>Discard blocks after verification, except most recent %1 GB (prune)</source>
+        <translation>Scarta blocchi dopo la verifica, eccetto i più recenti %1 GB(prune)</translation>
+    </message>
+    <message>
+        <source>At least %1 GB of data will be stored in this directory, and it will grow over time.</source>
+        <translation>Almeno %1 GB di dati verrà salvato in questa cartella e continuerà ad aumentare col tempo.</translation>
+    </message>
+    <message>
+        <source>Approximately %1 GB of data will be stored in this directory.</source>
+        <translation>Verranno salvati circa %1 GB di dati in questa cartella.</translation>
+    </message>
+    <message>
+        <source>%1 will download and store a copy of the Bitcoin block chain.</source>
+        <translation>%1 scaricherà e salverà una copia della block chain di Bitcoin.</translation>
+    </message>
+    <message>
+        <source>The wallet will also be stored in this directory.</source>
+        <translation>Anche il portafoglio verrà salvato in questa cartella.</translation>
+    </message>
+    <message>
+        <source>Error: Specified data directory "%1" cannot be created.</source>
+        <translation>Errore: La cartella dati "%1" specificata non può essere creata.</translation>
+    </message>
+    <message>
         <source>Error</source>
         <translation>Errore</translation>
     </message>
+    <message numerus="yes">
+        <source>%n GB of free space available</source>
+        <translation><numerusform>GB di spazio libero disponibile</numerusform><numerusform>%n GB di spazio disponibile</numerusform></translation>
+    </message>
+    <message numerus="yes">
+        <source>(of %n GB needed)</source>
+        <translation><numerusform>(di %nGB richiesti)</numerusform><numerusform>(%n GB richiesti)</numerusform></translation>
+    </message>
+    <message numerus="yes">
+        <source>(%n GB needed for full chain)</source>
+        <translation><numerusform>(%n GB richiesti per la catena completa)</numerusform><numerusform>(%n GB richiesti per la catena completa)</numerusform></translation>
+    </message>
+</context>
+<context>
+    <name>ModalOverlay</name>
     <message>
-        <location line="+9"/>
-        <source>GB of free space available</source>
-        <translation>GB di spazio libero disponibile</translation>
+        <source>Form</source>
+        <translation>Modulo</translation>
     </message>
     <message>
-        <location line="+3"/>
-        <source>(of %1GB needed)</source>
-        <translation>(di %1GB richiesti)</translation>
+        <source>Recent transactions may not yet be visible, and therefore your wallet's balance might be incorrect. This information will be correct once your wallet has finished synchronizing with the bitcoin network, as detailed below.</source>
+        <translation>Transazioni recenti potrebbero non essere visibili ancora, perciò il saldo del tuo portafoglio potrebbe non essere corretto. Questa informazione risulterà corretta quando il tuo portafoglio avrà terminato la sincronizzazione con la rete bitcoin, come indicato in dettaglio più sotto.</translation>
+    </message>
+    <message>
+        <source>Attempting to spend bitcoins that are affected by not-yet-displayed transactions will not be accepted by the network.</source>
+        <translation>Il tentativo di spendere bitcoin legati a transazioni non ancora visualizzate non verrà accettato dalla rete.</translation>
+    </message>
+    <message>
+        <source>Number of blocks left</source>
+        <translation>Numero di blocchi mancanti</translation>
+    </message>
+    <message>
+        <source>Unknown...</source>
+        <translation>Sconosciuto...</translation>
+    </message>
+    <message>
+        <source>Last block time</source>
+        <translation>Ora del blocco più recente</translation>
+    </message>
+    <message>
+        <source>Progress</source>
+        <translation>Progresso</translation>
+    </message>
+    <message>
+        <source>Progress increase per hour</source>
+        <translation>Aumento dei progressi per ogni ora</translation>
+    </message>
+    <message>
+        <source>calculating...</source>
+        <translation>calcolando...</translation>
+    </message>
+    <message>
+        <source>Estimated time left until synced</source>
+        <translation>Tempo stimato al completamento della sincronizzazione</translation>
+    </message>
+    <message>
+        <source>Hide</source>
+        <translation>Nascondi</translation>
+    </message>
+    <message>
+        <source>Esc</source>
+        <translation>Esc</translation>
+    </message>
+    <message>
+        <source>%1 is currently syncing.  It will download headers and blocks from peers and validate them until reaching the tip of the block chain.</source>
+        <translation>%1 è attualmente in fase di sincronizzazione. Scaricherà le intestazioni e i blocchi dai peer e li convaliderà fino a raggiungere la punta della catena di blocchi.</translation>
+    </message>
+    <message>
+        <source>Unknown. Syncing Headers (%1, %2%)...</source>
+        <translation>Sconosciuto. Sincronizzando Headers (%1, %2%)...</translation>
+    </message>
+</context>
+<context>
+    <name>OpenURIDialog</name>
+    <message>
+        <source>Open bitcoin URI</source>
+        <translation>Apri un bitcoin URI</translation>
+    </message>
+    <message>
+        <source>URI:</source>
+        <translation>URI:</translation>
+    </message>
+</context>
+<context>
+    <name>OpenWalletActivity</name>
+    <message>
+        <source>Open wallet failed</source>
+        <translation>Apertura portafoglio fallita</translation>
+    </message>
+    <message>
+        <source>Open wallet warning</source>
+        <translation>Apertura portafoglio attenzione</translation>
+    </message>
+    <message>
+        <source>default wallet</source>
+        <translation>Portafoglio predefinito:</translation>
+    </message>
+    <message>
+        <source>Opening Wallet &lt;b&gt;%1&lt;/b&gt;...</source>
+        <translation>Aprendo il Portafoglio&lt;b&gt;%1&lt;/b&gt;...</translation>
     </message>
 </context>
 <context>
     <name>OptionsDialog</name>
     <message>
-        <location filename="../forms/optionsdialog.ui" line="+14"/>
         <source>Options</source>
         <translation>Opzioni</translation>
     </message>
     <message>
-        <location line="+16"/>
         <source>&amp;Main</source>
         <translation>&amp;Principale</translation>
     </message>
     <message>
-        <location line="+6"/>
-        <source>Optional transaction fee per kB that helps make sure your transactions are processed quickly. Most transactions are 1 kB.</source>
-        <translation>Commissione di transazione per kB; è opzionale e contribuisce ad assicurare che le transazioni siano elaborate velocemente. Le transazioni sono per la maggior parte da 1 kB. Commissione raccomandata 0,01.</translation>
+        <source>Automatically start %1 after logging in to the system.</source>
+        <translation>Avvia automaticamente %1 una volta effettuato l'accesso al sistema.</translation>
     </message>
     <message>
-        <location line="+15"/>
-        <source>Pay transaction &amp;fee</source>
-        <translation>Paga la &amp;commissione</translation>
+        <source>&amp;Start %1 on system login</source>
+        <translation>&amp;Start %1 all'accesso al sistema</translation>
     </message>
     <message>
-        <location line="+31"/>
-        <source>Automatically start Bitcoin after logging in to the system.</source>
-        <translation>Avvia automaticamente Bitcoin all&apos;accensione del computer</translation>
+        <source>Size of &amp;database cache</source>
+        <translation>Dimensione della cache del &amp;database.</translation>
     </message>
     <message>
-        <location line="+3"/>
-        <source>&amp;Start Bitcoin on system login</source>
-        <translation>&amp;Fai partire Bitcoin all&apos;avvio del sistema</translation>
+        <source>Number of script &amp;verification threads</source>
+        <translation>Numero di thread di &amp;verifica degli script</translation>
     </message>
     <message>
-        <location line="+35"/>
+        <source>IP address of the proxy (e.g. IPv4: 127.0.0.1 / IPv6: ::1)</source>
+        <translation>Indirizzo IP del proxy (ad es. IPv4: 127.0.0.1 / IPv6: ::1)</translation>
+    </message>
+    <message>
+        <source>Shows if the supplied default SOCKS5 proxy is used to reach peers via this network type.</source>
+        <translation>Mostra se il proxy SOCK5 di default che p stato fornito è usato per raggiungere i contatti attraverso questo tipo di rete.</translation>
+    </message>
+    <message>
+        <source>Hide the icon from the system tray.</source>
+        <translation>Nascondi l'icona nella barra delle applicazioni.</translation>
+    </message>
+    <message>
+        <source>&amp;Hide tray icon</source>
+        <translation>&amp;Nascondi l'icona della barra delle applicazioni</translation>
+    </message>
+    <message>
+        <source>Minimize instead of exit the application when the window is closed. When this option is enabled, the application will be closed only after selecting Exit in the menu.</source>
+        <translation>Riduci ad icona invece di uscire dall'applicazione quando la finestra viene chiusa. Attivando questa opzione l'applicazione terminerà solo dopo aver selezionato Esci dal menu File.</translation>
+    </message>
+    <message>
+        <source>Third party URLs (e.g. a block explorer) that appear in the transactions tab as context menu items. %s in the URL is replaced by transaction hash. Multiple URLs are separated by vertical bar |.</source>
+        <translation>URL di terze parti (ad es. un block explorer) che appaiono nella tabella delle transazioni come voci nel menu contestuale. "%s" nell'URL è sostituito dall'hash della transazione.
+Per specificare più URL separarli con una barra verticale "|".</translation>
+    </message>
+    <message>
+        <source>Open the %1 configuration file from the working directory.</source>
+        <translation>Apri il %1 file di configurazione dalla cartella attiva.</translation>
+    </message>
+    <message>
+        <source>Open Configuration File</source>
+        <translation>Apri il file di configurazione</translation>
+    </message>
+    <message>
         <source>Reset all client options to default.</source>
-        <translation>Ripristina tutte le opzioni del client alle predefinite.</translation>
+        <translation>Reimposta tutte le opzioni del client allo stato predefinito.</translation>
     </message>
     <message>
-        <location line="+3"/>
         <source>&amp;Reset Options</source>
         <translation>&amp;Ripristina Opzioni</translation>
     </message>
     <message>
-        <location line="+13"/>
         <source>&amp;Network</source>
         <translation>Rete</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <source>Disables some advanced features but all blocks will still be fully validated. Reverting this setting requires re-downloading the entire blockchain. Actual disk usage may be somewhat higher.</source>
+        <translation>Disattiva alcune funzionalità avanzate, ma tutti i blocchi saranno ancora completamente validati. Per ripristinare questa impostazione è necessario rieseguire il download dell'intera blockchain. L'utilizzo effettivo del disco potrebbe essere leggermente superiore.</translation>
+    </message>
+    <message>
+        <source>Prune &amp;block storage to</source>
+        <translation>Eliminare e bloccare l'archiviazione su</translation>
+    </message>
+    <message>
+        <source>GB</source>
+        <translation>GB</translation>
+    </message>
+    <message>
+        <source>Reverting this setting requires re-downloading the entire blockchain.</source>
+        <translation>Per ripristinare questa impostazione è necessario rieseguire il download dell'intera blockchain.</translation>
+    </message>
+    <message>
+        <source>MiB</source>
+        <translation>MiB</translation>
+    </message>
+    <message>
+        <source>(0 = auto, &lt;0 = leave that many cores free)</source>
+        <translation>(0 = automatico, &lt;0 = lascia questo numero di core liberi)</translation>
+    </message>
+    <message>
+        <source>W&amp;allet</source>
+        <translation>Port&amp;amonete</translation>
+    </message>
+    <message>
+        <source>Expert</source>
+        <translation>Esperti</translation>
+    </message>
+    <message>
+        <source>Enable coin &amp;control features</source>
+        <translation>Abilita le funzionalità di coin &amp;control</translation>
+    </message>
+    <message>
+        <source>If you disable the spending of unconfirmed change, the change from a transaction cannot be used until that transaction has at least one confirmation. This also affects how your balance is computed.</source>
+        <translation>Disabilitando l'uso di resti non confermati, il resto di una transazione non potrà essere speso fino a quando non avrà ottenuto almeno una conferma. Questa impostazione influisce inoltre sul calcolo del saldo.</translation>
+    </message>
+    <message>
+        <source>&amp;Spend unconfirmed change</source>
+        <translation>&amp;Spendi resti non confermati</translation>
+    </message>
+    <message>
         <source>Automatically open the Bitcoin client port on the router. This only works when your router supports UPnP and it is enabled.</source>
-        <translation>Apri automaticamente la porta del client Bitcoin sul router. Questo funziona solo se il router supporta UPnP ed è abilitato.</translation>
+        <translation>Apri automaticamente la porta del client Bitcoin sul router. Il protocollo UPnP deve essere supportato da parte del router ed attivo.</translation>
     </message>
     <message>
-        <location line="+3"/>
         <source>Map port using &amp;UPnP</source>
-        <translation>Mappa le porte tramite l&apos;&amp;UPnP</translation>
+        <translation>Mappa le porte tramite &amp;UPnP</translation>
     </message>
     <message>
-        <location line="+7"/>
-        <source>Connect to the Bitcoin network through a SOCKS proxy (e.g. when connecting through Tor).</source>
-        <translation>Connettiti alla rete Bitcon attraverso un proxy SOCKS (ad esempio quando ci si collega via Tor)</translation>
+        <source>Accept connections from outside.</source>
+        <translation>Accetta connessione esterne.</translation>
     </message>
     <message>
-        <location line="+3"/>
-        <source>&amp;Connect through SOCKS proxy:</source>
-        <translation>&amp;Collegati tramite SOCKS proxy:</translation>
+        <source>Allow incomin&amp;g connections</source>
+        <translation>Accetta connessioni in entrata</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <source>Connect to the Bitcoin network through a SOCKS5 proxy.</source>
+        <translation>Connessione alla rete Bitcoin attraverso un proxy SOCKS5.</translation>
+    </message>
+    <message>
+        <source>&amp;Connect through SOCKS5 proxy (default proxy):</source>
+        <translation>&amp;Connessione attraverso proxy SOCKS5 (proxy predefinito):</translation>
+    </message>
+    <message>
         <source>Proxy &amp;IP:</source>
         <translation>&amp;IP del proxy:</translation>
     </message>
     <message>
-        <location line="+19"/>
-        <source>IP address of the proxy (e.g. 127.0.0.1)</source>
-        <translation>Indirizzo IP del proxy (ad esempio 127.0.0.1)</translation>
-    </message>
-    <message>
-        <location line="+7"/>
         <source>&amp;Port:</source>
         <translation>&amp;Porta:</translation>
     </message>
     <message>
-        <location line="+19"/>
         <source>Port of the proxy (e.g. 9050)</source>
-        <translation>Porta del proxy (es. 9050)</translation>
+        <translation>Porta del proxy (ad es. 9050)</translation>
     </message>
     <message>
-        <location line="+7"/>
-        <source>SOCKS &amp;Version:</source>
-        <translation>SOCKS &amp;Version:</translation>
+        <source>Used for reaching peers via:</source>
+        <translation>Utilizzata per connettersi attraverso:</translation>
     </message>
     <message>
-        <location line="+13"/>
-        <source>SOCKS version of the proxy (e.g. 5)</source>
-        <translation>Versione SOCKS del proxy (es. 5)</translation>
+        <source>IPv4</source>
+        <translation>IPv4</translation>
     </message>
     <message>
-        <location line="+36"/>
+        <source>IPv6</source>
+        <translation>IPv6</translation>
+    </message>
+    <message>
+        <source>Tor</source>
+        <translation>Tor</translation>
+    </message>
+    <message>
         <source>&amp;Window</source>
         <translation>&amp;Finestra</translation>
     </message>
     <message>
-        <location line="+6"/>
         <source>Show only a tray icon after minimizing the window.</source>
-        <translation>Mostra solo un&apos;icona nel tray quando si minimizza la finestra</translation>
+        <translation>Mostra solo nella tray bar quando si riduce ad icona.</translation>
     </message>
     <message>
-        <location line="+3"/>
         <source>&amp;Minimize to the tray instead of the taskbar</source>
-        <translation>&amp;Minimizza sul tray invece che sulla barra delle applicazioni</translation>
+        <translation>&amp;Minimizza nella tray bar invece che sulla barra delle applicazioni</translation>
     </message>
     <message>
-        <location line="+7"/>
-        <source>Minimize instead of exit the application when the window is closed. When this option is enabled, the application will be closed only after selecting Quit in the menu.</source>
-        <translation>Riduci ad icona, invece di uscire dall&apos;applicazione quando la finestra viene chiusa. Quando questa opzione è attivata, l&apos;applicazione verrà chiusa solo dopo aver selezionato Esci nel menu.</translation>
-    </message>
-    <message>
-        <location line="+3"/>
         <source>M&amp;inimize on close</source>
         <translation>M&amp;inimizza alla chiusura</translation>
     </message>
     <message>
-        <location line="+21"/>
         <source>&amp;Display</source>
         <translation>&amp;Mostra</translation>
     </message>
     <message>
-        <location line="+8"/>
         <source>User Interface &amp;language:</source>
         <translation>&amp;Lingua Interfaccia Utente:</translation>
     </message>
     <message>
-        <location line="+13"/>
-        <source>The user interface language can be set here. This setting will take effect after restarting Bitcoin.</source>
-        <translation>La lingua dell&apos;interfaccia utente può essere impostata qui. L&apos;impostazione avrà effetto dopo il riavvio di Bitcoin.</translation>
+        <source>The user interface language can be set here. This setting will take effect after restarting %1.</source>
+        <translation>La lingua dell'interfaccia utente può essere impostata qui. L'impostazione avrà effetto dopo il riavvio %1.</translation>
     </message>
     <message>
-        <location line="+11"/>
         <source>&amp;Unit to show amounts in:</source>
-        <translation>&amp;Unità di misura degli importi in:</translation>
+        <translation>&amp;Unità di misura con cui visualizzare gli importi:</translation>
     </message>
     <message>
-        <location line="+13"/>
         <source>Choose the default subdivision unit to show in the interface and when sending coins.</source>
-        <translation>Scegli l&apos;unità di suddivisione di default per l&apos;interfaccia e per l&apos;invio di monete</translation>
+        <translation>Scegli l'unità di suddivisione predefinita da utilizzare per l'interfaccia e per l'invio di bitcoin.</translation>
     </message>
     <message>
-        <location line="+9"/>
-        <source>Whether to show Bitcoin addresses in the transaction list or not.</source>
-        <translation>Se mostrare l&apos;indirizzo Bitcoin nella transazione o meno.</translation>
+        <source>Whether to show coin control features or not.</source>
+        <translation>Specifica se le funzionalita di coin control saranno visualizzate.</translation>
     </message>
     <message>
-        <location line="+3"/>
-        <source>&amp;Display addresses in transaction list</source>
-        <translation>&amp;Mostra gli indirizzi nella lista delle transazioni</translation>
+        <source>Connect to the Bitcoin network through a separate SOCKS5 proxy for Tor onion services.</source>
+        <translation>Connette alla rete Bitcoin attraverso un proxy SOCKS5 separato per i Tor onion services.</translation>
     </message>
     <message>
-        <location line="+71"/>
+        <source>Use separate SOCKS&amp;5 proxy to reach peers via Tor onion services:</source>
+        <translation>Usa un proxy SOCKS&amp;5 separato per raggiungere peers attraverso i Tor onion services.</translation>
+    </message>
+    <message>
+        <source>&amp;Third party transaction URLs</source>
+        <translation>&amp;URL di terze parti per transazioni</translation>
+    </message>
+    <message>
+        <source>Options set in this dialog are overridden by the command line or in the configuration file:</source>
+        <translation>Le impostazioni sulla riga di comando o nell'archivio di configurazione hanno precedenza su quelle impostate in questo pannello:</translation>
+    </message>
+    <message>
         <source>&amp;OK</source>
         <translation>&amp;OK</translation>
     </message>
     <message>
-        <location line="+7"/>
         <source>&amp;Cancel</source>
         <translation>&amp;Cancella</translation>
     </message>
     <message>
-        <location line="+10"/>
-        <source>&amp;Apply</source>
-        <translation>&amp;Applica</translation>
-    </message>
-    <message>
-        <location filename="../optionsdialog.cpp" line="+54"/>
         <source>default</source>
-        <translation>default</translation>
+        <translation>predefinito</translation>
     </message>
     <message>
-        <location line="+130"/>
+        <source>none</source>
+        <translation>nessuno</translation>
+    </message>
+    <message>
         <source>Confirm options reset</source>
         <translation>Conferma ripristino opzioni</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Some settings may require a client restart to take effect.</source>
-        <translation>Alcune modifiche necessitano del riavvio del programma per essere salvate.</translation>
+        <source>Client restart required to activate changes.</source>
+        <translation>È necessario un riavvio del client per applicare le modifiche.</translation>
     </message>
     <message>
-        <location line="+0"/>
-        <source>Do you want to proceed?</source>
-        <translation>Vuoi procedere?</translation>
+        <source>Client will be shut down. Do you want to proceed?</source>
+        <translation>Il client sarà arrestato. Si desidera procedere?</translation>
     </message>
     <message>
-        <location line="+42"/>
-        <location line="+9"/>
-        <source>Warning</source>
-        <translation>Attenzione</translation>
+        <source>Configuration options</source>
+        <translation>Opzioni di configurazione</translation>
     </message>
     <message>
-        <location line="-9"/>
-        <location line="+9"/>
-        <source>This setting will take effect after restarting Bitcoin.</source>
-        <translation>L&apos;impostazione avrà effetto dopo il riavvio di Bitcoin.</translation>
+        <source>The configuration file is used to specify advanced user options which override GUI settings. Additionally, any command-line options will override this configuration file.</source>
+        <translation>Il file di configurazione è utilizzato per specificare opzioni utente avanzate che aggirano le impostazioni della GUI. Inoltre qualunque opzione da linea di comando aggirerà il file di configurazione.</translation>
     </message>
     <message>
-        <location line="+29"/>
+        <source>Error</source>
+        <translation>Errore</translation>
+    </message>
+    <message>
+        <source>The configuration file could not be opened.</source>
+        <translation>Il file di configurazione non può essere aperto.</translation>
+    </message>
+    <message>
+        <source>This change would require a client restart.</source>
+        <translation>Questa modifica richiede un riavvio del client.</translation>
+    </message>
+    <message>
         <source>The supplied proxy address is invalid.</source>
-        <translation>L&apos;indirizzo proxy che hai fornito è invalido.</translation>
+        <translation>L'indirizzo proxy che hai fornito non è valido.</translation>
     </message>
 </context>
 <context>
     <name>OverviewPage</name>
     <message>
-        <location filename="../forms/overviewpage.ui" line="+14"/>
         <source>Form</source>
         <translation>Modulo</translation>
     </message>
     <message>
-        <location line="+50"/>
-        <location line="+202"/>
         <source>The displayed information may be out of date. Your wallet automatically synchronizes with the Bitcoin network after a connection is established, but this process has not completed yet.</source>
-        <translation>Le informazioni visualizzate sono datate. Il tuo partafogli verrà sincronizzato automaticamente con il network Bitcoin dopo che la connessione è stabilita, ma questo processo non può essere completato ora.</translation>
+        <translation>Le informazioni visualizzate potrebbero non essere aggiornate. Il portafoglio si sincronizza automaticamente con la rete Bitcoin una volta stabilita una connessione, ma questo processo non è ancora stato completato.</translation>
     </message>
     <message>
-        <location line="-131"/>
-        <source>Unconfirmed:</source>
-        <translation>Non confermato:</translation>
+        <source>Watch-only:</source>
+        <translation>Sola lettura:</translation>
     </message>
     <message>
-        <location line="-78"/>
-        <source>Wallet</source>
-        <translation>Portamonete</translation>
+        <source>Available:</source>
+        <translation>Disponibile:</translation>
     </message>
     <message>
-        <location line="+49"/>
-        <source>Confirmed:</source>
-        <translation>Confermato:</translation>
-    </message>
-    <message>
-        <location line="+16"/>
         <source>Your current spendable balance</source>
-        <translation>Saldo spendibile attuale</translation>
+        <translation>Il tuo saldo spendibile attuale</translation>
     </message>
     <message>
-        <location line="+29"/>
+        <source>Pending:</source>
+        <translation>In attesa:</translation>
+    </message>
+    <message>
         <source>Total of transactions that have yet to be confirmed, and do not yet count toward the spendable balance</source>
-        <translation>Totale delle transazioni in corso di conferma, che non sono ancora incluse nel saldo spendibile attuale</translation>
+        <translation>Totale delle transazioni in corso di conferma e che non sono ancora conteggiate nel saldo spendibile</translation>
     </message>
     <message>
-        <location line="+13"/>
         <source>Immature:</source>
         <translation>Immaturo:</translation>
     </message>
     <message>
-        <location line="+13"/>
         <source>Mined balance that has not yet matured</source>
-        <translation>Importo scavato che non è ancora maturato</translation>
+        <translation>Importo generato dal mining e non ancora maturato</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <source>Balances</source>
+        <translation>Saldo</translation>
+    </message>
+    <message>
         <source>Total:</source>
         <translation>Totale:</translation>
     </message>
     <message>
-        <location line="+16"/>
         <source>Your current total balance</source>
-        <translation>Saldo totale attuale</translation>
+        <translation>Il tuo saldo totale attuale</translation>
     </message>
     <message>
-        <location line="+53"/>
-        <source>&lt;b&gt;Recent transactions&lt;/b&gt;</source>
-        <translation>&lt;b&gt;Transazioni recenti&lt;/b&gt;</translation>
+        <source>Your current balance in watch-only addresses</source>
+        <translation>Il tuo saldo attuale negli indirizzi di sola lettura</translation>
     </message>
     <message>
-        <location filename="../overviewpage.cpp" line="+116"/>
-        <location line="+1"/>
-        <source>out of sync</source>
-        <translation>fuori sincrono</translation>
+        <source>Spendable:</source>
+        <translation>Spendibile:</translation>
+    </message>
+    <message>
+        <source>Recent transactions</source>
+        <translation>Transazioni recenti</translation>
+    </message>
+    <message>
+        <source>Unconfirmed transactions to watch-only addresses</source>
+        <translation>Transazioni non confermate su indirizzi di sola lettura</translation>
+    </message>
+    <message>
+        <source>Mined balance in watch-only addresses that has not yet matured</source>
+        <translation>Importo generato dal mining su indirizzi di sola lettura e non ancora maturato</translation>
+    </message>
+    <message>
+        <source>Current total balance in watch-only addresses</source>
+        <translation>Saldo corrente totale negli indirizzi di sola lettura</translation>
+    </message>
+    <message>
+        <source>Privacy mode activated for the Overview tab. To unmask the values, uncheck Settings-&gt;Mask values.</source>
+        <translation>Modalità privacy attivata per la scheda "Panoramica". Per smascherare i valori, deseleziona Impostazioni-&gt; Valori maschera.</translation>
+    </message>
+</context>
+<context>
+    <name>PSBTOperationsDialog</name>
+    <message>
+        <source>Dialog</source>
+        <translation>Dialogo</translation>
+    </message>
+    <message>
+        <source>Sign Tx</source>
+        <translation>Firma Tx</translation>
+    </message>
+    <message>
+        <source>Broadcast Tx</source>
+        <translation>Trasmetti Tx</translation>
+    </message>
+    <message>
+        <source>Copy to Clipboard</source>
+        <translation>Copia negli Appunti</translation>
+    </message>
+    <message>
+        <source>Save...</source>
+        <translation>Salva...</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>Chiudi</translation>
+    </message>
+    <message>
+        <source>Failed to load transaction: %1</source>
+        <translation>Caricamento della transazione fallito: %1</translation>
+    </message>
+    <message>
+        <source>Failed to sign transaction: %1</source>
+        <translation>Firma della transazione fallita: %1</translation>
+    </message>
+    <message>
+        <source>Could not sign any more inputs.</source>
+        <translation>Non posso firmare piu' inputs.</translation>
+    </message>
+    <message>
+        <source>Signed %1 inputs, but more signatures are still required.</source>
+        <translation>Firmato %1 inputs, ma sono richieste piu' firme.</translation>
+    </message>
+    <message>
+        <source>Signed transaction successfully. Transaction is ready to broadcast.</source>
+        <translation>Transazione firmata con successo. La transazione é pronta per essere trasmessa.</translation>
+    </message>
+    <message>
+        <source>Unknown error processing transaction.</source>
+        <translation>Errore sconosciuto processando la transazione.</translation>
+    </message>
+    <message>
+        <source>Transaction broadcast successfully! Transaction ID: %1</source>
+        <translation>Transazione trasmessa con successo! ID della transazione: %1</translation>
+    </message>
+    <message>
+        <source>Transaction broadcast failed: %1</source>
+        <translation>Trasmissione della transazione fallita: %1</translation>
+    </message>
+    <message>
+        <source>PSBT copied to clipboard.</source>
+        <translation>PSBT copiata negli appunti.</translation>
+    </message>
+    <message>
+        <source>Save Transaction Data</source>
+        <translation>Salva Dati Transazione</translation>
+    </message>
+    <message>
+        <source>Partially Signed Transaction (Binary) (*.psbt)</source>
+        <translation>Transazione Parzialmente Firmata (Binario) (*.psbt)</translation>
+    </message>
+    <message>
+        <source>PSBT saved to disk.</source>
+        <translation>PSBT salvata su disco.</translation>
+    </message>
+    <message>
+        <source> * Sends %1 to %2</source>
+        <translation> * Invia %1 a %2</translation>
+    </message>
+    <message>
+        <source>Unable to calculate transaction fee or total transaction amount.</source>
+        <translation>Non in grado di calcolare la fee della transazione o l'ammontare totale della transazione.</translation>
+    </message>
+    <message>
+        <source>Pays transaction fee: </source>
+        <translation>Paga fee della transazione: </translation>
+    </message>
+    <message>
+        <source>Total Amount</source>
+        <translation>Importo totale</translation>
+    </message>
+    <message>
+        <source>or</source>
+        <translation>o</translation>
+    </message>
+    <message>
+        <source>Transaction has %1 unsigned inputs.</source>
+        <translation>La transazione ha %1 inputs non firmati.</translation>
+    </message>
+    <message>
+        <source>Transaction is missing some information about inputs.</source>
+        <translation>La transazione manca di alcune informazioni sugli inputs.</translation>
+    </message>
+    <message>
+        <source>Transaction still needs signature(s).</source>
+        <translation>La transazione necessita ancora di firma/e.</translation>
+    </message>
+    <message>
+        <source>(But this wallet cannot sign transactions.)</source>
+        <translation>(Ma questo portafoglio non può firmare transazioni.)</translation>
+    </message>
+    <message>
+        <source>(But this wallet does not have the right keys.)</source>
+        <translation>(Ma questo portafoglio non ha le chiavi giuste.)</translation>
+    </message>
+    <message>
+        <source>Transaction is fully signed and ready for broadcast.</source>
+        <translation>La transazione è completamente firmata e pronta per essere trasmessa.</translation>
+    </message>
+    <message>
+        <source>Transaction status is unknown.</source>
+        <translation>Lo stato della transazione è sconosciuto.</translation>
     </message>
 </context>
 <context>
     <name>PaymentServer</name>
     <message>
-        <location filename="../paymentserver.cpp" line="+108"/>
+        <source>Payment request error</source>
+        <translation>Errore di richiesta di pagamento</translation>
+    </message>
+    <message>
         <source>Cannot start bitcoin: click-to-pay handler</source>
         <translation>Impossibile avviare bitcoin: gestore click-to-pay</translation>
+    </message>
+    <message>
+        <source>URI handling</source>
+        <translation>Gestione URI</translation>
+    </message>
+    <message>
+        <source>'bitcoin://' is not a valid URI. Use 'bitcoin:' instead.</source>
+        <translation>'bitcoin://' non è un URI valido. Usa invece 'bitcoin:'.</translation>
+    </message>
+    <message>
+        <source>Cannot process payment request because BIP70 is not supported.</source>
+        <translation>Impossibile elaborare la richiesta di pagamento perché BIP70 non è supportato.</translation>
+    </message>
+    <message>
+        <source>Due to widespread security flaws in BIP70 it's strongly recommended that any merchant instructions to switch wallets be ignored.</source>
+        <translation>A causa dei diffusi difetti di sicurezza nel BIP70, si raccomanda vivamente di ignorare qualsiasi richiesta del commerciante di cambiare portafoglio.</translation>
+    </message>
+    <message>
+        <source>If you are receiving this error you should request the merchant provide a BIP21 compatible URI.</source>
+        <translation>Se stai ricevendo questo errore dovresti richiedere al venditore di fornirti un URI compatibile con BIP21.</translation>
+    </message>
+    <message>
+        <source>Invalid payment address %1</source>
+        <translation>Indirizzo di pagamento non valido %1</translation>
+    </message>
+    <message>
+        <source>URI cannot be parsed! This can be caused by an invalid Bitcoin address or malformed URI parameters.</source>
+        <translation>Impossibile interpretare l'URI! I parametri dell'URI o l'indirizzo Bitcoin potrebbero non essere corretti.</translation>
+    </message>
+    <message>
+        <source>Payment request file handling</source>
+        <translation>Gestione del file di richiesta del pagamento</translation>
+    </message>
+</context>
+<context>
+    <name>PeerTableModel</name>
+    <message>
+        <source>User Agent</source>
+        <translation>User Agent</translation>
+    </message>
+    <message>
+        <source>Node/Service</source>
+        <translation>Nodo/Servizio</translation>
+    </message>
+    <message>
+        <source>NodeId</source>
+        <translation>Nodeld</translation>
+    </message>
+    <message>
+        <source>Ping</source>
+        <translation>Ping</translation>
+    </message>
+    <message>
+        <source>Sent</source>
+        <translation>Inviato</translation>
+    </message>
+    <message>
+        <source>Received</source>
+        <translation>Ricevuto</translation>
     </message>
 </context>
 <context>
     <name>QObject</name>
     <message>
-        <location filename="../bitcoin.cpp" line="+92"/>
-        <location filename="../intro.cpp" line="-32"/>
-        <source>Bitcoin</source>
-        <translation>Bitcoin</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Error: Specified data directory &quot;%1&quot; does not exist.</source>
-        <translation>Errore: La cartella dati &quot;%1&quot; specificata non esiste.</translation>
-    </message>
-    <message>
-        <location filename="../intro.cpp" line="+1"/>
-        <source>Error: Specified data directory &quot;%1&quot; can not be created.</source>
-        <translation>Errore: La cartella dati &quot;%1&quot; specificata non può essere creata.</translation>
-    </message>
-</context>
-<context>
-    <name>QRCodeDialog</name>
-    <message>
-        <location filename="../forms/qrcodedialog.ui" line="+14"/>
-        <source>QR Code Dialog</source>
-        <translation>Codice QR di dialogo</translation>
-    </message>
-    <message>
-        <location line="+59"/>
-        <source>Request Payment</source>
-        <translation>Richiedi pagamento</translation>
-    </message>
-    <message>
-        <location line="+56"/>
-        <source>Amount:</source>
-        <translation>Importo:</translation>
-    </message>
-    <message>
-        <location line="-44"/>
-        <source>Label:</source>
-        <translation>Etichetta:</translation>
-    </message>
-    <message>
-        <location line="+19"/>
-        <source>Message:</source>
-        <translation>Messaggio:</translation>
-    </message>
-    <message>
-        <location line="+71"/>
-        <source>&amp;Save As...</source>
-        <translation>&amp;Salva come...</translation>
-    </message>
-    <message>
-        <location filename="../qrcodedialog.cpp" line="+64"/>
-        <source>Error encoding URI into QR Code.</source>
-        <translation>Errore nella codifica URI nel codice QR</translation>
-    </message>
-    <message>
-        <location line="+40"/>
-        <source>The entered amount is invalid, please check.</source>
-        <translation>L&apos;importo specificato non è valido, prego verificare.</translation>
-    </message>
-    <message>
-        <location line="+23"/>
-        <source>Resulting URI too long, try to reduce the text for label / message.</source>
-        <translation>L&apos;URI risulta troppo lungo, prova a ridurre il testo nell&apos;etichetta / messaggio.</translation>
-    </message>
-    <message>
-        <location line="+25"/>
-        <source>Save QR Code</source>
-        <translation>Salva codice QR</translation>
-    </message>
-    <message>
-        <location line="+0"/>
-        <source>PNG Images (*.png)</source>
-        <translation>Immagini PNG (*.png)</translation>
-    </message>
-</context>
-<context>
-    <name>RPCConsole</name>
-    <message>
-        <location filename="../forms/rpcconsole.ui" line="+46"/>
-        <source>Client name</source>
-        <translation>Nome del client</translation>
-    </message>
-    <message>
-        <location line="+10"/>
-        <location line="+23"/>
-        <location line="+26"/>
-        <location line="+23"/>
-        <location line="+23"/>
-        <location line="+36"/>
-        <location line="+53"/>
-        <location line="+23"/>
-        <location line="+23"/>
-        <location filename="../rpcconsole.cpp" line="+345"/>
-        <source>N/A</source>
-        <translation>N/D</translation>
-    </message>
-    <message>
-        <location line="-217"/>
-        <source>Client version</source>
-        <translation>Versione client</translation>
-    </message>
-    <message>
-        <location line="-45"/>
-        <source>&amp;Information</source>
-        <translation>&amp;Informazione</translation>
-    </message>
-    <message>
-        <location line="+68"/>
-        <source>Using OpenSSL version</source>
-        <translation>Versione OpenSSL in uso</translation>
-    </message>
-    <message>
-        <location line="+49"/>
-        <source>Startup time</source>
-        <translation>Tempo di avvio</translation>
-    </message>
-    <message>
-        <location line="+29"/>
-        <source>Network</source>
-        <translation>Rete</translation>
-    </message>
-    <message>
-        <location line="+7"/>
-        <source>Number of connections</source>
-        <translation>Numero connessioni</translation>
-    </message>
-    <message>
-        <location line="+23"/>
-        <source>On testnet</source>
-        <translation>Nel testnet</translation>
-    </message>
-    <message>
-        <location line="+23"/>
-        <source>Block chain</source>
-        <translation>Block chain</translation>
-    </message>
-    <message>
-        <location line="+7"/>
-        <source>Current number of blocks</source>
-        <translation>Numero attuale di blocchi</translation>
-    </message>
-    <message>
-        <location line="+23"/>
-        <source>Estimated total blocks</source>
-        <translation>Numero totale stimato di blocchi</translation>
-    </message>
-    <message>
-        <location line="+23"/>
-        <source>Last block time</source>
-        <translation>Ora dell blocco piu recente</translation>
-    </message>
-    <message>
-        <location line="+52"/>
-        <source>&amp;Open</source>
-        <translation>&amp;Apri</translation>
-    </message>
-    <message>
-        <location line="+16"/>
-        <source>Command-line options</source>
-        <translation>opzioni riga di comando</translation>
-    </message>
-    <message>
-        <location line="+7"/>
-        <source>Show the Bitcoin-Qt help message to get a list with possible Bitcoin command-line options.</source>
-        <translation>Mostra il messaggio di aiuto di Bitcoin-QT per avere la lista di tutte le opzioni della riga di comando di Bitcoin.</translation>
-    </message>
-    <message>
-        <location line="+3"/>
-        <source>&amp;Show</source>
-        <translation>&amp;Mostra</translation>
-    </message>
-    <message>
-        <location line="+24"/>
-        <source>&amp;Console</source>
-        <translation>&amp;Console</translation>
-    </message>
-    <message>
-        <location line="-260"/>
-        <source>Build date</source>
-        <translation>Data di creazione</translation>
-    </message>
-    <message>
-        <location line="-104"/>
-        <source>Bitcoin - Debug window</source>
-        <translation>Bitcoin - Finestra debug</translation>
-    </message>
-    <message>
-        <location line="+25"/>
-        <source>Bitcoin Core</source>
-        <translation>Nucleo di Bitcoin</translation>
-    </message>
-    <message>
-        <location line="+279"/>
-        <source>Debug log file</source>
-        <translation>File log del Debug</translation>
-    </message>
-    <message>
-        <location line="+7"/>
-        <source>Open the Bitcoin debug log file from the current data directory. This can take a few seconds for large log files.</source>
-        <translation>Apri il file di log del debug di Bitcoin dalla cartella attuale. Può richiedere alcuni secondi per file di log grandi.</translation>
-    </message>
-    <message>
-        <location line="+102"/>
-        <source>Clear console</source>
-        <translation>Svuota console</translation>
-    </message>
-    <message>
-        <location filename="../rpcconsole.cpp" line="-30"/>
-        <source>Welcome to the Bitcoin RPC console.</source>
-        <translation>Benvenuto nella console RPC di Bitcoin</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Use up and down arrows to navigate history, and &lt;b&gt;Ctrl-L&lt;/b&gt; to clear screen.</source>
-        <translation>Usa le frecce direzionali per navigare la cronologia, and &lt;b&gt;Ctrl-L&lt;/b&gt; per cancellarla.</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Type &lt;b&gt;help&lt;/b&gt; for an overview of available commands.</source>
-        <translation>Scrivi &lt;b&gt;help&lt;/b&gt; per un riassunto dei comandi disponibili</translation>
-    </message>
-</context>
-<context>
-    <name>SendCoinsDialog</name>
-    <message>
-        <location filename="../forms/sendcoinsdialog.ui" line="+14"/>
-        <location filename="../sendcoinsdialog.cpp" line="+128"/>
-        <location line="+5"/>
-        <location line="+5"/>
-        <location line="+5"/>
-        <location line="+6"/>
-        <location line="+5"/>
-        <location line="+5"/>
-        <source>Send Coins</source>
-        <translation>Spedisci Bitcoin</translation>
-    </message>
-    <message>
-        <location line="+50"/>
-        <source>Send to multiple recipients at once</source>
-        <translation>Spedisci a diversi beneficiari in una volta sola</translation>
-    </message>
-    <message>
-        <location line="+3"/>
-        <source>Add &amp;Recipient</source>
-        <translation>&amp;Aggiungi beneficiario</translation>
-    </message>
-    <message>
-        <location line="+20"/>
-        <source>Remove all transaction fields</source>
-        <translation>Rimuovi tutti i campi della transazione</translation>
-    </message>
-    <message>
-        <location line="+3"/>
-        <source>Clear &amp;All</source>
-        <translation>Cancella &amp;tutto</translation>
-    </message>
-    <message>
-        <location line="+22"/>
-        <source>Balance:</source>
-        <translation>Saldo:</translation>
-    </message>
-    <message>
-        <location line="+10"/>
-        <source>123.456 BTC</source>
-        <translation>123,456 BTC</translation>
-    </message>
-    <message>
-        <location line="+31"/>
-        <source>Confirm the send action</source>
-        <translation>Conferma la spedizione</translation>
-    </message>
-    <message>
-        <location line="+3"/>
-        <source>S&amp;end</source>
-        <translation>&amp;Spedisci</translation>
-    </message>
-    <message>
-        <location filename="../sendcoinsdialog.cpp" line="-62"/>
-        <location line="+2"/>
-        <source>&lt;b&gt;%1&lt;/b&gt; to %2 (%3)</source>
-        <translation>&lt;b&gt;%1&lt;/b&gt; to %2 (%3)</translation>
-    </message>
-    <message>
-        <location line="+6"/>
-        <source>Confirm send coins</source>
-        <translation>Conferma la spedizione di bitcoin</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Are you sure you want to send %1?</source>
-        <translation>Si è sicuri di voler spedire %1?</translation>
-    </message>
-    <message>
-        <location line="+0"/>
-        <source> and </source>
-        <translation> e </translation>
-    </message>
-    <message>
-        <location line="+23"/>
-        <source>The recipient address is not valid, please recheck.</source>
-        <translation>L&apos;indirizzo del beneficiario non è valido, per cortesia controlla.</translation>
-    </message>
-    <message>
-        <location line="+5"/>
-        <source>The amount to pay must be larger than 0.</source>
-        <translation>L&apos;importo da pagare dev&apos;essere maggiore di 0.</translation>
-    </message>
-    <message>
-        <location line="+5"/>
-        <source>The amount exceeds your balance.</source>
-        <translation>L&apos;importo è superiore al saldo attuale</translation>
-    </message>
-    <message>
-        <location line="+5"/>
-        <source>The total exceeds your balance when the %1 transaction fee is included.</source>
-        <translation>Il totale è superiore al saldo attuale includendo la commissione %1.</translation>
-    </message>
-    <message>
-        <location line="+6"/>
-        <source>Duplicate address found, can only send to each address once per send operation.</source>
-        <translation>Trovato un indirizzo doppio, si può spedire solo una volta a ciascun indirizzo in una singola operazione.</translation>
-    </message>
-    <message>
-        <location line="+5"/>
-        <source>Error: Transaction creation failed!</source>
-        <translation>Errore: Creazione transazione fallita!</translation>
-    </message>
-    <message>
-        <location line="+5"/>
-        <source>Error: The transaction was rejected. This might happen if some of the coins in your wallet were already spent, such as if you used a copy of wallet.dat and coins were spent in the copy but not marked as spent here.</source>
-        <translation>Errore: la transazione è stata rifiutata. Ciò accade se alcuni bitcoin nel portamonete sono stati già spesi, ad esempio se è stata usata una copia del file wallet.dat e i bitcoin sono stati spesi dalla copia ma non segnati come spesi qui.</translation>
-    </message>
-</context>
-<context>
-    <name>SendCoinsEntry</name>
-    <message>
-        <location filename="../forms/sendcoinsentry.ui" line="+14"/>
-        <source>Form</source>
-        <translation>Modulo</translation>
-    </message>
-    <message>
-        <location line="+15"/>
-        <source>A&amp;mount:</source>
-        <translation>&amp;Importo:</translation>
-    </message>
-    <message>
-        <location line="+13"/>
-        <source>Pay &amp;To:</source>
-        <translation>Paga &amp;a:</translation>
-    </message>
-    <message>
-        <location line="+34"/>
-        <source>The address to send the payment to (e.g. 1NS17iag9jJgTHD1VXjvLCEnZuQ3rJDE9L)</source>
-        <translation>L&apos;indirizzo del beneficiario a cui inviare il pagamento (ad esempio 1NS17iag9jJgTHD1VXjvLCEnZuQ3rJDE9L)</translation>
-    </message>
-    <message>
-        <location line="+60"/>
-        <location filename="../sendcoinsentry.cpp" line="+26"/>
-        <source>Enter a label for this address to add it to your address book</source>
-        <translation>Inserisci un&apos;etichetta per questo indirizzo, per aggiungerlo nella rubrica</translation>
-    </message>
-    <message>
-        <location line="-78"/>
-        <source>&amp;Label:</source>
-        <translation>&amp;Etichetta</translation>
-    </message>
-    <message>
-        <location line="+28"/>
-        <source>Choose address from address book</source>
-        <translation>Scegli l&apos;indirizzo dalla rubrica</translation>
-    </message>
-    <message>
-        <location line="+10"/>
-        <source>Alt+A</source>
-        <translation>Alt+A</translation>
-    </message>
-    <message>
-        <location line="+7"/>
-        <source>Paste address from clipboard</source>
-        <translation>Incollare l&apos;indirizzo dagli appunti</translation>
-    </message>
-    <message>
-        <location line="+10"/>
-        <source>Alt+P</source>
-        <translation>Alt+P</translation>
-    </message>
-    <message>
-        <location line="+7"/>
-        <source>Remove this recipient</source>
-        <translation>Rimuovere questo beneficiario</translation>
-    </message>
-    <message>
-        <location filename="../sendcoinsentry.cpp" line="+1"/>
-        <source>Enter a Bitcoin address (e.g. 1NS17iag9jJgTHD1VXjvLCEnZuQ3rJDE9L)</source>
-        <translation>Inserisci un indirizzo Bitcoin (ad esempio 1NS17iag9jJgTHD1VXjvLCEnZuQ3rJDE9L)</translation>
-    </message>
-</context>
-<context>
-    <name>SignVerifyMessageDialog</name>
-    <message>
-        <location filename="../forms/signverifymessagedialog.ui" line="+14"/>
-        <source>Signatures - Sign / Verify a Message</source>
-        <translation>Firme - Firma / Verifica un messaggio</translation>
-    </message>
-    <message>
-        <location line="+13"/>
-        <source>&amp;Sign Message</source>
-        <translation>&amp;Firma il messaggio</translation>
-    </message>
-    <message>
-        <location line="+6"/>
-        <source>You can sign messages with your addresses to prove you own them. Be careful not to sign anything vague, as phishing attacks may try to trick you into signing your identity over to them. Only sign fully-detailed statements you agree to.</source>
-        <translation>Puoi firmare messeggi con i tuoi indirizzi per dimostrare che sono tuoi. Fai attenzione a non firmare niente di vago, visto che gli attacchi di phishing potrebbero cercare di spingerti a mettere la tua firma su di loro. Firma solo dichiarazioni completamente dettagliate con cui sei d&apos;accordo.</translation>
-    </message>
-    <message>
-        <location line="+18"/>
-        <source>The address to sign the message with (e.g. 1NS17iag9jJgTHD1VXjvLCEnZuQ3rJDE9L)</source>
-        <translation>Inserisci un indirizzo Bitcoin (ad esempio 1NS17iag9jJgTHD1VXjvLCEnZuQ3rJDE9L)</translation>
-    </message>
-    <message>
-        <location line="+10"/>
-        <location line="+213"/>
-        <source>Choose an address from the address book</source>
-        <translation>Scegli l&apos;indirizzo dalla rubrica</translation>
-    </message>
-    <message>
-        <location line="-203"/>
-        <location line="+213"/>
-        <source>Alt+A</source>
-        <translation>Alt+A</translation>
-    </message>
-    <message>
-        <location line="-203"/>
-        <source>Paste address from clipboard</source>
-        <translation>Incollare l&apos;indirizzo dagli appunti</translation>
-    </message>
-    <message>
-        <location line="+10"/>
-        <source>Alt+P</source>
-        <translation>Alt+P</translation>
-    </message>
-    <message>
-        <location line="+12"/>
-        <source>Enter the message you want to sign here</source>
-        <translation>Inserisci qui il messaggio che vuoi firmare</translation>
-    </message>
-    <message>
-        <location line="+7"/>
-        <source>Signature</source>
-        <translation>Firma</translation>
-    </message>
-    <message>
-        <location line="+27"/>
-        <source>Copy the current signature to the system clipboard</source>
-        <translation>Copia la firma corrente nella clipboard</translation>
-    </message>
-    <message>
-        <location line="+21"/>
-        <source>Sign the message to prove you own this Bitcoin address</source>
-        <translation>Firma un messaggio per dimostrare di possedere questo indirizzo</translation>
-    </message>
-    <message>
-        <location line="+3"/>
-        <source>Sign &amp;Message</source>
-        <translation>Firma &amp;Messaggio</translation>
-    </message>
-    <message>
-        <location line="+14"/>
-        <source>Reset all sign message fields</source>
-        <translation>Reimposta tutti i campi della firma</translation>
-    </message>
-    <message>
-        <location line="+3"/>
-        <location line="+146"/>
-        <source>Clear &amp;All</source>
-        <translation>Cancella &amp;tutto</translation>
-    </message>
-    <message>
-        <location line="-87"/>
-        <source>&amp;Verify Message</source>
-        <translation>&amp;Verifica Messaggio</translation>
-    </message>
-    <message>
-        <location line="+6"/>
-        <source>Enter the signing address, message (ensure you copy line breaks, spaces, tabs, etc. exactly) and signature below to verify the message. Be careful not to read more into the signature than what is in the signed message itself, to avoid being tricked by a man-in-the-middle attack.</source>
-        <translation>Inserisci l&apos;indirizzo per la firma, il messaggio (verifica di copiare esattamente anche i ritorni a capo, gli spazi, le tabulazioni, etc) e la firma qui sotto, per verificare il messaggio. Verifica che il contenuto della firma non sia più grande di quello del messaggio per evitare attacchi di tipo man-in-the-middle.</translation>
-    </message>
-    <message>
-        <location line="+21"/>
-        <source>The address the message was signed with (e.g. 1NS17iag9jJgTHD1VXjvLCEnZuQ3rJDE9L)</source>
-        <translation>Inserisci un indirizzo Bitcoin (ad esempio 1NS17iag9jJgTHD1VXjvLCEnZuQ3rJDE9L)</translation>
-    </message>
-    <message>
-        <location line="+40"/>
-        <source>Verify the message to ensure it was signed with the specified Bitcoin address</source>
-        <translation>Verifica il messaggio per assicurarsi che sia stato firmato con l&apos;indirizzo Bitcoin specificato</translation>
-    </message>
-    <message>
-        <location line="+3"/>
-        <source>Verify &amp;Message</source>
-        <translation>Verifica &amp;Messaggio</translation>
-    </message>
-    <message>
-        <location line="+14"/>
-        <source>Reset all verify message fields</source>
-        <translation>Reimposta tutti i campi della verifica messaggio</translation>
-    </message>
-    <message>
-        <location filename="../signverifymessagedialog.cpp" line="+27"/>
-        <location line="+3"/>
-        <source>Enter a Bitcoin address (e.g. 1NS17iag9jJgTHD1VXjvLCEnZuQ3rJDE9L)</source>
-        <translation>Inserisci un indirizzo Bitcoin (ad esempio 1NS17iag9jJgTHD1VXjvLCEnZuQ3rJDE9L)</translation>
-    </message>
-    <message>
-        <location line="-2"/>
-        <source>Click &quot;Sign Message&quot; to generate signature</source>
-        <translation>Clicca &quot;Firma il messaggio&quot; per ottenere la firma</translation>
-    </message>
-    <message>
-        <location line="+3"/>
-        <source>Enter Bitcoin signature</source>
-        <translation>Inserisci firma Bitcoin</translation>
-    </message>
-    <message>
-        <location line="+82"/>
-        <location line="+81"/>
-        <source>The entered address is invalid.</source>
-        <translation>L&apos;indirizzo inserito non è valido.</translation>
-    </message>
-    <message>
-        <location line="-81"/>
-        <location line="+8"/>
-        <location line="+73"/>
-        <location line="+8"/>
-        <source>Please check the address and try again.</source>
-        <translation>Per favore controlla l&apos;indirizzo e prova ancora</translation>
-    </message>
-    <message>
-        <location line="-81"/>
-        <location line="+81"/>
-        <source>The entered address does not refer to a key.</source>
-        <translation>L&apos;indirizzo bitcoin inserito non è associato a nessuna chiave.</translation>
-    </message>
-    <message>
-        <location line="-73"/>
-        <source>Wallet unlock was cancelled.</source>
-        <translation>Sblocco del portafoglio annullato.</translation>
-    </message>
-    <message>
-        <location line="+8"/>
-        <source>Private key for the entered address is not available.</source>
-        <translation>La chiave privata per l&apos;indirizzo inserito non è disponibile.</translation>
-    </message>
-    <message>
-        <location line="+12"/>
-        <source>Message signing failed.</source>
-        <translation>Firma messaggio fallita.</translation>
-    </message>
-    <message>
-        <location line="+5"/>
-        <source>Message signed.</source>
-        <translation>Messaggio firmato.</translation>
-    </message>
-    <message>
-        <location line="+59"/>
-        <source>The signature could not be decoded.</source>
-        <translation>Non è stato possibile decodificare la firma.</translation>
-    </message>
-    <message>
-        <location line="+0"/>
-        <location line="+13"/>
-        <source>Please check the signature and try again.</source>
-        <translation>Per favore controlla la firma e prova ancora.</translation>
-    </message>
-    <message>
-        <location line="+0"/>
-        <source>The signature did not match the message digest.</source>
-        <translation>La firma non corrisponde al sunto del messaggio.</translation>
-    </message>
-    <message>
-        <location line="+7"/>
-        <source>Message verification failed.</source>
-        <translation>Verifica messaggio fallita.</translation>
-    </message>
-    <message>
-        <location line="+5"/>
-        <source>Message verified.</source>
-        <translation>Messaggio verificato.</translation>
-    </message>
-</context>
-<context>
-    <name>SplashScreen</name>
-    <message>
-        <location filename="../splashscreen.cpp" line="+22"/>
-        <source>The Bitcoin developers</source>
-        <translation>Sviluppatori di Bitcoin</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>[testnet]</source>
-        <translation>[testnet]</translation>
-    </message>
-</context>
-<context>
-    <name>TransactionDesc</name>
-    <message>
-        <location filename="../transactiondesc.cpp" line="+20"/>
-        <source>Open until %1</source>
-        <translation>Aperto fino a %1</translation>
-    </message>
-    <message>
-        <location line="+6"/>
-        <source>%1/offline</source>
-        <translation>%1/offline</translation>
-    </message>
-    <message>
-        <location line="+2"/>
-        <source>%1/unconfirmed</source>
-        <translation>%1/non confermato</translation>
-    </message>
-    <message>
-        <location line="+2"/>
-        <source>%1 confirmations</source>
-        <translation>%1 conferme</translation>
-    </message>
-    <message>
-        <location line="+18"/>
-        <source>Status</source>
-        <translation>Stato</translation>
-    </message>
-    <message numerus="yes">
-        <location line="+7"/>
-        <source>, broadcast through %n node(s)</source>
-        <translation><numerusform>, trasmesso attraverso %n nodo</numerusform><numerusform>, trasmesso attraverso %n nodi</numerusform></translation>
-    </message>
-    <message>
-        <location line="+4"/>
-        <source>Date</source>
-        <translation>Data</translation>
-    </message>
-    <message>
-        <location line="+7"/>
-        <source>Source</source>
-        <translation>Sorgente</translation>
-    </message>
-    <message>
-        <location line="+0"/>
-        <source>Generated</source>
-        <translation>Generato</translation>
-    </message>
-    <message>
-        <location line="+5"/>
-        <location line="+17"/>
-        <source>From</source>
-        <translation>Da</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <location line="+22"/>
-        <location line="+58"/>
-        <source>To</source>
-        <translation>A</translation>
-    </message>
-    <message>
-        <location line="-77"/>
-        <location line="+2"/>
-        <source>own address</source>
-        <translation>proprio indirizzo</translation>
-    </message>
-    <message>
-        <location line="-2"/>
-        <source>label</source>
-        <translation>etichetta</translation>
-    </message>
-    <message>
-        <location line="+37"/>
-        <location line="+12"/>
-        <location line="+45"/>
-        <location line="+17"/>
-        <location line="+30"/>
-        <source>Credit</source>
-        <translation>Credito</translation>
-    </message>
-    <message numerus="yes">
-        <location line="-102"/>
-        <source>matures in %n more block(s)</source>
-        <translation><numerusform>matura in %n ulteriore blocco</numerusform><numerusform>matura in altri %n blocchi</numerusform></translation>
-    </message>
-    <message>
-        <location line="+2"/>
-        <source>not accepted</source>
-        <translation>non accettate</translation>
-    </message>
-    <message>
-        <location line="+44"/>
-        <location line="+8"/>
-        <location line="+15"/>
-        <location line="+30"/>
-        <source>Debit</source>
-        <translation>Debito</translation>
-    </message>
-    <message>
-        <location line="-39"/>
-        <source>Transaction fee</source>
-        <translation>Tranzakciós díj</translation>
-    </message>
-    <message>
-        <location line="+16"/>
-        <source>Net amount</source>
-        <translation>Importo netto</translation>
-    </message>
-    <message>
-        <location line="+6"/>
-        <source>Message</source>
-        <translation>Messaggio</translation>
-    </message>
-    <message>
-        <location line="+2"/>
-        <source>Comment</source>
-        <translation>Commento</translation>
-    </message>
-    <message>
-        <location line="+2"/>
-        <source>Transaction ID</source>
-        <translation>ID della transazione</translation>
-    </message>
-    <message>
-        <location line="+3"/>
-        <source>Generated coins must mature 120 blocks before they can be spent. When you generated this block, it was broadcast to the network to be added to the block chain. If it fails to get into the chain, its state will change to &quot;not accepted&quot; and it won&apos;t be spendable. This may occasionally happen if another node generates a block within a few seconds of yours.</source>
-        <translation>Bisogna attendere 120 blocchi prima di spendere I bitcoin generati. Quando è stato generato questo blocco, è stato trasmesso alla rete per aggiungerlo alla catena di blocchi. Se non riesce a entrare nella catena, verrà modificato in &quot;non accettato&quot; e non sarà spendibile. Questo può accadere a volte, se un altro nodo genera un blocco entro pochi secondi del tuo.</translation>
-    </message>
-    <message>
-        <location line="+7"/>
-        <source>Debug information</source>
-        <translation>Informazione di debug</translation>
-    </message>
-    <message>
-        <location line="+8"/>
-        <source>Transaction</source>
-        <translation>Transazione</translation>
-    </message>
-    <message>
-        <location line="+3"/>
-        <source>Inputs</source>
-        <translation>Input</translation>
-    </message>
-    <message>
-        <location line="+23"/>
         <source>Amount</source>
         <translation>Importo</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>true</source>
-        <translation>vero</translation>
+        <source>Enter a Bitcoin address (e.g. %1)</source>
+        <translation>Inserisci un indirizzo Bitcoin (ad es. %1)</translation>
     </message>
     <message>
-        <location line="+0"/>
-        <source>false</source>
-        <translation>falso</translation>
+        <source>%1 d</source>
+        <translation>%1 d</translation>
     </message>
     <message>
-        <location line="-209"/>
-        <source>, has not been successfully broadcast yet</source>
-        <translation>, non è stato ancora trasmesso con successo</translation>
+        <source>%1 h</source>
+        <translation>%1 h</translation>
+    </message>
+    <message>
+        <source>%1 m</source>
+        <translation>%1 m</translation>
+    </message>
+    <message>
+        <source>%1 s</source>
+        <translation>%1 s</translation>
+    </message>
+    <message>
+        <source>None</source>
+        <translation>Nessuno</translation>
+    </message>
+    <message>
+        <source>N/A</source>
+        <translation>N/D</translation>
+    </message>
+    <message>
+        <source>%1 ms</source>
+        <translation>%1 ms</translation>
     </message>
     <message numerus="yes">
-        <location line="-35"/>
-        <source>Open for %n more block(s)</source>
-        <translation><numerusform>Aperto per %n altro blocco</numerusform><numerusform>Aperto per altri %n blocchi</numerusform></translation>
+        <source>%n second(s)</source>
+        <translation><numerusform>%n secondo</numerusform><numerusform>%n secondi</numerusform></translation>
+    </message>
+    <message numerus="yes">
+        <source>%n minute(s)</source>
+        <translation><numerusform>%n minuto</numerusform><numerusform>%n minuti</numerusform></translation>
+    </message>
+    <message numerus="yes">
+        <source>%n hour(s)</source>
+        <translation><numerusform>%n ora</numerusform><numerusform>%n ore</numerusform></translation>
+    </message>
+    <message numerus="yes">
+        <source>%n day(s)</source>
+        <translation><numerusform>%n giorno</numerusform><numerusform>%n giorni</numerusform></translation>
+    </message>
+    <message numerus="yes">
+        <source>%n week(s)</source>
+        <translation><numerusform>%n settimana</numerusform><numerusform>%n settimane</numerusform></translation>
     </message>
     <message>
-        <location line="+70"/>
+        <source>%1 and %2</source>
+        <translation>%1 e %2</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n year(s)</source>
+        <translation><numerusform>%n anno</numerusform><numerusform>%n anni</numerusform></translation>
+    </message>
+    <message>
+        <source>%1 B</source>
+        <translation>%1 B</translation>
+    </message>
+    <message>
+        <source>%1 KB</source>
+        <translation>%1 KB</translation>
+    </message>
+    <message>
+        <source>%1 MB</source>
+        <translation>%1 MB</translation>
+    </message>
+    <message>
+        <source>%1 GB</source>
+        <translation>%1 GB</translation>
+    </message>
+    <message>
+        <source>Error: Specified data directory "%1" does not exist.</source>
+        <translation>Errore: La cartella dati "%1" specificata non esiste.</translation>
+    </message>
+    <message>
+        <source>Error: Cannot parse configuration file: %1.</source>
+        <translation>Errore: impossibile analizzare il file di configurazione: %1.</translation>
+    </message>
+    <message>
+        <source>Error: %1</source>
+        <translation>Errore: %1</translation>
+    </message>
+    <message>
+        <source>Error initializing settings: %1</source>
+        <translation>Errore durante l'inizializzazione delle impostazioni: %1</translation>
+    </message>
+    <message>
+        <source>%1 didn't yet exit safely...</source>
+        <translation>%1 non è ancora stato chiuso in modo sicuro</translation>
+    </message>
+    <message>
         <source>unknown</source>
         <translation>sconosciuto</translation>
     </message>
 </context>
 <context>
-    <name>TransactionDescDialog</name>
+    <name>QRImageWidget</name>
     <message>
-        <location filename="../forms/transactiondescdialog.ui" line="+14"/>
-        <source>Transaction details</source>
-        <translation>Dettagli sulla transazione</translation>
+        <source>&amp;Save Image...</source>
+        <translation>&amp;Salva immagine</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <source>&amp;Copy Image</source>
+        <translation>&amp;Copia immagine</translation>
+    </message>
+    <message>
+        <source>Resulting URI too long, try to reduce the text for label / message.</source>
+        <translation>L'URI risultante è troppo lungo, prova a ridurre il testo nell'etichetta / messaggio.</translation>
+    </message>
+    <message>
+        <source>Error encoding URI into QR Code.</source>
+        <translation>Errore nella codifica dell'URI nel codice QR.</translation>
+    </message>
+    <message>
+        <source>QR code support not available.</source>
+        <translation>Supporto QR code non disponibile.</translation>
+    </message>
+    <message>
+        <source>Save QR Code</source>
+        <translation>Salva codice QR</translation>
+    </message>
+    <message>
+        <source>PNG Image (*.png)</source>
+        <translation>Immagine PNG (*.png)</translation>
+    </message>
+</context>
+<context>
+    <name>RPCConsole</name>
+    <message>
+        <source>N/A</source>
+        <translation>N/D</translation>
+    </message>
+    <message>
+        <source>Client version</source>
+        <translation>Versione client</translation>
+    </message>
+    <message>
+        <source>&amp;Information</source>
+        <translation>&amp;Informazioni</translation>
+    </message>
+    <message>
+        <source>General</source>
+        <translation>Generale</translation>
+    </message>
+    <message>
+        <source>Using BerkeleyDB version</source>
+        <translation>Versione BerkeleyDB in uso</translation>
+    </message>
+    <message>
+        <source>Datadir</source>
+        <translation>Datadir</translation>
+    </message>
+    <message>
+        <source>To specify a non-default location of the data directory use the '%1' option.</source>
+        <translation>Per specificare una posizione non di default della directory dei dati, usa l'opzione '%1'</translation>
+    </message>
+    <message>
+        <source>Blocksdir</source>
+        <translation>Blocksdir</translation>
+    </message>
+    <message>
+        <source>To specify a non-default location of the blocks directory use the '%1' option.</source>
+        <translation>Per specificare una posizione non di default della directory dei blocchi, usa l'opzione '%1'</translation>
+    </message>
+    <message>
+        <source>Startup time</source>
+        <translation>Ora di avvio</translation>
+    </message>
+    <message>
+        <source>Network</source>
+        <translation>Rete</translation>
+    </message>
+    <message>
+        <source>Name</source>
+        <translation>Nome</translation>
+    </message>
+    <message>
+        <source>Number of connections</source>
+        <translation>Numero di connessioni</translation>
+    </message>
+    <message>
+        <source>Block chain</source>
+        <translation>Block chain</translation>
+    </message>
+    <message>
+        <source>Memory Pool</source>
+        <translation>Memory Pool</translation>
+    </message>
+    <message>
+        <source>Current number of transactions</source>
+        <translation>Numero attuale di transazioni</translation>
+    </message>
+    <message>
+        <source>Memory usage</source>
+        <translation>Utilizzo memoria</translation>
+    </message>
+    <message>
+        <source>Wallet: </source>
+        <translation>Portafoglio:</translation>
+    </message>
+    <message>
+        <source>(none)</source>
+        <translation>(nessuno)</translation>
+    </message>
+    <message>
+        <source>&amp;Reset</source>
+        <translation>&amp;Ripristina</translation>
+    </message>
+    <message>
+        <source>Received</source>
+        <translation>Ricevuto</translation>
+    </message>
+    <message>
+        <source>Sent</source>
+        <translation>Inviato</translation>
+    </message>
+    <message>
+        <source>&amp;Peers</source>
+        <translation>&amp;Peer</translation>
+    </message>
+    <message>
+        <source>Banned peers</source>
+        <translation>Peers bannati</translation>
+    </message>
+    <message>
+        <source>Select a peer to view detailed information.</source>
+        <translation>Seleziona un peer per visualizzare informazioni più dettagliate.</translation>
+    </message>
+    <message>
+        <source>Direction</source>
+        <translation>Direzione</translation>
+    </message>
+    <message>
+        <source>Version</source>
+        <translation>Versione</translation>
+    </message>
+    <message>
+        <source>Starting Block</source>
+        <translation>Blocco di partenza</translation>
+    </message>
+    <message>
+        <source>Synced Headers</source>
+        <translation>Headers sincronizzati</translation>
+    </message>
+    <message>
+        <source>Synced Blocks</source>
+        <translation>Blocchi sincronizzati</translation>
+    </message>
+    <message>
+        <source>The mapped Autonomous System used for diversifying peer selection.</source>
+        <translation>Il Sistema Autonomo mappato utilizzato per diversificare la selezione dei peer.</translation>
+    </message>
+    <message>
+        <source>Mapped AS</source>
+        <translation>AS mappato</translation>
+    </message>
+    <message>
+        <source>User Agent</source>
+        <translation>User Agent</translation>
+    </message>
+    <message>
+        <source>Node window</source>
+        <translation>Finestra del nodo</translation>
+    </message>
+    <message>
+        <source>Current block height</source>
+        <translation>Altezza del blocco corrente</translation>
+    </message>
+    <message>
+        <source>Open the %1 debug log file from the current data directory. This can take a few seconds for large log files.</source>
+        <translation>Apri il file log del debug di %1 dalla cartella dati attuale. Può richiedere alcuni secondi per file di log di grandi dimensioni.</translation>
+    </message>
+    <message>
+        <source>Decrease font size</source>
+        <translation>Riduci dimensioni font.</translation>
+    </message>
+    <message>
+        <source>Increase font size</source>
+        <translation>Aumenta dimensioni font</translation>
+    </message>
+    <message>
+        <source>Permissions</source>
+        <translation>Permessi</translation>
+    </message>
+    <message>
+        <source>Services</source>
+        <translation>Servizi</translation>
+    </message>
+    <message>
+        <source>Connection Time</source>
+        <translation>Tempo di Connessione</translation>
+    </message>
+    <message>
+        <source>Last Send</source>
+        <translation>Ultimo Invio</translation>
+    </message>
+    <message>
+        <source>Last Receive</source>
+        <translation>Ultima Ricezione</translation>
+    </message>
+    <message>
+        <source>Ping Time</source>
+        <translation>Tempo di Ping</translation>
+    </message>
+    <message>
+        <source>The duration of a currently outstanding ping.</source>
+        <translation>La durata di un ping attualmente in corso.</translation>
+    </message>
+    <message>
+        <source>Ping Wait</source>
+        <translation>Attesa ping</translation>
+    </message>
+    <message>
+        <source>Min Ping</source>
+        <translation>Ping Minimo</translation>
+    </message>
+    <message>
+        <source>Time Offset</source>
+        <translation>Scarto Temporale</translation>
+    </message>
+    <message>
+        <source>Last block time</source>
+        <translation>Ora del blocco più recente</translation>
+    </message>
+    <message>
+        <source>&amp;Open</source>
+        <translation>&amp;Apri</translation>
+    </message>
+    <message>
+        <source>&amp;Console</source>
+        <translation>&amp;Console</translation>
+    </message>
+    <message>
+        <source>&amp;Network Traffic</source>
+        <translation>&amp;Traffico di Rete</translation>
+    </message>
+    <message>
+        <source>Totals</source>
+        <translation>Totali</translation>
+    </message>
+    <message>
+        <source>In:</source>
+        <translation>Entrata:</translation>
+    </message>
+    <message>
+        <source>Out:</source>
+        <translation>Uscita:</translation>
+    </message>
+    <message>
+        <source>Debug log file</source>
+        <translation>File log del Debug</translation>
+    </message>
+    <message>
+        <source>Clear console</source>
+        <translation>Cancella console</translation>
+    </message>
+    <message>
+        <source>1 &amp;hour</source>
+        <translation>1 &amp;ora</translation>
+    </message>
+    <message>
+        <source>1 &amp;day</source>
+        <translation>1 &amp;giorno</translation>
+    </message>
+    <message>
+        <source>1 &amp;week</source>
+        <translation>1 &amp;settimana</translation>
+    </message>
+    <message>
+        <source>1 &amp;year</source>
+        <translation>1 &amp;anno</translation>
+    </message>
+    <message>
+        <source>&amp;Disconnect</source>
+        <translation>&amp;Disconnetti</translation>
+    </message>
+    <message>
+        <source>Ban for</source>
+        <translation>Bannato per</translation>
+    </message>
+    <message>
+        <source>&amp;Unban</source>
+        <translation>&amp;Elimina Ban</translation>
+    </message>
+    <message>
+        <source>Welcome to the %1 RPC console.</source>
+        <translation>Benvenuto nella console RPC di %1.</translation>
+    </message>
+    <message>
+        <source>Use up and down arrows to navigate history, and %1 to clear screen.</source>
+        <translation>Usa le frecce su e giú per navigare nella storia, e %1 per pulire lo schermo</translation>
+    </message>
+    <message>
+        <source>Type %1 for an overview of available commands.</source>
+        <translation>Digita %1 per una descrizione di comandi disponibili</translation>
+    </message>
+    <message>
+        <source>For more information on using this console type %1.</source>
+        <translation>Per maggiori informazioni su come usare questa console digita %1.</translation>
+    </message>
+    <message>
+        <source>WARNING: Scammers have been active, telling users to type commands here, stealing their wallet contents. Do not use this console without fully understanding the ramifications of a command.</source>
+        <translation>ATTENZIONE: I truffatori sono stati attivi in quest'area, cercando di convincere gli utenti a digitare linee di comando rubando i contenuti dei loro portafogli. Non usare questa console senza la piena consapevolezza delle conseguenze di un comando.</translation>
+    </message>
+    <message>
+        <source>Network activity disabled</source>
+        <translation>Attività di rete disabilitata</translation>
+    </message>
+    <message>
+        <source>Executing command without any wallet</source>
+        <translation>Esecuzione del comando senza alcun portafoglio</translation>
+    </message>
+    <message>
+        <source>Executing command using "%1" wallet</source>
+        <translation>Esecuzione del comando usando il wallet "%1"</translation>
+    </message>
+    <message>
+        <source>(node id: %1)</source>
+        <translation>(id nodo: %1)</translation>
+    </message>
+    <message>
+        <source>via %1</source>
+        <translation>via %1</translation>
+    </message>
+    <message>
+        <source>never</source>
+        <translation>mai</translation>
+    </message>
+    <message>
+        <source>Inbound</source>
+        <translation>In entrata</translation>
+    </message>
+    <message>
+        <source>Outbound</source>
+        <translation>In uscita</translation>
+    </message>
+    <message>
+        <source>Unknown</source>
+        <translation>Sconosciuto</translation>
+    </message>
+</context>
+<context>
+    <name>ReceiveCoinsDialog</name>
+    <message>
+        <source>&amp;Amount:</source>
+        <translation>&amp;Importo:</translation>
+    </message>
+    <message>
+        <source>&amp;Label:</source>
+        <translation>&amp;Etichetta:</translation>
+    </message>
+    <message>
+        <source>&amp;Message:</source>
+        <translation>&amp;Messaggio:</translation>
+    </message>
+    <message>
+        <source>An optional message to attach to the payment request, which will be displayed when the request is opened. Note: The message will not be sent with the payment over the Bitcoin network.</source>
+        <translation>Un messaggio opzionale da allegare e mostrare all'apertura della richiesta di pagamento. Nota: Il messaggio non sarà inviato con il pagamento sulla rete Bitcoin.</translation>
+    </message>
+    <message>
+        <source>An optional label to associate with the new receiving address.</source>
+        <translation>Un'etichetta opzionale da associare al nuovo indirizzo di ricezione.</translation>
+    </message>
+    <message>
+        <source>Use this form to request payments. All fields are &lt;b&gt;optional&lt;/b&gt;.</source>
+        <translation>Usa questo modulo per richiedere pagamenti. Tutti i campi sono &lt;b&gt;opzionali&lt;/b&gt;.</translation>
+    </message>
+    <message>
+        <source>An optional amount to request. Leave this empty or zero to not request a specific amount.</source>
+        <translation>Un importo opzionale da associare alla richiesta. Lasciare vuoto o a zero per non richiedere un importo specifico.</translation>
+    </message>
+    <message>
+        <source>An optional label to associate with the new receiving address (used by you to identify an invoice).  It is also attached to the payment request.</source>
+        <translation>Un'etichetta facoltativa da associare al nuovo indirizzo di ricezione (utilizzata da te per identificare una fattura). Viene inoltre allegata alla richiesta di pagamento.</translation>
+    </message>
+    <message>
+        <source>An optional message that is attached to the payment request and may be displayed to the sender.</source>
+        <translation>Un messaggio facoltativo che è allegato alla richiesta di pagamento e può essere visualizzato dal mittente.</translation>
+    </message>
+    <message>
+        <source>&amp;Create new receiving address</source>
+        <translation>Crea nuovo indirizzo ricevente.</translation>
+    </message>
+    <message>
+        <source>Clear all fields of the form.</source>
+        <translation>Cancellare tutti i campi del modulo.</translation>
+    </message>
+    <message>
+        <source>Clear</source>
+        <translation>Cancella</translation>
+    </message>
+    <message>
+        <source>Native segwit addresses (aka Bech32 or BIP-173) reduce your transaction fees later on and offer better protection against typos, but old wallets don't support them. When unchecked, an address compatible with older wallets will be created instead.</source>
+        <translation>Gli indirizzi nativi segwit (noti anche come Bech32 o BIP-173) riducono le spese di transazione e offrono una migliore protezione dagli errori di battitura, ma i vecchi portafogli non li supportano. Se deselezionata, verrà creato un indirizzo compatibile con i portafogli meno recenti.</translation>
+    </message>
+    <message>
+        <source>Generate native segwit (Bech32) address</source>
+        <translation>Genera indirizzo nativo segwit (Bech32)</translation>
+    </message>
+    <message>
+        <source>Requested payments history</source>
+        <translation>Cronologia pagamenti richiesti</translation>
+    </message>
+    <message>
+        <source>Show the selected request (does the same as double clicking an entry)</source>
+        <translation>Mostra la richiesta selezionata (produce lo stesso effetto di un doppio click su una voce)</translation>
+    </message>
+    <message>
+        <source>Show</source>
+        <translation>Mostra</translation>
+    </message>
+    <message>
+        <source>Remove the selected entries from the list</source>
+        <translation>Rimuovi le voci selezionate dalla lista</translation>
+    </message>
+    <message>
+        <source>Remove</source>
+        <translation>Rimuovi</translation>
+    </message>
+    <message>
+        <source>Copy URI</source>
+        <translation>Copia URI</translation>
+    </message>
+    <message>
+        <source>Copy label</source>
+        <translation>Copia etichetta</translation>
+    </message>
+    <message>
+        <source>Copy message</source>
+        <translation>Copia il messaggio</translation>
+    </message>
+    <message>
+        <source>Copy amount</source>
+        <translation>Copia l'importo</translation>
+    </message>
+    <message>
+        <source>Could not unlock wallet.</source>
+        <translation>Impossibile sbloccare il portafoglio.</translation>
+    </message>
+    <message>
+        <source>Could not generate new %1 address</source>
+        <translation>Non è stato possibile generare il nuovo %1 indirizzo</translation>
+    </message>
+</context>
+<context>
+    <name>ReceiveRequestDialog</name>
+    <message>
+        <source>Request payment to ...</source>
+        <translation>Richiedi pagamento a ...</translation>
+    </message>
+    <message>
+        <source>Address:</source>
+        <translation>Indirizzo:</translation>
+    </message>
+    <message>
+        <source>Amount:</source>
+        <translation>Importo:</translation>
+    </message>
+    <message>
+        <source>Label:</source>
+        <translation>Etichetta:</translation>
+    </message>
+    <message>
+        <source>Message:</source>
+        <translation>Messaggio:</translation>
+    </message>
+    <message>
+        <source>Wallet:</source>
+        <translation>Portafoglio:</translation>
+    </message>
+    <message>
+        <source>Copy &amp;URI</source>
+        <translation>Copia &amp;URI</translation>
+    </message>
+    <message>
+        <source>Copy &amp;Address</source>
+        <translation>Copia &amp;Indirizzo</translation>
+    </message>
+    <message>
+        <source>&amp;Save Image...</source>
+        <translation>&amp;Salva Immagine...</translation>
+    </message>
+    <message>
+        <source>Request payment to %1</source>
+        <translation>Richiesta di pagamento a %1</translation>
+    </message>
+    <message>
+        <source>Payment information</source>
+        <translation>Informazioni di pagamento</translation>
+    </message>
+</context>
+<context>
+    <name>RecentRequestsTableModel</name>
+    <message>
+        <source>Date</source>
+        <translation>Data</translation>
+    </message>
+    <message>
+        <source>Label</source>
+        <translation>Etichetta</translation>
+    </message>
+    <message>
+        <source>Message</source>
+        <translation>Messaggio</translation>
+    </message>
+    <message>
+        <source>(no label)</source>
+        <translation>(nessuna etichetta)</translation>
+    </message>
+    <message>
+        <source>(no message)</source>
+        <translation>(nessun messaggio)</translation>
+    </message>
+    <message>
+        <source>(no amount requested)</source>
+        <translation>(nessun importo richiesto)</translation>
+    </message>
+    <message>
+        <source>Requested</source>
+        <translation>Richiesto</translation>
+    </message>
+</context>
+<context>
+    <name>SendCoinsDialog</name>
+    <message>
+        <source>Send Coins</source>
+        <translation>Invia Bitcoin</translation>
+    </message>
+    <message>
+        <source>Coin Control Features</source>
+        <translation>Funzionalità di Coin Control</translation>
+    </message>
+    <message>
+        <source>Inputs...</source>
+        <translation>Input...</translation>
+    </message>
+    <message>
+        <source>automatically selected</source>
+        <translation>selezionato automaticamente</translation>
+    </message>
+    <message>
+        <source>Insufficient funds!</source>
+        <translation>Fondi insufficienti!</translation>
+    </message>
+    <message>
+        <source>Quantity:</source>
+        <translation>Quantità:</translation>
+    </message>
+    <message>
+        <source>Bytes:</source>
+        <translation>Byte:</translation>
+    </message>
+    <message>
+        <source>Amount:</source>
+        <translation>Importo:</translation>
+    </message>
+    <message>
+        <source>Fee:</source>
+        <translation>Commissione:</translation>
+    </message>
+    <message>
+        <source>After Fee:</source>
+        <translation>Dopo Commissione:</translation>
+    </message>
+    <message>
+        <source>Change:</source>
+        <translation>Resto:</translation>
+    </message>
+    <message>
+        <source>If this is activated, but the change address is empty or invalid, change will be sent to a newly generated address.</source>
+        <translation>In caso di abilitazione con indirizzo vuoto o non valido, il resto sarà inviato ad un nuovo indirizzo generato appositamente.</translation>
+    </message>
+    <message>
+        <source>Custom change address</source>
+        <translation>Personalizza indirizzo di resto</translation>
+    </message>
+    <message>
+        <source>Transaction Fee:</source>
+        <translation>Commissione di Transazione:</translation>
+    </message>
+    <message>
+        <source>Choose...</source>
+        <translation>Scegli...</translation>
+    </message>
+    <message>
+        <source>Using the fallbackfee can result in sending a transaction that will take several hours or days (or never) to confirm. Consider choosing your fee manually or wait until you have validated the complete chain.</source>
+        <translation>L'utilizzo della fallback fee può risultare nell'invio di una transazione che impiegherà diverse ore o giorni per essere confermata (e potrebbe non esserlo mai). Prendi in considerazione di scegliere la tua commissione manualmente o aspetta fino ad aver validato l'intera catena.</translation>
+    </message>
+    <message>
+        <source>Warning: Fee estimation is currently not possible.</source>
+        <translation>Attenzione: Il calcolo delle commissioni non è attualmente disponibile.</translation>
+    </message>
+    <message>
+        <source>Specify a custom fee per kB (1,000 bytes) of the transaction's virtual size.
+
+Note:  Since the fee is calculated on a per-byte basis, a fee of "100 satoshis per kB" for a transaction size of 500 bytes (half of 1 kB) would ultimately yield a fee of only 50 satoshis.</source>
+        <translation>Specifica una tariffa personalizzata per kB (1.000 byte) della dimensione virtuale della transazione
+
+Nota: poiché la commissione è calcolata su base per byte, una commissione di "100 satoshi per kB" per una dimensione di transazione di 500 byte (metà di 1 kB) alla fine produrrà una commissione di soli 50 satoshi.</translation>
+    </message>
+    <message>
+        <source>per kilobyte</source>
+        <translation>per kilobyte</translation>
+    </message>
+    <message>
+        <source>Hide</source>
+        <translation>Nascondi</translation>
+    </message>
+    <message>
+        <source>Recommended:</source>
+        <translation>Raccomandata:</translation>
+    </message>
+    <message>
+        <source>Custom:</source>
+        <translation>Personalizzata:</translation>
+    </message>
+    <message>
+        <source>(Smart fee not initialized yet. This usually takes a few blocks...)</source>
+        <translation>(Commissione intelligente non ancora inizializzata. Normalmente richiede un'attesa di alcuni blocchi...)</translation>
+    </message>
+    <message>
+        <source>Send to multiple recipients at once</source>
+        <translation>Invia simultaneamente a più beneficiari</translation>
+    </message>
+    <message>
+        <source>Add &amp;Recipient</source>
+        <translation>&amp;Aggiungi beneficiario</translation>
+    </message>
+    <message>
+        <source>Clear all fields of the form.</source>
+        <translation>Cancellare tutti i campi del modulo.</translation>
+    </message>
+    <message>
+        <source>Dust:</source>
+        <translation>Trascurabile:</translation>
+    </message>
+    <message>
+        <source>Hide transaction fee settings</source>
+        <translation>Nascondi le impostazioni delle commissioni di transazione.</translation>
+    </message>
+    <message>
+        <source>When there is less transaction volume than space in the blocks, miners as well as relaying nodes may enforce a minimum fee. Paying only this minimum fee is just fine, but be aware that this can result in a never confirming transaction once there is more demand for bitcoin transactions than the network can process.</source>
+        <translation>Quando il volume delle transazioni è minore dello spazio nei blocchi, i minatori e in nodi di relay potrebbero imporre una commissione minima. Va benissimo pagare solo questa commissione minima, ma tieni presente che questo potrebbe risultare in una transazione che, se la richiesta di transazioni bitcoin dovesse superare la velocità con cui la rete riesce ad elaborarle, non viene mai confermata.</translation>
+    </message>
+    <message>
+        <source>A too low fee might result in a never confirming transaction (read the tooltip)</source>
+        <translation>Una commissione troppo bassa potrebbe risultare in una transazione che non si conferma mai (vedi il tooltip)</translation>
+    </message>
+    <message>
+        <source>Confirmation time target:</source>
+        <translation>Obiettivo del tempo di conferma:</translation>
+    </message>
+    <message>
+        <source>Enable Replace-By-Fee</source>
+        <translation>Attiva Replace-By-Fee</translation>
+    </message>
+    <message>
+        <source>With Replace-By-Fee (BIP-125) you can increase a transaction's fee after it is sent. Without this, a higher fee may be recommended to compensate for increased transaction delay risk.</source>
+        <translation>Con Replace-By-Fee (BIP-125) si puó aumentare la commissione sulla transazione dopo averla inviata. Senza questa, una commissione piú alta è consigliabile per compensare l'aumento del rischio dovuto al ritardo della transazione.</translation>
+    </message>
+    <message>
+        <source>Clear &amp;All</source>
+        <translation>Cancella &amp;tutto</translation>
+    </message>
+    <message>
+        <source>Balance:</source>
+        <translation>Saldo:</translation>
+    </message>
+    <message>
+        <source>Confirm the send action</source>
+        <translation>Conferma l'azione di invio</translation>
+    </message>
+    <message>
+        <source>S&amp;end</source>
+        <translation>&amp;Invia</translation>
+    </message>
+    <message>
+        <source>Copy quantity</source>
+        <translation>Copia quantità</translation>
+    </message>
+    <message>
+        <source>Copy amount</source>
+        <translation>Copia l'importo</translation>
+    </message>
+    <message>
+        <source>Copy fee</source>
+        <translation>Copia commissione</translation>
+    </message>
+    <message>
+        <source>Copy after fee</source>
+        <translation>Copia dopo commissione</translation>
+    </message>
+    <message>
+        <source>Copy bytes</source>
+        <translation>Copia byte</translation>
+    </message>
+    <message>
+        <source>Copy dust</source>
+        <translation>Copia trascurabile</translation>
+    </message>
+    <message>
+        <source>Copy change</source>
+        <translation>Copia resto</translation>
+    </message>
+    <message>
+        <source>%1 (%2 blocks)</source>
+        <translation>%1 (%2 blocchi)</translation>
+    </message>
+    <message>
+        <source>Cr&amp;eate Unsigned</source>
+        <translation>Cr&amp;eate Unsigned</translation>
+    </message>
+    <message>
+        <source>Creates a Partially Signed Bitcoin Transaction (PSBT) for use with e.g. an offline %1 wallet, or a PSBT-compatible hardware wallet.</source>
+        <translation>Crea una Transazione Bitcoin Parzialmente Firmata (PSBT) da utilizzare con ad es. un portafoglio %1 offline o un portafoglio hardware compatibile con PSBT.</translation>
+    </message>
+    <message>
+        <source> from wallet '%1'</source>
+        <translation>dal wallet '%1'</translation>
+    </message>
+    <message>
+        <source>%1 to '%2'</source>
+        <translation>%1 to '%2'</translation>
+    </message>
+    <message>
+        <source>%1 to %2</source>
+        <translation>%1 a %2</translation>
+    </message>
+    <message>
+        <source>Do you want to draft this transaction?</source>
+        <translation>Vuoi compilare questa transazione?</translation>
+    </message>
+    <message>
+        <source>Are you sure you want to send?</source>
+        <translation>Sei sicuro di voler inviare?</translation>
+    </message>
+    <message>
+        <source>Create Unsigned</source>
+        <translation>Crea non Firmata</translation>
+    </message>
+    <message>
+        <source>Save Transaction Data</source>
+        <translation>Salva Dati Transazione</translation>
+    </message>
+    <message>
+        <source>Partially Signed Transaction (Binary) (*.psbt)</source>
+        <translation>Transazione Parzialmente Firmata (Binario) (*.psbt)</translation>
+    </message>
+    <message>
+        <source>PSBT saved</source>
+        <translation>PSBT salvata</translation>
+    </message>
+    <message>
+        <source>or</source>
+        <translation>o</translation>
+    </message>
+    <message>
+        <source>You can increase the fee later (signals Replace-By-Fee, BIP-125).</source>
+        <translation>Si puó aumentare la commissione successivamente (segnalando Replace-By-Fee, BIP-125).</translation>
+    </message>
+    <message>
+        <source>Please, review your transaction proposal. This will produce a Partially Signed Bitcoin Transaction (PSBT) which you can save or copy and then sign with e.g. an offline %1 wallet, or a PSBT-compatible hardware wallet.</source>
+        <translation>Per favore, controlla la tua proposta di transazione. Questo produrrà una Partially Signed Bitcoin Transaction (PSBT) che puoi salvare o copiare e quindi firmare con es. un portafoglio %1 offline o un portafoglio hardware compatibile con PSBT.</translation>
+    </message>
+    <message>
+        <source>Please, review your transaction.</source>
+        <translation>Per favore, rivedi la tua transazione.</translation>
+    </message>
+    <message>
+        <source>Transaction fee</source>
+        <translation>Commissione transazione</translation>
+    </message>
+    <message>
+        <source>Not signalling Replace-By-Fee, BIP-125.</source>
+        <translation>Senza segnalare Replace-By-Fee, BIP-125.</translation>
+    </message>
+    <message>
+        <source>Total Amount</source>
+        <translation>Importo totale</translation>
+    </message>
+    <message>
+        <source>To review recipient list click "Show Details..."</source>
+        <translation>Per controllare la lista dei destinatari fare click su "Mostra dettagli..."</translation>
+    </message>
+    <message>
+        <source>Confirm send coins</source>
+        <translation>Conferma invio coins</translation>
+    </message>
+    <message>
+        <source>Confirm transaction proposal</source>
+        <translation>Conferma la proposta di transazione</translation>
+    </message>
+    <message>
+        <source>Send</source>
+        <translation>Invia</translation>
+    </message>
+    <message>
+        <source>Watch-only balance:</source>
+        <translation>Saldo watch-only</translation>
+    </message>
+    <message>
+        <source>The recipient address is not valid. Please recheck.</source>
+        <translation>L'indirizzo del destinatario non è valido. Si prega di ricontrollare.</translation>
+    </message>
+    <message>
+        <source>The amount to pay must be larger than 0.</source>
+        <translation>L'importo da pagare deve essere maggiore di 0.</translation>
+    </message>
+    <message>
+        <source>The amount exceeds your balance.</source>
+        <translation>Non hai abbastanza fondi</translation>
+    </message>
+    <message>
+        <source>The total exceeds your balance when the %1 transaction fee is included.</source>
+        <translation>Il totale è superiore al tuo saldo attuale includendo la commissione di %1.</translation>
+    </message>
+    <message>
+        <source>Duplicate address found: addresses should only be used once each.</source>
+        <translation>Rilevato un indirizzo duplicato Ciascun indirizzo dovrebbe essere utilizzato una sola volta.</translation>
+    </message>
+    <message>
+        <source>Transaction creation failed!</source>
+        <translation>Creazione della transazione fallita!</translation>
+    </message>
+    <message>
+        <source>A fee higher than %1 is considered an absurdly high fee.</source>
+        <translation>Una commissione maggiore di %1 è considerata irragionevolmente elevata.</translation>
+    </message>
+    <message>
+        <source>Payment request expired.</source>
+        <translation>Richiesta di pagamento scaduta.</translation>
+    </message>
+    <message numerus="yes">
+        <source>Estimated to begin confirmation within %n block(s).</source>
+        <translation><numerusform>Inizio delle conferme stimato entro %n blocchi.</numerusform><numerusform>Inizio delle conferme stimato entro %n blocchi.</numerusform></translation>
+    </message>
+    <message>
+        <source>Warning: Invalid Bitcoin address</source>
+        <translation>Attenzione: Indirizzo Bitcoin non valido</translation>
+    </message>
+    <message>
+        <source>Warning: Unknown change address</source>
+        <translation>Attenzione: Indirizzo per il resto sconosciuto</translation>
+    </message>
+    <message>
+        <source>Confirm custom change address</source>
+        <translation>Conferma il cambio di indirizzo</translation>
+    </message>
+    <message>
+        <source>The address you selected for change is not part of this wallet. Any or all funds in your wallet may be sent to this address. Are you sure?</source>
+        <translation>L'indirizzo selezionato per il resto non fa parte di questo portafoglio. Alcuni o tutti i fondi nel tuo portafoglio potrebbero essere inviati a questo indirizzo. Sei sicuro?</translation>
+    </message>
+    <message>
+        <source>(no label)</source>
+        <translation>(nessuna etichetta)</translation>
+    </message>
+</context>
+<context>
+    <name>SendCoinsEntry</name>
+    <message>
+        <source>A&amp;mount:</source>
+        <translation>&amp;Importo:</translation>
+    </message>
+    <message>
+        <source>Pay &amp;To:</source>
+        <translation>Paga &amp;a:</translation>
+    </message>
+    <message>
+        <source>&amp;Label:</source>
+        <translation>&amp;Etichetta:</translation>
+    </message>
+    <message>
+        <source>Choose previously used address</source>
+        <translation>Scegli un indirizzo usato precedentemente</translation>
+    </message>
+    <message>
+        <source>The Bitcoin address to send the payment to</source>
+        <translation>L'indirizzo Bitcoin a cui vuoi inviare il pagamento</translation>
+    </message>
+    <message>
+        <source>Alt+A</source>
+        <translation>Alt+A</translation>
+    </message>
+    <message>
+        <source>Paste address from clipboard</source>
+        <translation>Incollare l'indirizzo dagli appunti</translation>
+    </message>
+    <message>
+        <source>Alt+P</source>
+        <translation>Alt+P</translation>
+    </message>
+    <message>
+        <source>Remove this entry</source>
+        <translation>Rimuovi questa voce</translation>
+    </message>
+    <message>
+        <source>The amount to send in the selected unit</source>
+        <translation>L'ammontare da inviare nell'unità selezionata</translation>
+    </message>
+    <message>
+        <source>The fee will be deducted from the amount being sent. The recipient will receive less bitcoins than you enter in the amount field. If multiple recipients are selected, the fee is split equally.</source>
+        <translation>La commissione sarà sottratta dall'importo che si sta inviando. Il beneficiario riceverà un totale di bitcoin inferiore al valore digitato. Nel caso in cui siano stati selezionati più beneficiari la commissione sarà suddivisa in parti uguali.</translation>
+    </message>
+    <message>
+        <source>S&amp;ubtract fee from amount</source>
+        <translation>S&amp;ottrae la commissione dall'importo</translation>
+    </message>
+    <message>
+        <source>Use available balance</source>
+        <translation>Usa saldo disponibile</translation>
+    </message>
+    <message>
+        <source>Message:</source>
+        <translation>Messaggio:</translation>
+    </message>
+    <message>
+        <source>This is an unauthenticated payment request.</source>
+        <translation>Questa è una richiesta di pagamento non autenticata.</translation>
+    </message>
+    <message>
+        <source>This is an authenticated payment request.</source>
+        <translation>Questa è una richiesta di pagamento autenticata.</translation>
+    </message>
+    <message>
+        <source>Enter a label for this address to add it to the list of used addresses</source>
+        <translation>Inserisci un'etichetta per questo indirizzo per aggiungerlo alla lista degli indirizzi utilizzati</translation>
+    </message>
+    <message>
+        <source>A message that was attached to the bitcoin: URI which will be stored with the transaction for your reference. Note: This message will not be sent over the Bitcoin network.</source>
+        <translation>Messaggio incluso nel bitcoin URI e che sarà memorizzato con la transazione per tuo riferimento. Nota: Questo messaggio non sarà inviato attraverso la rete Bitcoin.</translation>
+    </message>
+    <message>
+        <source>Pay To:</source>
+        <translation>Pagare a:</translation>
+    </message>
+    <message>
+        <source>Memo:</source>
+        <translation>Memo:</translation>
+    </message>
+</context>
+<context>
+    <name>ShutdownWindow</name>
+    <message>
+        <source>%1 is shutting down...</source>
+        <translation>Arresto di %1 in corso...</translation>
+    </message>
+    <message>
+        <source>Do not shut down the computer until this window disappears.</source>
+        <translation>Non spegnere il computer fino a quando questa finestra non si sarà chiusa.</translation>
+    </message>
+</context>
+<context>
+    <name>SignVerifyMessageDialog</name>
+    <message>
+        <source>Signatures - Sign / Verify a Message</source>
+        <translation>Firme - Firma / Verifica un messaggio</translation>
+    </message>
+    <message>
+        <source>&amp;Sign Message</source>
+        <translation>&amp;Firma Messaggio</translation>
+    </message>
+    <message>
+        <source>You can sign messages/agreements with your addresses to prove you can receive bitcoins sent to them. Be careful not to sign anything vague or random, as phishing attacks may try to trick you into signing your identity over to them. Only sign fully-detailed statements you agree to.</source>
+        <translation>È possibile firmare messaggi/accordi con i propri indirizzi in modo da dimostrare di poter ricevere bitcoin attraverso di essi. Presta attenzione a non firmare dichiarazioni vaghe o casuali, perché attacchi di phishing potrebbero cercare di indurti ad apporre la firma su di esse. Firma esclusivamente dichiarazioni completamente dettagliate e delle quali condividi in pieno il contenuto.</translation>
+    </message>
+    <message>
+        <source>The Bitcoin address to sign the message with</source>
+        <translation>Indirizzo Bitcoin da utilizzare per firmare il messaggio</translation>
+    </message>
+    <message>
+        <source>Choose previously used address</source>
+        <translation>Scegli un indirizzo usato precedentemente</translation>
+    </message>
+    <message>
+        <source>Alt+A</source>
+        <translation>Alt+A</translation>
+    </message>
+    <message>
+        <source>Paste address from clipboard</source>
+        <translation>Incolla l'indirizzo dagli appunti</translation>
+    </message>
+    <message>
+        <source>Alt+P</source>
+        <translation>Alt+P</translation>
+    </message>
+    <message>
+        <source>Enter the message you want to sign here</source>
+        <translation>Inserisci qui il messaggio che vuoi firmare</translation>
+    </message>
+    <message>
+        <source>Signature</source>
+        <translation>Firma</translation>
+    </message>
+    <message>
+        <source>Copy the current signature to the system clipboard</source>
+        <translation>Copia la firma corrente nella clipboard</translation>
+    </message>
+    <message>
+        <source>Sign the message to prove you own this Bitcoin address</source>
+        <translation>Firma un messaggio per dimostrare di possedere questo indirizzo Bitcoin</translation>
+    </message>
+    <message>
+        <source>Sign &amp;Message</source>
+        <translation>Firma &amp;Messaggio</translation>
+    </message>
+    <message>
+        <source>Reset all sign message fields</source>
+        <translation>Reimposta tutti i campi della firma messaggio</translation>
+    </message>
+    <message>
+        <source>Clear &amp;All</source>
+        <translation>Cancella &amp;Tutto</translation>
+    </message>
+    <message>
+        <source>&amp;Verify Message</source>
+        <translation>&amp;Verifica Messaggio</translation>
+    </message>
+    <message>
+        <source>Enter the receiver's address, message (ensure you copy line breaks, spaces, tabs, etc. exactly) and signature below to verify the message. Be careful not to read more into the signature than what is in the signed message itself, to avoid being tricked by a man-in-the-middle attack. Note that this only proves the signing party receives with the address, it cannot prove sendership of any transaction!</source>
+        <translation>Per verificare il messaggio inserire l'indirizzo del firmatario, il messaggio e la firma nei campi sottostanti, assicurandosi di copiare esattamente anche ritorni a capo, spazi, tabulazioni, etc.. Si raccomanda di non lasciarsi fuorviare dalla firma a leggere più di quanto non sia riportato nel testo del messaggio stesso, in modo da evitare di cadere vittima di attacchi di tipo man-in-the-middle. Si ricorda che la verifica della firma dimostra soltanto che il firmatario può ricevere pagamenti con l'indirizzo corrispondente, non prova l'invio di alcuna transazione.</translation>
+    </message>
+    <message>
+        <source>The Bitcoin address the message was signed with</source>
+        <translation>L'indirizzo Bitcoin con cui è stato contrassegnato il messaggio</translation>
+    </message>
+    <message>
+        <source>The signed message to verify</source>
+        <translation>Il messaggio firmato da verificare</translation>
+    </message>
+    <message>
+        <source>The signature given when the message was signed</source>
+        <translation>La firma data al momento della firma del messaggio</translation>
+    </message>
+    <message>
+        <source>Verify the message to ensure it was signed with the specified Bitcoin address</source>
+        <translation>Verifica il messaggio per accertare che sia stato firmato con l'indirizzo specificato</translation>
+    </message>
+    <message>
+        <source>Verify &amp;Message</source>
+        <translation>Verifica &amp;Messaggio</translation>
+    </message>
+    <message>
+        <source>Reset all verify message fields</source>
+        <translation>Reimposta tutti i campi della verifica messaggio</translation>
+    </message>
+    <message>
+        <source>Click "Sign Message" to generate signature</source>
+        <translation>Clicca "Firma Messaggio" per generare una firma</translation>
+    </message>
+    <message>
+        <source>The entered address is invalid.</source>
+        <translation>L'indirizzo inserito non è valido.</translation>
+    </message>
+    <message>
+        <source>Please check the address and try again.</source>
+        <translation>Per favore controlla l'indirizzo e prova di nuovo.</translation>
+    </message>
+    <message>
+        <source>The entered address does not refer to a key.</source>
+        <translation>L'indirizzo bitcoin inserito non è associato a nessuna chiave.</translation>
+    </message>
+    <message>
+        <source>Wallet unlock was cancelled.</source>
+        <translation>Sblocco del portafoglio annullato.</translation>
+    </message>
+    <message>
+        <source>No error</source>
+        <translation>Nessun errore</translation>
+    </message>
+    <message>
+        <source>Private key for the entered address is not available.</source>
+        <translation>La chiave privata per l'indirizzo inserito non è disponibile.</translation>
+    </message>
+    <message>
+        <source>Message signing failed.</source>
+        <translation>Firma messaggio fallita.</translation>
+    </message>
+    <message>
+        <source>Message signed.</source>
+        <translation>Messaggio firmato.</translation>
+    </message>
+    <message>
+        <source>The signature could not be decoded.</source>
+        <translation>Non è stato possibile decodificare la firma.</translation>
+    </message>
+    <message>
+        <source>Please check the signature and try again.</source>
+        <translation>Per favore controlla la firma e prova di nuovo.</translation>
+    </message>
+    <message>
+        <source>The signature did not match the message digest.</source>
+        <translation>La firma non corrisponde al digest del messaggio.</translation>
+    </message>
+    <message>
+        <source>Message verification failed.</source>
+        <translation>Verifica messaggio fallita.</translation>
+    </message>
+    <message>
+        <source>Message verified.</source>
+        <translation>Messaggio verificato.</translation>
+    </message>
+</context>
+<context>
+    <name>TrafficGraphWidget</name>
+    <message>
+        <source>KB/s</source>
+        <translation>KB/s</translation>
+    </message>
+</context>
+<context>
+    <name>TransactionDesc</name>
+    <message numerus="yes">
+        <source>Open for %n more block(s)</source>
+        <translation><numerusform>Aperto per altri %n blocchi</numerusform><numerusform>Aperto per altri %n blocchi</numerusform></translation>
+    </message>
+    <message>
+        <source>Open until %1</source>
+        <translation>Apri fino al %1</translation>
+    </message>
+    <message>
+        <source>conflicted with a transaction with %1 confirmations</source>
+        <translation>in conflitto con una transazione con %1 conferme</translation>
+    </message>
+    <message>
+        <source>0/unconfirmed, %1</source>
+        <translation>0/non confermati, %1</translation>
+    </message>
+    <message>
+        <source>in memory pool</source>
+        <translation>nella riserva di memoria</translation>
+    </message>
+    <message>
+        <source>not in memory pool</source>
+        <translation>non nella riserva di memoria</translation>
+    </message>
+    <message>
+        <source>abandoned</source>
+        <translation>abbandonato</translation>
+    </message>
+    <message>
+        <source>%1/unconfirmed</source>
+        <translation>%1/non confermato</translation>
+    </message>
+    <message>
+        <source>%1 confirmations</source>
+        <translation>%1 conferme</translation>
+    </message>
+    <message>
+        <source>Status</source>
+        <translation>Stato</translation>
+    </message>
+    <message>
+        <source>Date</source>
+        <translation>Data</translation>
+    </message>
+    <message>
+        <source>Source</source>
+        <translation>Sorgente</translation>
+    </message>
+    <message>
+        <source>Generated</source>
+        <translation>Generato</translation>
+    </message>
+    <message>
+        <source>From</source>
+        <translation>Da</translation>
+    </message>
+    <message>
+        <source>unknown</source>
+        <translation>sconosciuto</translation>
+    </message>
+    <message>
+        <source>To</source>
+        <translation>A</translation>
+    </message>
+    <message>
+        <source>own address</source>
+        <translation>proprio indirizzo</translation>
+    </message>
+    <message>
+        <source>watch-only</source>
+        <translation>sola lettura</translation>
+    </message>
+    <message>
+        <source>label</source>
+        <translation>etichetta</translation>
+    </message>
+    <message>
+        <source>Credit</source>
+        <translation>Credito</translation>
+    </message>
+    <message numerus="yes">
+        <source>matures in %n more block(s)</source>
+        <translation><numerusform>matura tra %n blocchi</numerusform><numerusform>matura tra %n blocchi</numerusform></translation>
+    </message>
+    <message>
+        <source>not accepted</source>
+        <translation>non accettate</translation>
+    </message>
+    <message>
+        <source>Debit</source>
+        <translation>Debito</translation>
+    </message>
+    <message>
+        <source>Total debit</source>
+        <translation>Debito totale</translation>
+    </message>
+    <message>
+        <source>Total credit</source>
+        <translation>Credito totale</translation>
+    </message>
+    <message>
+        <source>Transaction fee</source>
+        <translation>Commissione transazione</translation>
+    </message>
+    <message>
+        <source>Net amount</source>
+        <translation>Importo netto</translation>
+    </message>
+    <message>
+        <source>Message</source>
+        <translation>Messaggio</translation>
+    </message>
+    <message>
+        <source>Comment</source>
+        <translation>Commento</translation>
+    </message>
+    <message>
+        <source>Transaction ID</source>
+        <translation>ID della transazione</translation>
+    </message>
+    <message>
+        <source>Transaction total size</source>
+        <translation>Dimensione totale della transazione</translation>
+    </message>
+    <message>
+        <source>Transaction virtual size</source>
+        <translation>Dimensione virtuale della transazione</translation>
+    </message>
+    <message>
+        <source>Output index</source>
+        <translation>Indice di output</translation>
+    </message>
+    <message>
+        <source> (Certificate was not verified)</source>
+        <translation>(Il certificato non è stato verificato)</translation>
+    </message>
+    <message>
+        <source>Merchant</source>
+        <translation>Commerciante</translation>
+    </message>
+    <message>
+        <source>Generated coins must mature %1 blocks before they can be spent. When you generated this block, it was broadcast to the network to be added to the block chain. If it fails to get into the chain, its state will change to "not accepted" and it won't be spendable. This may occasionally happen if another node generates a block within a few seconds of yours.</source>
+        <translation>I bitcoin generati devono maturare %1 blocchi prima di poter essere spesi. Quando hai generato questo blocco, è stato trasmesso alla rete per essere aggiunto alla block chain. Se l'inserimento nella catena avrà esito negativo, il suo stato cambierà a "non accettato" e non sarà spendibile. Talvolta ciò può accadere anche nel caso in cui un altro nodo generi un blocco entro pochi secondi dal tuo.</translation>
+    </message>
+    <message>
+        <source>Debug information</source>
+        <translation>Informazione di debug</translation>
+    </message>
+    <message>
+        <source>Transaction</source>
+        <translation>Transazione</translation>
+    </message>
+    <message>
+        <source>Inputs</source>
+        <translation>Input</translation>
+    </message>
+    <message>
+        <source>Amount</source>
+        <translation>Importo</translation>
+    </message>
+    <message>
+        <source>true</source>
+        <translation>vero</translation>
+    </message>
+    <message>
+        <source>false</source>
+        <translation>falso</translation>
+    </message>
+</context>
+<context>
+    <name>TransactionDescDialog</name>
+    <message>
         <source>This pane shows a detailed description of the transaction</source>
         <translation>Questo pannello mostra una descrizione dettagliata della transazione</translation>
+    </message>
+    <message>
+        <source>Details for %1</source>
+        <translation>Dettagli per %1</translation>
     </message>
 </context>
 <context>
     <name>TransactionTableModel</name>
     <message>
-        <location filename="../transactiontablemodel.cpp" line="+225"/>
         <source>Date</source>
         <translation>Data</translation>
     </message>
     <message>
-        <location line="+0"/>
         <source>Type</source>
         <translation>Tipo</translation>
     </message>
     <message>
-        <location line="+0"/>
-        <source>Address</source>
-        <translation>Indirizzo</translation>
-    </message>
-    <message>
-        <location line="+0"/>
-        <source>Amount</source>
-        <translation>Importo</translation>
+        <source>Label</source>
+        <translation>Etichetta</translation>
     </message>
     <message numerus="yes">
-        <location line="+57"/>
         <source>Open for %n more block(s)</source>
-        <translation><numerusform>Aperto per %n altro blocco</numerusform><numerusform>Aperto per altri %n blocchi</numerusform></translation>
+        <translation><numerusform>Aperto per altri %n blocchi</numerusform><numerusform>Aperto per altri %n blocchi</numerusform></translation>
     </message>
     <message>
-        <location line="+3"/>
         <source>Open until %1</source>
-        <translation>Aperto fino a %1</translation>
+        <translation>Apri fino al %1</translation>
     </message>
     <message>
-        <location line="+3"/>
-        <source>Offline (%1 confirmations)</source>
-        <translation>Offline (%1 conferme)</translation>
+        <source>Unconfirmed</source>
+        <translation>Non confermato</translation>
     </message>
     <message>
-        <location line="+3"/>
-        <source>Unconfirmed (%1 of %2 confirmations)</source>
-        <translation>Non confermati (%1 su %2 conferme)</translation>
+        <source>Abandoned</source>
+        <translation>Abbandonato</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <source>Confirming (%1 of %2 recommended confirmations)</source>
+        <translation>In conferma (%1 di %2 conferme raccomandate)</translation>
+    </message>
+    <message>
         <source>Confirmed (%1 confirmations)</source>
         <translation>Confermato (%1 conferme)</translation>
     </message>
-    <message numerus="yes">
-        <location line="+8"/>
-        <source>Mined balance will be available when it matures in %n more block(s)</source>
-        <translation><numerusform>Il saldo generato sarà disponibile quando maturerà in %n altro blocco</numerusform><numerusform>Il saldo generato sarà disponibile quando maturerà in altri %n blocchi</numerusform></translation>
+    <message>
+        <source>Conflicted</source>
+        <translation>In conflitto</translation>
     </message>
     <message>
-        <location line="+5"/>
-        <source>This block was not received by any other nodes and will probably not be accepted!</source>
-        <translation>Questo blocco non è stato ricevuto da altri nodi e probabilmente non sarà accettato!</translation>
+        <source>Immature (%1 confirmations, will be available after %2)</source>
+        <translation>Immaturo (%1 conferme, sarà disponibile fra %2)</translation>
     </message>
     <message>
-        <location line="+3"/>
         <source>Generated but not accepted</source>
         <translation>Generati, ma non accettati</translation>
     </message>
     <message>
-        <location line="+43"/>
         <source>Received with</source>
         <translation>Ricevuto tramite</translation>
     </message>
     <message>
-        <location line="+2"/>
         <source>Received from</source>
         <translation>Ricevuto da</translation>
     </message>
     <message>
-        <location line="+3"/>
         <source>Sent to</source>
-        <translation>Spedito a</translation>
+        <translation>Inviato a</translation>
     </message>
     <message>
-        <location line="+2"/>
         <source>Payment to yourself</source>
         <translation>Pagamento a te stesso</translation>
     </message>
     <message>
-        <location line="+2"/>
         <source>Mined</source>
         <translation>Ottenuto dal mining</translation>
     </message>
     <message>
-        <location line="+38"/>
+        <source>watch-only</source>
+        <translation>sola lettura</translation>
+    </message>
+    <message>
         <source>(n/a)</source>
-        <translation>(N / a)</translation>
+        <translation>(n/d)</translation>
     </message>
     <message>
-        <location line="+199"/>
+        <source>(no label)</source>
+        <translation>(nessuna etichetta)</translation>
+    </message>
+    <message>
         <source>Transaction status. Hover over this field to show number of confirmations.</source>
-        <translation>Stato della transazione. Passare con il mouse su questo campo per vedere il numero di conferme.</translation>
+        <translation>Stato della transazione. Passare con il mouse su questo campo per visualizzare il numero di conferme.</translation>
     </message>
     <message>
-        <location line="+2"/>
         <source>Date and time that the transaction was received.</source>
         <translation>Data e ora in cui la transazione è stata ricevuta.</translation>
     </message>
     <message>
-        <location line="+2"/>
         <source>Type of transaction.</source>
         <translation>Tipo di transazione.</translation>
     </message>
     <message>
-        <location line="+2"/>
-        <source>Destination address of transaction.</source>
-        <translation>Indirizzo di destinazione della transazione.</translation>
+        <source>Whether or not a watch-only address is involved in this transaction.</source>
+        <translation>Indica se un indirizzo di sola lettura sia o meno coinvolto in questa transazione.</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <source>User-defined intent/purpose of the transaction.</source>
+        <translation>Intento/scopo della transazione definito dall'utente.</translation>
+    </message>
+    <message>
         <source>Amount removed from or added to balance.</source>
         <translation>Importo rimosso o aggiunto al saldo.</translation>
     </message>
@@ -2083,1013 +3211,856 @@ Indirizzo: %4
 <context>
     <name>TransactionView</name>
     <message>
-        <location filename="../transactionview.cpp" line="+52"/>
-        <location line="+16"/>
         <source>All</source>
         <translation>Tutti</translation>
     </message>
     <message>
-        <location line="-15"/>
         <source>Today</source>
         <translation>Oggi</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>This week</source>
         <translation>Questa settimana</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>This month</source>
         <translation>Questo mese</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Last month</source>
         <translation>Il mese scorso</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>This year</source>
-        <translation>Quest&apos;anno</translation>
+        <translation>Quest'anno</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Range...</source>
         <translation>Intervallo...</translation>
     </message>
     <message>
-        <location line="+11"/>
         <source>Received with</source>
         <translation>Ricevuto tramite</translation>
     </message>
     <message>
-        <location line="+2"/>
         <source>Sent to</source>
-        <translation>Spedito a</translation>
+        <translation>Inviato a</translation>
     </message>
     <message>
-        <location line="+2"/>
         <source>To yourself</source>
-        <translation>A te</translation>
+        <translation>A te stesso</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Mined</source>
         <translation>Ottenuto dal mining</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Other</source>
         <translation>Altro</translation>
     </message>
     <message>
-        <location line="+7"/>
-        <source>Enter address or label to search</source>
-        <translation>Inserisci un indirizzo o un&apos;etichetta da cercare</translation>
+        <source>Enter address, transaction id, or label to search</source>
+        <translation>Inserisci indirizzo, ID transazione, o etichetta per iniziare la ricerca</translation>
     </message>
     <message>
-        <location line="+7"/>
         <source>Min amount</source>
         <translation>Importo minimo</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <source>Abandon transaction</source>
+        <translation>Abbandona transazione</translation>
+    </message>
+    <message>
+        <source>Increase transaction fee</source>
+        <translation>Aumenta la commissione di transazione</translation>
+    </message>
+    <message>
         <source>Copy address</source>
-        <translation>Copia l&apos;indirizzo</translation>
+        <translation>Copia indirizzo</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Copy label</source>
-        <translation>Copia l&apos;etichetta</translation>
+        <translation>Copia etichetta</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Copy amount</source>
-        <translation>Copia l&apos;importo</translation>
+        <translation>Copia l'importo</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Copy transaction ID</source>
-        <translation>Copia l&apos;ID transazione</translation>
+        <translation>Copia l'ID transazione</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <source>Copy raw transaction</source>
+        <translation>Copia la transazione raw</translation>
+    </message>
+    <message>
+        <source>Copy full transaction details</source>
+        <translation>Copia i dettagli dell'intera transazione</translation>
+    </message>
+    <message>
         <source>Edit label</source>
-        <translation>Modifica l&apos;etichetta</translation>
+        <translation>Modifica l'etichetta</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Show transaction details</source>
         <translation>Mostra i dettagli della transazione</translation>
     </message>
     <message>
-        <location line="+143"/>
-        <source>Export Transaction Data</source>
-        <translation>Esporta i dati della transazione</translation>
+        <source>Export Transaction History</source>
+        <translation>Esporta lo storico delle transazioni</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Comma separated file (*.csv)</source>
         <translation>Testo CSV (*.csv)</translation>
     </message>
     <message>
-        <location line="+8"/>
         <source>Confirmed</source>
         <translation>Confermato</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <source>Watch-only</source>
+        <translation>Sola lettura</translation>
+    </message>
+    <message>
         <source>Date</source>
         <translation>Data</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Type</source>
         <translation>Tipo</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Label</source>
         <translation>Etichetta</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Address</source>
         <translation>Indirizzo</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Amount</source>
-        <translation>Importo</translation>
-    </message>
-    <message>
-        <location line="+1"/>
         <source>ID</source>
         <translation>ID</translation>
     </message>
     <message>
-        <location line="+4"/>
-        <source>Error exporting</source>
-        <translation>Errore nell&apos;esportazione</translation>
+        <source>Exporting Failed</source>
+        <translation>Esportazione Fallita</translation>
     </message>
     <message>
-        <location line="+0"/>
-        <source>Could not write to file %1.</source>
-        <translation>Impossibile scrivere sul file %1.</translation>
+        <source>There was an error trying to save the transaction history to %1.</source>
+        <translation>Si è verificato un errore durante il salvataggio dello storico delle transazioni in %1.</translation>
     </message>
     <message>
-        <location line="+100"/>
+        <source>Exporting Successful</source>
+        <translation>Esportazione Riuscita</translation>
+    </message>
+    <message>
+        <source>The transaction history was successfully saved to %1.</source>
+        <translation>Lo storico delle transazioni e' stato salvato con successo in %1.</translation>
+    </message>
+    <message>
         <source>Range:</source>
         <translation>Intervallo:</translation>
     </message>
     <message>
-        <location line="+8"/>
         <source>to</source>
         <translation>a</translation>
     </message>
 </context>
 <context>
+    <name>UnitDisplayStatusBarControl</name>
+    <message>
+        <source>Unit to show amounts in. Click to select another unit.</source>
+        <translation>Unità con cui visualizzare gli importi. Clicca per selezionare un'altra unità.</translation>
+    </message>
+</context>
+<context>
+    <name>WalletController</name>
+    <message>
+        <source>Close wallet</source>
+        <translation>Chiudi il portafoglio</translation>
+    </message>
+    <message>
+        <source>Are you sure you wish to close the wallet &lt;i&gt;%1&lt;/i&gt;?</source>
+        <translation>Sei sicuro di voler chiudere il portafoglio &lt;i&gt;%1&lt;/i&gt;?</translation>
+    </message>
+    <message>
+        <source>Closing the wallet for too long can result in having to resync the entire chain if pruning is enabled.</source>
+        <translation>Chiudere il portafoglio per troppo tempo può causare la resincronizzazione dell'intera catena se la modalità "pruning" è attiva.</translation>
+    </message>
+    <message>
+        <source>Close all wallets</source>
+        <translation>Chiudi tutti i portafogli</translation>
+    </message>
+    <message>
+        <source>Are you sure you wish to close all wallets?</source>
+        <translation>Sei sicuro di voler chiudere tutti i portafogli?</translation>
+    </message>
+</context>
+<context>
+    <name>WalletFrame</name>
+    <message>
+        <source>No wallet has been loaded.
+Go to File &gt; Open Wallet to load a wallet.
+- OR -</source>
+        <translation>Nessun portafoglio è stato caricato.
+Vai su File &gt; Apri Portafoglio per caricare un portafoglio.
+- OR -</translation>
+    </message>
+    <message>
+        <source>Create a new wallet</source>
+        <translation>Crea un nuovo portafoglio</translation>
+    </message>
+</context>
+<context>
     <name>WalletModel</name>
     <message>
-        <location filename="../walletmodel.cpp" line="+193"/>
         <source>Send Coins</source>
-        <translation>Spedisci Bitcoin</translation>
+        <translation>Invia Bitcoin</translation>
+    </message>
+    <message>
+        <source>Fee bump error</source>
+        <translation>Errore di salto di commissione</translation>
+    </message>
+    <message>
+        <source>Increasing transaction fee failed</source>
+        <translation>Aumento della commissione di transazione fallito</translation>
+    </message>
+    <message>
+        <source>Do you want to increase the fee?</source>
+        <translation>Vuoi aumentare la commissione?</translation>
+    </message>
+    <message>
+        <source>Do you want to draft a transaction with fee increase?</source>
+        <translation>Vuoi compilare una transazione con un aumento delle commissioni?</translation>
+    </message>
+    <message>
+        <source>Current fee:</source>
+        <translation>Commissione attuale:</translation>
+    </message>
+    <message>
+        <source>Increase:</source>
+        <translation>Aumento:</translation>
+    </message>
+    <message>
+        <source>New fee:</source>
+        <translation>Nuova commissione:</translation>
+    </message>
+    <message>
+        <source>Confirm fee bump</source>
+        <translation>Conferma il salto di commissione</translation>
+    </message>
+    <message>
+        <source>Can't draft transaction.</source>
+        <translation>Non è possibile compilare la transazione. </translation>
+    </message>
+    <message>
+        <source>PSBT copied</source>
+        <translation>PSBT copiata</translation>
+    </message>
+    <message>
+        <source>Can't sign transaction.</source>
+        <translation>Non è possibile firmare la transazione.</translation>
+    </message>
+    <message>
+        <source>Could not commit transaction</source>
+        <translation>Non è stato possibile completare la transazione</translation>
+    </message>
+    <message>
+        <source>default wallet</source>
+        <translation>Portafoglio predefinito:</translation>
     </message>
 </context>
 <context>
     <name>WalletView</name>
     <message>
-        <location filename="../walletview.cpp" line="+46"/>
         <source>&amp;Export</source>
         <translation>&amp;Esporta</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Export the data in the current tab to a file</source>
-        <translation>Esporta i dati nella tabella corrente su un file</translation>
+        <translation>Esporta su file i dati contenuti nella tabella corrente</translation>
     </message>
     <message>
-        <location line="+197"/>
+        <source>Error</source>
+        <translation>Errore</translation>
+    </message>
+    <message>
+        <source>Unable to decode PSBT from clipboard (invalid base64)</source>
+        <translation>Non in grado di decodificare PSBT dagli appunti (base64 non valida)</translation>
+    </message>
+    <message>
+        <source>Load Transaction Data</source>
+        <translation>Carica Dati Transazione</translation>
+    </message>
+    <message>
+        <source>Partially Signed Transaction (*.psbt)</source>
+        <translation>Transazione Parzialmente Firmata (*.psbt)</translation>
+    </message>
+    <message>
+        <source>PSBT file must be smaller than 100 MiB</source>
+        <translation>Il file PSBT deve essere inferiore a 100 MiB</translation>
+    </message>
+    <message>
+        <source>Unable to decode PSBT</source>
+        <translation>Non in grado di decodificare PSBT</translation>
+    </message>
+    <message>
         <source>Backup Wallet</source>
-        <translation>Backup Portamonete</translation>
+        <translation>Backup Portafoglio</translation>
     </message>
     <message>
-        <location line="+0"/>
         <source>Wallet Data (*.dat)</source>
-        <translation>Dati Portamonete (*.dat)</translation>
+        <translation>Dati Portafoglio (*.dat)</translation>
     </message>
     <message>
-        <location line="+3"/>
         <source>Backup Failed</source>
         <translation>Backup Fallito</translation>
     </message>
     <message>
-        <location line="+0"/>
-        <source>There was an error trying to save the wallet data to the new location.</source>
-        <translation>C&apos;è stato un errore tentando di salvare i dati del portamonete in un&apos;altra locazione</translation>
+        <source>There was an error trying to save the wallet data to %1.</source>
+        <translation>Si è verificato un errore durante il salvataggio dei dati del portafoglio in %1.</translation>
     </message>
     <message>
-        <location line="+4"/>
         <source>Backup Successful</source>
         <translation>Backup eseguito con successo</translation>
     </message>
     <message>
-        <location line="+0"/>
-        <source>The wallet data was successfully saved to the new location.</source>
-        <translation>Il portafoglio è stato correttamente salvato nella nuova cartella.</translation>
+        <source>The wallet data was successfully saved to %1.</source>
+        <translation>Il portafoglio è stato correttamente salvato in %1.</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Annulla</translation>
     </message>
 </context>
 <context>
     <name>bitcoin-core</name>
     <message>
-        <location filename="../bitcoinstrings.cpp" line="+98"/>
-        <source>Bitcoin version</source>
-        <translation>Versione di Bitcoin</translation>
+        <source>Distributed under the MIT software license, see the accompanying file %s or %s</source>
+        <translation>Distribuito sotto la licenza software del MIT, si veda il file %s o %s incluso</translation>
     </message>
     <message>
-        <location line="+104"/>
-        <source>Usage:</source>
-        <translation>Utilizzo:</translation>
+        <source>Prune configured below the minimum of %d MiB.  Please use a higher number.</source>
+        <translation>La modalità "prune" è configurata al di sotto del minimo di %d MB. Si prega di utilizzare un valore più elevato.</translation>
     </message>
     <message>
-        <location line="-30"/>
-        <source>Send command to -server or bitcoind</source>
-        <translation>Manda il comando a -server o bitcoind
-</translation>
+        <source>Prune: last wallet synchronisation goes beyond pruned data. You need to -reindex (download the whole blockchain again in case of pruned node)</source>
+        <translation>Prune: l'ultima sincronizzazione del portafoglio risulta essere precedente alla eliminazione dei dati per via della modalità "pruning". È necessario eseguire un -reindex (scaricare nuovamente la blockchain in caso di nodo pruned).</translation>
     </message>
     <message>
-        <location line="-23"/>
-        <source>List commands</source>
-        <translation>Lista comandi
-</translation>
+        <source>Pruning blockstore...</source>
+        <translation>Pruning del blockstore...</translation>
     </message>
     <message>
-        <location line="-13"/>
-        <source>Get help for a command</source>
-        <translation>Aiuto su un comando
-</translation>
+        <source>Unable to start HTTP server. See debug log for details.</source>
+        <translation>Impossibile avviare il server HTTP. Dettagli nel log di debug.</translation>
     </message>
     <message>
-        <location line="+25"/>
-        <source>Options:</source>
-        <translation>Opzioni:
-</translation>
+        <source>The %s developers</source>
+        <translation>Sviluppatori di %s</translation>
     </message>
     <message>
-        <location line="+24"/>
-        <source>Specify configuration file (default: bitcoin.conf)</source>
-        <translation>Specifica il file di configurazione (di default: bitcoin.conf)
-</translation>
+        <source>Cannot obtain a lock on data directory %s. %s is probably already running.</source>
+        <translation>Non è possibile ottenere i dati sulla cartella %s. Probabilmente %s è già in esecuzione.</translation>
     </message>
     <message>
-        <location line="+3"/>
-        <source>Specify pid file (default: bitcoind.pid)</source>
-        <translation>Specifica il file pid (default: bitcoind.pid)
-</translation>
+        <source>Cannot provide specific connections and have addrman find outgoing connections at the same.</source>
+        <translation>Non è possibile fornire connessioni specifiche e contemporaneamente usare addrman per trovare connessioni uscenti.</translation>
     </message>
     <message>
-        <location line="-1"/>
-        <source>Specify data directory</source>
-        <translation>Specifica la cartella dati
-</translation>
+        <source>Error reading %s! All keys read correctly, but transaction data or address book entries might be missing or incorrect.</source>
+        <translation>Errore lettura %s! Tutte le chiavi sono state lette correttamente, ma i dati delle transazioni o della rubrica potrebbero essere mancanti o non corretti.</translation>
     </message>
     <message>
-        <location line="-9"/>
-        <source>Set database cache size in megabytes (default: 25)</source>
-        <translation>Imposta la dimensione cache del database in megabyte (default: 25)</translation>
+        <source>More than one onion bind address is provided. Using %s for the automatically created Tor onion service.</source>
+        <translation>Viene fornito più di un indirizzo di associazione onion. L'utilizzo di %s per il servizio Tor onion viene creato automaticamente.</translation>
     </message>
     <message>
-        <location line="-28"/>
-        <source>Listen for connections on &lt;port&gt; (default: 8333 or testnet: 18333)</source>
-        <translation>Ascolta le connessioni JSON-RPC su &lt;porta&gt; (default: 8333 o testnet: 18333)</translation>
+        <source>Please check that your computer's date and time are correct! If your clock is wrong, %s will not work properly.</source>
+        <translation>Per favore controllate che la data del computer e l'ora siano corrette! Se il vostro orologio è sbagliato %s non funzionerà correttamente.</translation>
     </message>
     <message>
-        <location line="+5"/>
-        <source>Maintain at most &lt;n&gt; connections to peers (default: 125)</source>
-        <translation>Mantieni al massimo &lt;n&gt; connessioni ai peer (default: 125)</translation>
+        <source>Please contribute if you find %s useful. Visit %s for further information about the software.</source>
+        <translation>Per favore contribuite se ritenete %s utile. Visitate %s per maggiori informazioni riguardo il software.</translation>
     </message>
     <message>
-        <location line="-49"/>
-        <source>Connect to a node to retrieve peer addresses, and disconnect</source>
-        <translation>Connessione ad un nodo per ricevere l&apos;indirizzo del peer, e disconnessione</translation>
+        <source>The block database contains a block which appears to be from the future. This may be due to your computer's date and time being set incorrectly. Only rebuild the block database if you are sure that your computer's date and time are correct</source>
+        <translation>Il database dei blocchi contiene un blocco che sembra provenire dal futuro. Questo può essere dovuto alla data e ora del tuo computer impostate in modo scorretto. Ricostruisci il database dei blocchi se sei certo che la data e l'ora sul tuo computer siano corrette</translation>
     </message>
     <message>
-        <location line="+84"/>
-        <source>Specify your own public address</source>
-        <translation>Specifica il tuo indirizzo pubblico</translation>
-    </message>
-    <message>
-        <location line="+3"/>
-        <source>Threshold for disconnecting misbehaving peers (default: 100)</source>
-        <translation>Soglia di disconnessione dei peer di cattiva qualità (default: 100)</translation>
-    </message>
-    <message>
-        <location line="-136"/>
-        <source>Number of seconds to keep misbehaving peers from reconnecting (default: 86400)</source>
-        <translation>Numero di secondi di sospensione che i peer di cattiva qualità devono trascorrere prima di riconnettersi (default: 86400)</translation>
-    </message>
-    <message>
-        <location line="-33"/>
-        <source>An error occurred while setting up the RPC port %u for listening on IPv4: %s</source>
-        <translation>Errore riscontrato durante l&apos;impostazione della porta RPC %u per l&apos;ascolto su IPv4: %s</translation>
-    </message>
-    <message>
-        <location line="+31"/>
-        <source>Listen for JSON-RPC connections on &lt;port&gt; (default: 8332 or testnet: 18332)</source>
-        <translation>Attendi le connessioni JSON-RPC su &lt;porta&gt; (default: 8332 or testnet: 18332)</translation>
-    </message>
-    <message>
-        <location line="+37"/>
-        <source>Accept command line and JSON-RPC commands</source>
-        <translation>Accetta da linea di comando e da comandi JSON-RPC
-</translation>
-    </message>
-    <message>
-        <location line="+77"/>
-        <source>Run in the background as a daemon and accept commands</source>
-        <translation>Esegui in background come demone e accetta i comandi
-</translation>
-    </message>
-    <message>
-        <location line="+38"/>
-        <source>Use the test network</source>
-        <translation>Utilizza la rete di prova
-</translation>
-    </message>
-    <message>
-        <location line="-114"/>
-        <source>Accept connections from outside (default: 1 if no -proxy or -connect)</source>
-        <translation>Accetta connessioni dall&apos;esterno (default: 1 se no -proxy o -connect)</translation>
-    </message>
-    <message>
-        <location line="-84"/>
-        <source>%s, you must set a rpcpassword in the configuration file:
-%s
-It is recommended you use the following random password:
-rpcuser=bitcoinrpc
-rpcpassword=%s
-(you do not need to remember this password)
-The username and password MUST NOT be the same.
-If the file does not exist, create it with owner-readable-only file permissions.
-It is also recommended to set alertnotify so you are notified of problems;
-for example: alertnotify=echo %%s | mail -s &quot;Bitcoin Alert&quot; admin@foo.com
-</source>
-        <translation>%s, devi impostare una rpcpassword nel file di configurazione:
-%s
-Si raccomanda l&apos;uso della seguente password generata casualmente:
-rpcuser=bitcoinrpc
-rpcpassword=%s
-(non serve ricordare questa password)
-Il nome utente e la password NON DEVONO essere uguali.
-Se il file non esiste, crealo impostando i permessi di solo scrittura per il proprietario nel file.
-Si raccomanda anche di impostare alertnotify così sarai avvisato di eventuali problemi;
-per esempio: alertnotify=echo %%s | mail -s &quot;Allarme Bitcoin&quot; admin@foo.com
-</translation>
-    </message>
-    <message>
-        <location line="+17"/>
-        <source>An error occurred while setting up the RPC port %u for listening on IPv6, falling back to IPv4: %s</source>
-        <translation>Errore riscontrato durante l&apos;impostazione della porta RPC %u per l&apos;ascolto su IPv6, tornando su IPv4: %s</translation>
-    </message>
-    <message>
-        <location line="+3"/>
-        <source>Bind to given address and always listen on it. Use [host]:port notation for IPv6</source>
-        <translation>Collega all&apos;indirizzo indicato e resta sempre in ascolto su questo. Usa la notazione [host]:porta per l&apos;IPv6</translation>
-    </message>
-    <message>
-        <location line="+3"/>
-        <source>Cannot obtain a lock on data directory %s. Bitcoin is probably already running.</source>
-        <translation>Non è possibile ottenere i dati sulla cartella %s. Probabilmente Bitcoin è già in esecuzione.</translation>
-    </message>
-    <message>
-        <location line="+3"/>
-        <source>Enter regression test mode, which uses a special chain in which blocks can be solved instantly. This is intended for regression testing tools and app development.</source>
-        <translation>Entra in modalità di test di regressione, la quale usa una speciale catena in cui i blocchi sono risolti istantaneamente. Questo è fatto per lo sviluppo di strumenti e applicazioni per test di regressione.</translation>
-    </message>
-    <message>
-        <location line="+4"/>
-        <source>Error: The transaction was rejected! This might happen if some of the coins in your wallet were already spent, such as if you used a copy of wallet.dat and coins were spent in the copy but not marked as spent here.</source>
-        <translation>Errore: la transazione è stata rifiutata. Ciò accade se alcuni bitcoin nel portamonete sono stati già spesi, ad esempio se è stata usata una copia del file wallet.dat e i bitcoin sono stati spesi dalla copia ma non segnati come spesi qui.</translation>
-    </message>
-    <message>
-        <location line="+4"/>
-        <source>Error: This transaction requires a transaction fee of at least %s because of its amount, complexity, or use of recently received funds!</source>
-        <translation>Errore: questa transazione necessita di una commissione di almeno %s a causa del suo ammontare, della sua complessità, o dell&apos;uso di fondi recentemente ricevuti!</translation>
-    </message>
-    <message>
-        <location line="+3"/>
-        <source>Execute command when a relevant alert is received (%s in cmd is replaced by message)</source>
-        <translation>Eseguire comando quando un&apos;allarme rilevante viene ricevuto (%s in cmd è sostituito dal messaggio)</translation>
-    </message>
-    <message>
-        <location line="+3"/>
-        <source>Execute command when a wallet transaction changes (%s in cmd is replaced by TxID)</source>
-        <translation>Esegui comando quando una transazione del portafoglio cambia (%s in cmd è sostituito da TxID)</translation>
-    </message>
-    <message>
-        <location line="+11"/>
-        <source>Set maximum size of high-priority/low-fee transactions in bytes (default: 27000)</source>
-        <translation>Imposta dimensione massima delle transazioni ad alta priorità/bassa-tassa in bytes (predefinito: 27000)</translation>
-    </message>
-    <message>
-        <location line="+6"/>
         <source>This is a pre-release test build - use at your own risk - do not use for mining or merchant applications</source>
-        <translation>Questa versione è una compilazione pre-rilascio - usala a tuo rischio - non utilizzarla per la generazione o per applicazioni di commercio</translation>
+        <translation>Questa è una compilazione di prova pre-rilascio - usala a tuo rischio - da non utilizzare per il mining o per applicazioni commerciali</translation>
     </message>
     <message>
-        <location line="+5"/>
-        <source>Warning: -paytxfee is set very high! This is the transaction fee you will pay if you send a transaction.</source>
-        <translation>Attenzione: -paytxfee è molto alta. Questa è la commissione che si paga quando si invia una transazione.</translation>
+        <source>This is the transaction fee you may discard if change is smaller than dust at this level</source>
+        <translation>Questa è la commissione di transazione che puoi scartare se il cambio è più piccolo della polvere a questo livello</translation>
     </message>
     <message>
-        <location line="+3"/>
-        <source>Warning: Displayed transactions may not be correct! You may need to upgrade, or other nodes may need to upgrade.</source>
-        <translation>Attenzione: le transazioni mostrate potrebbero essere sbagliate! Potresti aver bisogno di aggiornare, o altri nodi ne hanno bisogno.</translation>
+        <source>Unable to replay blocks. You will need to rebuild the database using -reindex-chainstate.</source>
+        <translation>Impossibile ripetere i blocchi. È necessario ricostruire il database usando -reindex-chainstate.</translation>
     </message>
     <message>
-        <location line="+3"/>
-        <source>Warning: Please check that your computer&apos;s date and time are correct! If your clock is wrong Bitcoin will not work properly.</source>
-        <translation>Attenzione: si prega di controllare che la data del computer e l&apos;ora siano corrette. Se il vostro orologio è sbagliato Bitcoin non funziona correttamente.</translation>
+        <source>Unable to rewind the database to a pre-fork state. You will need to redownload the blockchain</source>
+        <translation>Impossibile riportare il database ad un livello pre-fork. Dovrai riscaricare tutta la blockchain</translation>
     </message>
     <message>
-        <location line="+3"/>
-        <source>Warning: error reading wallet.dat! All keys read correctly, but transaction data or address book entries might be missing or incorrect.</source>
-        <translation>Attenzione: errore di lettura di wallet.dat!  Tutte le chiave lette correttamente, ma i dati delle transazioni o le voci in rubrica potrebbero mancare o non essere corretti.</translation>
+        <source>Warning: The network does not appear to fully agree! Some miners appear to be experiencing issues.</source>
+        <translation>Attenzione: La rete non sembra essere pienamente d'accordo! Alcuni minatori sembrano riscontrare problemi.</translation>
     </message>
     <message>
-        <location line="+3"/>
-        <source>Warning: wallet.dat corrupt, data salvaged! Original wallet.dat saved as wallet.{timestamp}.bak in %s; if your balance or transactions are incorrect you should restore from a backup.</source>
-        <translation>Attenzione: wallet.dat corrotto, dati salvati! Il wallet.dat originale salvato come wallet.{timestamp}.bak in %s; se il tuo bilancio o le transazioni non sono corrette dovresti ripristinare da un backup.</translation>
+        <source>Warning: We do not appear to fully agree with our peers! You may need to upgrade, or other nodes may need to upgrade.</source>
+        <translation>Attenzione: Sembra che non vi sia pieno consenso con i nostri peer! Un aggiornamento da parte tua o degli altri nodi potrebbe essere necessario.</translation>
     </message>
     <message>
-        <location line="+14"/>
-        <source>Attempt to recover private keys from a corrupt wallet.dat</source>
-        <translation>Tenta di recuperare le chiavi private da un wallet.dat corrotto</translation>
+        <source>-maxmempool must be at least %d MB</source>
+        <translation>-maxmempool deve essere almeno %d MB</translation>
     </message>
     <message>
-        <location line="+2"/>
-        <source>Block creation options:</source>
-        <translation>Opzioni creazione blocco:</translation>
+        <source>Cannot resolve -%s address: '%s'</source>
+        <translation>Impossobile risolvere l'indirizzo -%s: '%s'</translation>
     </message>
     <message>
-        <location line="+5"/>
-        <source>Connect only to the specified node(s)</source>
-        <translation>Connetti solo al nodo specificato</translation>
+        <source>Change index out of range</source>
+        <translation>Cambio indice fuori paramentro</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <source>Config setting for %s only applied on %s network when in [%s] section.</source>
+        <translation>La configurazione di %s si applica alla rete %s soltanto nella sezione [%s]</translation>
+    </message>
+    <message>
+        <source>Copyright (C) %i-%i</source>
+        <translation>Copyright (C) %i-%i</translation>
+    </message>
+    <message>
         <source>Corrupted block database detected</source>
         <translation>Rilevato database blocchi corrotto</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Discover own IP address (default: 1 when listening and no -externalip)</source>
-        <translation>Scopri proprio indirizzo IP (default: 1 se in ascolto e no -externalip)</translation>
+        <source>Could not find asmap file %s</source>
+        <translation>Non è possibile trovare il file asmap %s</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <source>Could not parse asmap file %s</source>
+        <translation>Non è possibile analizzare il file asmap %s</translation>
+    </message>
+    <message>
         <source>Do you want to rebuild the block database now?</source>
         <translation>Vuoi ricostruire ora il database dei blocchi?</translation>
     </message>
     <message>
-        <location line="+2"/>
         <source>Error initializing block database</source>
-        <translation>Errore durante l&apos;inizializzazione del database dei blocchi</translation>
+        <translation>Errore durante l'inizializzazione del database dei blocchi</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Error initializing wallet database environment %s!</source>
-        <translation>Errore durante l&apos;inizializzazione dell&apos;ambiente %s del database del portamonete!</translation>
+        <translation>Errore durante l'inizializzazione dell'ambiente del database del portafoglio %s!</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <source>Error loading %s</source>
+        <translation>Errore caricamento %s</translation>
+    </message>
+    <message>
+        <source>Error loading %s: Private keys can only be disabled during creation</source>
+        <translation>Errore durante il caricamento di %s: le chiavi private possono essere disabilitate solo durante la creazione</translation>
+    </message>
+    <message>
+        <source>Error loading %s: Wallet corrupted</source>
+        <translation>Errore caricamento %s: portafoglio corrotto</translation>
+    </message>
+    <message>
+        <source>Error loading %s: Wallet requires newer version of %s</source>
+        <translation>Errore caricamento %s: il portafoglio richiede una versione aggiornata di %s</translation>
+    </message>
+    <message>
         <source>Error loading block database</source>
-        <translation>Errore caricamento database blocchi</translation>
+        <translation>Errore durante il caricamento del database blocchi</translation>
     </message>
     <message>
-        <location line="+4"/>
         <source>Error opening block database</source>
-        <translation>Errore caricamento database blocchi</translation>
+        <translation>Errore durante l'apertura del database blocchi</translation>
     </message>
     <message>
-        <location line="+2"/>
-        <source>Error: Disk space is low!</source>
-        <translation>Errore: la spazio libero sul disco è poco!</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Error: Wallet locked, unable to create transaction!</source>
-        <translation>Errore: portafoglio bloccato, impossibile creare la transazione!</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Error: system error: </source>
-        <translation>Errore: errore di sistema:</translation>
-    </message>
-    <message>
-        <location line="+1"/>
         <source>Failed to listen on any port. Use -listen=0 if you want this.</source>
-        <translation>Impossibile mettersi in ascolto su una porta. Usa -listen=0 se vuoi usare questa opzione.</translation>
+        <translation>Nessuna porta disponibile per l'ascolto. Usa -listen=0 se vuoi procedere comunque.</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Failed to read block info</source>
-        <translation>Lettura informazioni blocco fallita</translation>
+        <source>Failed to rescan the wallet during initialization</source>
+        <translation>Impossibile ripetere la scansione del portafoglio durante l'inizializzazione</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Failed to read block</source>
-        <translation>Lettura blocco fallita</translation>
+        <source>Failed to verify database</source>
+        <translation>Errore nella verifica del database</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Failed to sync block index</source>
-        <translation>Sincronizzazione dell&apos;indice del blocco fallita</translation>
+        <source>Importing...</source>
+        <translation>Importazione...</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Failed to write block index</source>
-        <translation>Scrittura dell&apos;indice del blocco fallita</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Failed to write block info</source>
-        <translation>Scrittura informazioni blocco fallita</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Failed to write block</source>
-        <translation>Scrittura blocco fallita</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Failed to write file info</source>
-        <translation>Scrittura informazioni file fallita</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Failed to write to coin database</source>
-        <translation>Scrittura nel database dei bitcoin fallita</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Failed to write transaction index</source>
-        <translation>Scrittura dell&apos;indice di transazione fallita</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Failed to write undo data</source>
-        <translation>Scrittura dei dati di ripristino falllita</translation>
-    </message>
-    <message>
-        <location line="+2"/>
-        <source>Find peers using DNS lookup (default: 1 unless -connect)</source>
-        <translation>Trova peer utilizzando la ricerca DNS (predefinito: 1 finché utilizzato -connect)</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Generate coins (default: 0)</source>
-        <translation>Genera Bitcoin (default: 0)</translation>
-    </message>
-    <message>
-        <location line="+2"/>
-        <source>How many blocks to check at startup (default: 288, 0 = all)</source>
-        <translation>Quanti blocchi da controllare all&apos;avvio (predefinito: 288, 0 = tutti)</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>How thorough the block verification is (0-4, default: 3)</source>
-        <translation>Quanto è precisa la verifica del blocco (0-4, default: 3)</translation>
-    </message>
-    <message>
-        <location line="+2"/>
         <source>Incorrect or no genesis block found. Wrong datadir for network?</source>
-        <translation>Blocco genesis non corretto o non trovato. Cartella dati sbagliata per network?</translation>
+        <translation>Blocco genesi non corretto o non trovato. È possibile che la cartella dati appartenga ad un'altra rete.</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <source>Initialization sanity check failed. %s is shutting down.</source>
+        <translation>Test di integrità iniziale fallito. %s si arresterà.</translation>
+    </message>
+    <message>
+        <source>Invalid P2P permission: '%s'</source>
+        <translation>Permesso P2P non valido: '%s'</translation>
+    </message>
+    <message>
+        <source>Invalid amount for -%s=&lt;amount&gt;: '%s'</source>
+        <translation>Importo non valido per -%s=&lt;amount&gt;: '%s'</translation>
+    </message>
+    <message>
+        <source>Invalid amount for -discardfee=&lt;amount&gt;: '%s'</source>
+        <translation>Importo non valido per -discardfee=&lt;amount&gt;:'%s'</translation>
+    </message>
+    <message>
+        <source>Invalid amount for -fallbackfee=&lt;amount&gt;: '%s'</source>
+        <translation>Importo non valido per -fallbackfee=&lt;amount&gt;: '%s'</translation>
+    </message>
+    <message>
+        <source>SQLiteDatabase: Failed to execute statement to verify database: %s</source>
+        <translation>SQLiteDatabase: Errore nell'eseguire l'operazione di verifica del database: %s</translation>
+    </message>
+    <message>
+        <source>SQLiteDatabase: Failed to prepare statement to verify database: %s</source>
+        <translation>SQLiteDatabase: Errore nel verificare il database: %s</translation>
+    </message>
+    <message>
+        <source>SQLiteDatabase: Failed to read database verification error: %s</source>
+        <translation>SQLiteDatabase: Errore nella lettura della verifica del database: %s</translation>
+    </message>
+    <message>
+        <source>SQLiteDatabase: Unexpected application id. Expected %u, got %u</source>
+        <translation>SQLiteDatabase: Application id non riconosciuto. Mi aspetto un %u, arriva un %u</translation>
+    </message>
+    <message>
+        <source>Specified blocks directory "%s" does not exist.</source>
+        <translation>La cartella specificata "%s" non esiste.</translation>
+    </message>
+    <message>
+        <source>Unknown address type '%s'</source>
+        <translation>Il tipo di indirizzo '%s' è sconosciuto&lt;br data-mce-bogus="1"&gt;</translation>
+    </message>
+    <message>
+        <source>Unknown change type '%s'</source>
+        <translation>Tipo di resto sconosciuto '%s'</translation>
+    </message>
+    <message>
+        <source>Upgrading txindex database</source>
+        <translation>Aggiornamento del database txindex</translation>
+    </message>
+    <message>
+        <source>Loading P2P addresses...</source>
+        <translation>Caricamento indirizzi P2P...</translation>
+    </message>
+    <message>
+        <source>Loading banlist...</source>
+        <translation>Caricamento bloccati...</translation>
+    </message>
+    <message>
         <source>Not enough file descriptors available.</source>
         <translation>Non ci sono abbastanza descrittori di file disponibili.</translation>
     </message>
     <message>
-        <location line="+8"/>
-        <source>Rebuild block chain index from current blk000??.dat files</source>
-        <translation>Ricreare l&apos;indice della catena di blocchi dai file blk000??.dat correnti</translation>
+        <source>Prune cannot be configured with a negative value.</source>
+        <translation>La modalità prune non può essere configurata con un valore negativo.</translation>
     </message>
     <message>
-        <location line="+16"/>
-        <source>Set the number of threads to service RPC calls (default: 4)</source>
-        <translation>Specifica il numero massimo di richieste RPC in parallelo (di default: 4)</translation>
+        <source>Prune mode is incompatible with -txindex.</source>
+        <translation>La modalità prune è incompatibile con l'opzione -txindex.</translation>
     </message>
     <message>
-        <location line="+7"/>
-        <source>Specify wallet file (within data directory)</source>
-        <translation>Specifica il file portafoglio  (nella cartella dati)</translation>
+        <source>Replaying blocks...</source>
+        <translation>Ripetizione dei blocchi...</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <source>Rewinding blocks...</source>
+        <translation>Verifica blocchi...</translation>
+    </message>
+    <message>
+        <source>The source code is available from %s.</source>
+        <translation>Il codice sorgente è disponibile in %s</translation>
+    </message>
+    <message>
+        <source>Transaction fee and change calculation failed</source>
+        <translation>Commissione di transazione e calcolo del cambio falliti</translation>
+    </message>
+    <message>
+        <source>Unable to bind to %s on this computer. %s is probably already running.</source>
+        <translation>Impossibile collegarsi a %s su questo computer. Probabilmente %s è già in esecuzione.</translation>
+    </message>
+    <message>
+        <source>Unable to generate keys</source>
+        <translation>Impossibile generare le chiavi</translation>
+    </message>
+    <message>
+        <source>Unsupported logging category %s=%s.</source>
+        <translation>Categoria di registrazione non supportata %s=%s.</translation>
+    </message>
+    <message>
+        <source>Upgrading UTXO database</source>
+        <translation>Aggiornamento del database UTXO</translation>
+    </message>
+    <message>
+        <source>User Agent comment (%s) contains unsafe characters.</source>
+        <translation>Il commento del User Agent (%s) contiene caratteri non sicuri.</translation>
+    </message>
+    <message>
         <source>Verifying blocks...</source>
         <translation>Verifica blocchi...</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Verifying wallet...</source>
-        <translation>Verifica portafoglio...</translation>
+        <source>Wallet needed to be rewritten: restart %s to complete</source>
+        <translation>Il portafoglio necessita di essere riscritto: riavviare %s per completare</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Wallet %s resides outside data directory %s</source>
-        <translation>Il portafoglio %s si trova fuori dalla cartella dati %s</translation>
+        <source>Error: Listening for incoming connections failed (listen returned error %s)</source>
+        <translation>Errore: attesa per connessioni in arrivo fallita (errore riportato %s)</translation>
     </message>
     <message>
-        <location line="+4"/>
-        <source>You need to rebuild the database using -reindex to change -txindex</source>
-        <translation>Serve ricostruire il database usando -reindex per cambiare -txindex</translation>
+        <source>%s corrupt. Try using the wallet tool bitcoin-wallet to salvage or restoring a backup.</source>
+        <translation>%s corrotto. Prova a usare la funzione del portafoglio  bitcoin-wallet per salvare o recuperare il backup</translation>
     </message>
     <message>
-        <location line="-76"/>
-        <source>Imports blocks from external blk000??.dat file</source>
-        <translation>Importa blocchi da un file blk000??.dat esterno</translation>
+        <source>Cannot upgrade a non HD split wallet without upgrading to support pre split keypool. Please use version 169900 or no version specified.</source>
+        <translation>Impossibile aggiornare un portafoglio diviso non HD senza aggiornamento per supportare il keypool pre-split. Si prega di utilizzare -upgradewallet = 169900 o -upgradewallet senza specificare la versione.</translation>
     </message>
     <message>
-        <location line="-76"/>
-        <source>Set the number of script verification threads (up to 16, 0 = auto, &lt;0 = leave that many cores free, default: 0)</source>
-        <translation>Imposta il numero di thread di verifica script (fino a 16, 0 = auto, &lt;0 = lascia il maggior numero di core liberi, default: 0)</translation>
+        <source>Invalid amount for -maxtxfee=&lt;amount&gt;: '%s' (must be at least the minrelay fee of %s to prevent stuck transactions)</source>
+        <translation>Importo non valido per -maxtxfee=&lt;amount&gt;: '%s' (deve essere almeno pari alla commissione 'minrelay fee' di %s per prevenire transazioni bloccate)</translation>
     </message>
     <message>
-        <location line="+78"/>
-        <source>Information</source>
-        <translation>Informazioni</translation>
+        <source>The transaction amount is too small to send after the fee has been deducted</source>
+        <translation>L'importo della transazione risulta troppo basso per l'invio una volta dedotte le commissioni.</translation>
     </message>
     <message>
-        <location line="+3"/>
-        <source>Invalid -tor address: &apos;%s&apos;</source>
-        <translation>Indirizzo -tor non valido: &apos;%s&apos;</translation>
+        <source>This error could occur if this wallet was not shutdown cleanly and was last loaded using a build with a newer version of Berkeley DB. If so, please use the software that last loaded this wallet</source>
+        <translation>Questo errore potrebbe essersi verificato se questo portafoglio non è stato chiuso in modo pulito ed è stato caricato l'ultima volta utilizzando una build con una versione più recente di Berkeley DB. In tal caso, utilizza il software che ha caricato per ultimo questo portafoglio</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Invalid amount for -minrelaytxfee=&lt;amount&gt;: &apos;%s&apos;</source>
-        <translation>Importo non valido per -minrelaytxfee=&lt;amount&gt;: &apos;%s&apos;</translation>
+        <source>Transaction needs a change address, but we can't generate it. Please call keypoolrefill first.</source>
+        <translation>La transazione richiede un indirizzo di resto, ma non possiamo generarlo. Si prega di eseguire prima keypoolrefill.</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Invalid amount for -mintxfee=&lt;amount&gt;: &apos;%s&apos;</source>
-        <translation>Importo non valido per -mintxfee=&lt;amount&gt;: &apos;%s&apos;</translation>
+        <source>You need to rebuild the database using -reindex to go back to unpruned mode.  This will redownload the entire blockchain</source>
+        <translation>Per ritornare alla modalità unpruned sarà necessario ricostruire il database utilizzando l'opzione -reindex. L'intera blockchain sarà riscaricata.</translation>
     </message>
     <message>
-        <location line="+8"/>
-        <source>Maintain a full transaction index (default: 0)</source>
-        <translation>Mantieni un indice di transazione completo (default: 0)</translation>
+        <source>A fatal internal error occurred, see debug.log for details</source>
+        <translation>Si è verificato un errore interno fatale, consultare debug.log per i dettagli</translation>
     </message>
     <message>
-        <location line="+2"/>
-        <source>Maximum per-connection receive buffer, &lt;n&gt;*1000 bytes (default: 5000)</source>
-        <translation>Buffer di ricezione massimo per connessione, &lt;n&gt;*1000 byte (default: 5000)</translation>
+        <source>Cannot set -peerblockfilters without -blockfilterindex.</source>
+        <translation>Non e' possibile impostare -peerblockfilters senza -blockfilterindex.</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Maximum per-connection send buffer, &lt;n&gt;*1000 bytes (default: 1000)</source>
-        <translation>Buffer di invio massimo per connessione, &lt;n&gt;*1000 byte (default: 1000)</translation>
+        <source>Disk space is too low!</source>
+        <translation>Lo spazio su disco è insufficiente!</translation>
     </message>
     <message>
-        <location line="+2"/>
-        <source>Only accept block chain matching built-in checkpoints (default: 1)</source>
-        <translation>Accetta solo una catena di blocchi che corrisponde ai checkpoint predefiniti (default: 1)</translation>
+        <source>Error reading from database, shutting down.</source>
+        <translation>Errore durante la lettura del database. Arresto in corso.</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Only connect to nodes in network &lt;net&gt; (IPv4, IPv6 or Tor)</source>
-        <translation>Connetti solo a nodi nella rete &lt;net&gt; (IPv4, IPv6 o Tor)</translation>
+        <source>Error upgrading chainstate database</source>
+        <translation>Errore durante l'aggiornamento del database chainstate</translation>
     </message>
     <message>
-        <location line="+2"/>
-        <source>Output extra debugging information. Implies all other -debug* options</source>
-        <translation>Produci informazioni extra utili al debug. Implies all other -debug* options</translation>
+        <source>Error: Disk space is low for %s</source>
+        <translation>Errore: lo spazio sul disco è troppo poco per %s</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Output extra network debugging information</source>
-        <translation>Genera informazioni extra utili al debug della rete</translation>
+        <source>Error: Keypool ran out, please call keypoolrefill first</source>
+        <translation>Errore: Keypool esaurito, esegui prima keypoolrefill</translation>
     </message>
     <message>
-        <location line="+2"/>
-        <source>Prepend debug output with timestamp</source>
-        <translation>Anteponi all&apos;output di debug una marca temporale</translation>
+        <source>Invalid -onion address or hostname: '%s'</source>
+        <translation>Indirizzo -onion o hostname non valido: '%s'</translation>
     </message>
     <message>
-        <location line="+5"/>
-        <source>SSL options: (see the Bitcoin Wiki for SSL setup instructions)</source>
-        <translation>Opzioni SSL: (vedi il wiki di Bitcoin per le istruzioni di configurazione SSL)</translation>
+        <source>Invalid -proxy address or hostname: '%s'</source>
+        <translation>Indirizzo -proxy o hostname non valido: '%s'</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Select the version of socks proxy to use (4-5, default: 5)</source>
-        <translation>Selezionare la versione del proxy socks da usare (4-5, default: 5)</translation>
+        <source>Invalid amount for -paytxfee=&lt;amount&gt;: '%s' (must be at least %s)</source>
+        <translation>Importo non valido per -paytxfee=&lt;amount&gt;: '%s' (deve essere almeno %s)</translation>
     </message>
     <message>
-        <location line="+3"/>
-        <source>Send trace/debug info to console instead of debug.log file</source>
-        <translation>Invia le informazioni di trace/debug alla console invece che al file debug.log</translation>
+        <source>Invalid netmask specified in -whitelist: '%s'</source>
+        <translation>Netmask non valida specificata in -whitelist: '%s'</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Send trace/debug info to debugger</source>
-        <translation>Invia le informazioni di trace/debug al debugger</translation>
+        <source>Need to specify a port with -whitebind: '%s'</source>
+        <translation>È necessario specificare una porta con -whitebind: '%s'</translation>
     </message>
     <message>
-        <location line="+5"/>
-        <source>Set maximum block size in bytes (default: 250000)</source>
-        <translation>Imposta dimensione massima del blocco in bytes (predefinito: 250000)</translation>
+        <source>No proxy server specified. Use -proxy=&lt;ip&gt; or -proxy=&lt;ip:port&gt;.</source>
+        <translation>Nessun server proxy specificato. Usa -proxy=&lt;ip&gt; o -proxy=&lt;ip:port&gt;.</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Set minimum block size in bytes (default: 0)</source>
-        <translation>Imposta dimensione minima del blocco in bytes (predefinito: 0)</translation>
+        <source>Prune mode is incompatible with -blockfilterindex.</source>
+        <translation>La modalità ridotta(pruned) non è compatibile con -blockfilterindex</translation>
     </message>
     <message>
-        <location line="+2"/>
-        <source>Shrink debug.log file on client startup (default: 1 when no -debug)</source>
-        <translation>Riduci il file debug.log all&apos;avvio del client (predefinito: 1 se non impostato -debug)</translation>
+        <source>Reducing -maxconnections from %d to %d, because of system limitations.</source>
+        <translation>Riduzione -maxconnections da %d a %d a causa di limitazioni di sistema.</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <source>Section [%s] is not recognized.</source>
+        <translation>La sezione [%s] non è riconosciuta</translation>
+    </message>
+    <message>
         <source>Signing transaction failed</source>
-        <translation>Transazione di firma fallita</translation>
+        <translation>Firma transazione fallita</translation>
     </message>
     <message>
-        <location line="+2"/>
-        <source>Specify connection timeout in milliseconds (default: 5000)</source>
-        <translation>Specifica il timeout di connessione in millisecondi (default: 5000)</translation>
+        <source>Specified -walletdir "%s" does not exist</source>
+        <translation>-walletdir "%s"  specificata non esiste</translation>
     </message>
     <message>
-        <location line="+5"/>
-        <source>System error: </source>
-        <translation>Errore di sistema:</translation>
+        <source>Specified -walletdir "%s" is a relative path</source>
+        <translation>-walletdir "%s" specificata è un path relativo</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <source>Specified -walletdir "%s" is not a directory</source>
+        <translation>-walletdir "%s" specificata non e' una directory</translation>
+    </message>
+    <message>
+        <source>The specified config file %s does not exist
+</source>
+        <translation>Lo specificato archivio di configurazione %s non esiste
+</translation>
+    </message>
+    <message>
+        <source>The transaction amount is too small to pay the fee</source>
+        <translation>L'importo della transazione è troppo basso per pagare la commissione</translation>
+    </message>
+    <message>
+        <source>This is experimental software.</source>
+        <translation>Questo è un software sperimentale.</translation>
+    </message>
+    <message>
         <source>Transaction amount too small</source>
         <translation>Importo transazione troppo piccolo</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Transaction amounts must be positive</source>
-        <translation>L&apos;importo della transazione deve essere positivo</translation>
-    </message>
-    <message>
-        <location line="+1"/>
         <source>Transaction too large</source>
         <translation>Transazione troppo grande</translation>
     </message>
     <message>
-        <location line="+7"/>
-        <source>Use UPnP to map the listening port (default: 0)</source>
-        <translation>UPnP-használat engedélyezése a figyelő port feltérképezésénél (default: 0)</translation>
+        <source>Unable to bind to %s on this computer (bind returned error %s)</source>
+        <translation>Impossibile associarsi a %s su questo computer (l'associazione ha restituito l'errore %s)</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Use UPnP to map the listening port (default: 1 when listening)</source>
-        <translation>UPnP-használat engedélyezése a figyelő port feltérképezésénél (default: 1 when listening)</translation>
+        <source>Unable to create the PID file '%s': %s</source>
+        <translation>Impossibile creare il PID file '%s': %s</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Use proxy to reach tor hidden services (default: same as -proxy)</source>
-        <translation>Usa un proxy per raggiungere servizi nascosti di tor (predefinito: uguale a -proxy)</translation>
+        <source>Unable to generate initial keys</source>
+        <translation>Impossibile generare chiave iniziale</translation>
     </message>
     <message>
-        <location line="+2"/>
-        <source>Username for JSON-RPC connections</source>
-        <translation>Nome utente per connessioni JSON-RPC
-</translation>
+        <source>Unknown -blockfilterindex value %s.</source>
+        <translation>Valore -blockfilterindex %s sconosciuto.</translation>
     </message>
     <message>
-        <location line="+5"/>
-        <source>Warning</source>
-        <translation>Attenzione</translation>
+        <source>Verifying wallet(s)...</source>
+        <translation>Verifica portafoglio/i...</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Warning: This version is obsolete, upgrade required!</source>
-        <translation>Attenzione: questa versione è obsoleta, aggiornamento necessario!</translation>
+        <source>Warning: unknown new rules activated (versionbit %i)</source>
+        <translation>Attenzione: nuove regole non conosciute attivate (versionbit %i)</translation>
     </message>
     <message>
-        <location line="+2"/>
-        <source>wallet.dat corrupt, salvage failed</source>
-        <translation>wallet.dat corrotto, salvataggio fallito</translation>
+        <source>-maxtxfee is set very high! Fees this large could be paid on a single transaction.</source>
+        <translation>-maxtxfee è impostato molto alto! Commissioni così alte possono venir pagate anche su una singola transazione.</translation>
     </message>
     <message>
-        <location line="-52"/>
-        <source>Password for JSON-RPC connections</source>
-        <translation>Password per connessioni JSON-RPC
-</translation>
+        <source>This is the transaction fee you may pay when fee estimates are not available.</source>
+        <translation>Questo è il costo di transazione che potresti pagare quando le stime della tariffa non sono disponibili.</translation>
     </message>
     <message>
-        <location line="-68"/>
-        <source>Allow JSON-RPC connections from specified IP address</source>
-        <translation>Consenti connessioni JSON-RPC dall&apos;indirizzo IP specificato
-</translation>
+        <source>Total length of network version string (%i) exceeds maximum length (%i). Reduce the number or size of uacomments.</source>
+        <translation>La lunghezza totale della stringa di network version (%i) eccede la lunghezza massima (%i). Ridurre il numero o la dimensione di uacomments.</translation>
     </message>
     <message>
-        <location line="+77"/>
-        <source>Send commands to node running on &lt;ip&gt; (default: 127.0.0.1)</source>
-        <translation>Inviare comandi al nodo in esecuzione su &lt;ip&gt; (default: 127.0.0.1)
-</translation>
+        <source>%s is set very high!</source>
+        <translation>%s ha un'impostazione molto alta!</translation>
     </message>
     <message>
-        <location line="-121"/>
-        <source>Execute command when the best block changes (%s in cmd is replaced by block hash)</source>
-        <translation>Esegui il comando quando il miglior block cambia(%s nel cmd è sostituito dall&apos;hash del blocco)</translation>
+        <source>Error loading wallet %s. Duplicate -wallet filename specified.</source>
+        <translation>Errore caricamento portafoglio %s. Il nome file -wallet specificato è duplicato.</translation>
     </message>
     <message>
-        <location line="+149"/>
-        <source>Upgrade wallet to latest format</source>
-        <translation>Aggiorna il wallet all&apos;ultimo formato</translation>
+        <source>Starting network threads...</source>
+        <translation>Inizializzazione dei thread di rete...</translation>
     </message>
     <message>
-        <location line="-22"/>
-        <source>Set key pool size to &lt;n&gt; (default: 100)</source>
-        <translation>Impostare la quantità di chiavi di riserva a &lt;n&gt; (default: 100)
-</translation>
+        <source>The wallet will avoid paying less than the minimum relay fee.</source>
+        <translation>Il portafoglio eviterà di pagare meno della tariffa minima di trasmissione.</translation>
     </message>
     <message>
-        <location line="-12"/>
-        <source>Rescan the block chain for missing wallet transactions</source>
-        <translation>Ripeti analisi della catena dei blocchi per cercare le transazioni  mancanti dal portamonete
-</translation>
+        <source>This is the minimum transaction fee you pay on every transaction.</source>
+        <translation>Questo è il costo di transazione minimo che pagherai su ogni transazione.</translation>
     </message>
     <message>
-        <location line="+36"/>
-        <source>Use OpenSSL (https) for JSON-RPC connections</source>
-        <translation>Utilizzare OpenSSL (https) per le connessioni  JSON-RPC
-</translation>
+        <source>This is the transaction fee you will pay if you send a transaction.</source>
+        <translation>Questo è il costo di transazione che pagherai se invii una transazione.</translation>
     </message>
     <message>
-        <location line="-27"/>
-        <source>Server certificate file (default: server.cert)</source>
-        <translation>File certificato del server (default: server.cert)
-</translation>
+        <source>Transaction amounts must not be negative</source>
+        <translation>Gli importi di transazione non devono essere negativi</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Server private key (default: server.pem)</source>
-        <translation>Chiave privata del server (default: server.pem)
-</translation>
+        <source>Transaction has too long of a mempool chain</source>
+        <translation>La transazione ha una mempool chain troppo lunga</translation>
     </message>
     <message>
-        <location line="-156"/>
-        <source>Acceptable ciphers (default: TLSv1+HIGH:!SSLv2:!aNULL:!eNULL:!AH:!3DES:@STRENGTH)</source>
-        <translation>Cifrari accettabili (default: TLSv1+HIGH:!SSLv2:!aNULL:!eNULL:!AH:!3DES:@STRENGTH)
-</translation>
+        <source>Transaction must have at least one recipient</source>
+        <translation>La transazione deve avere almeno un destinatario</translation>
     </message>
     <message>
-        <location line="+171"/>
-        <source>This help message</source>
-        <translation>Questo messaggio di aiuto
-</translation>
+        <source>Unknown network specified in -onlynet: '%s'</source>
+        <translation>Rete sconosciuta specificata in -onlynet: '%s'</translation>
     </message>
     <message>
-        <location line="+6"/>
-        <source>Unable to bind to %s on this computer (bind returned error %d, %s)</source>
-        <translation>Impossibile collegarsi alla %s su questo computer (bind returned error %d, %s)</translation>
-    </message>
-    <message>
-        <location line="-93"/>
-        <source>Connect through socks proxy</source>
-        <translation>Connessione tramite socks proxy</translation>
-    </message>
-    <message>
-        <location line="-10"/>
-        <source>Allow DNS lookups for -addnode, -seednode and -connect</source>
-        <translation>Consenti ricerche DNS per aggiungere nodi e collegare
-</translation>
-    </message>
-    <message>
-        <location line="+56"/>
-        <source>Loading addresses...</source>
-        <translation>Caricamento indirizzi...</translation>
-    </message>
-    <message>
-        <location line="-36"/>
-        <source>Error loading wallet.dat: Wallet corrupted</source>
-        <translation>Errore caricamento wallet.dat: Wallet corrotto</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Error loading wallet.dat: Wallet requires newer version of Bitcoin</source>
-        <translation>Errore caricamento wallet.dat: il wallet richiede una versione nuova di Bitcoin</translation>
-    </message>
-    <message>
-        <location line="+96"/>
-        <source>Wallet needed to be rewritten: restart Bitcoin to complete</source>
-        <translation>Il portamonete deve essere riscritto: riavviare Bitcoin per completare</translation>
-    </message>
-    <message>
-        <location line="-98"/>
-        <source>Error loading wallet.dat</source>
-        <translation>Errore caricamento wallet.dat</translation>
-    </message>
-    <message>
-        <location line="+29"/>
-        <source>Invalid -proxy address: &apos;%s&apos;</source>
-        <translation>Indirizzo -proxy non valido: &apos;%s&apos;</translation>
-    </message>
-    <message>
-        <location line="+57"/>
-        <source>Unknown network specified in -onlynet: &apos;%s&apos;</source>
-        <translation>Rete sconosciuta specificata in -onlynet: &apos;%s&apos;</translation>
-    </message>
-    <message>
-        <location line="-1"/>
-        <source>Unknown -socks proxy version requested: %i</source>
-        <translation>Versione -socks proxy sconosciuta richiesta: %i</translation>
-    </message>
-    <message>
-        <location line="-98"/>
-        <source>Cannot resolve -bind address: &apos;%s&apos;</source>
-        <translation>Impossibile risolvere -bind address: &apos;%s&apos;</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Cannot resolve -externalip address: &apos;%s&apos;</source>
-        <translation>Impossibile risolvere indirizzo -externalip: &apos;%s&apos;</translation>
-    </message>
-    <message>
-        <location line="+45"/>
-        <source>Invalid amount for -paytxfee=&lt;amount&gt;: &apos;%s&apos;</source>
-        <translation>Importo non valido per -paytxfee=&lt;amount&gt;: &apos;%s&apos;</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Invalid amount</source>
-        <translation>Importo non valido</translation>
-    </message>
-    <message>
-        <location line="-6"/>
         <source>Insufficient funds</source>
         <translation>Fondi insufficienti</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <source>Fee estimation failed. Fallbackfee is disabled. Wait a few blocks or enable -fallbackfee.</source>
+        <translation>Stima della commissione non riuscita. Fallbackfee è disabilitato. Attendi qualche blocco o abilita -fallbackfee.</translation>
+    </message>
+    <message>
+        <source>Warning: Private keys detected in wallet {%s} with disabled private keys</source>
+        <translation>Avviso: chiavi private rilevate nel portafoglio { %s} con chiavi private disabilitate</translation>
+    </message>
+    <message>
+        <source>Cannot write to data directory '%s'; check permissions.</source>
+        <translation>Impossibile scrivere nella directory dei dati ' %s'; controlla le autorizzazioni.</translation>
+    </message>
+    <message>
         <source>Loading block index...</source>
-        <translation>Caricamento dell&apos;indice del blocco...</translation>
+        <translation>Caricamento dell'indice dei blocchi...</translation>
     </message>
     <message>
-        <location line="-58"/>
-        <source>Add a node to connect to and attempt to keep the connection open</source>
-        <translation>Elérendő csomópont megadása and attempt to keep the connection open</translation>
-    </message>
-    <message>
-        <location line="-25"/>
-        <source>Unable to bind to %s on this computer. Bitcoin is probably already running.</source>
-        <translation>Impossibile collegarsi alla %s su questo computer. Probabilmente Bitcoin è già in esecuzione.</translation>
-    </message>
-    <message>
-        <location line="+64"/>
-        <source>Fee per KB to add to transactions you send</source>
-        <translation>Commissione per KB da aggiungere alle transazioni in uscita</translation>
-    </message>
-    <message>
-        <location line="+20"/>
         <source>Loading wallet...</source>
-        <translation>Caricamento portamonete...</translation>
+        <translation>Caricamento portafoglio...</translation>
     </message>
     <message>
-        <location line="-53"/>
         <source>Cannot downgrade wallet</source>
-        <translation>Non è possibile retrocedere il wallet</translation>
+        <translation>Non è possibile effettuare il downgrade del portafoglio</translation>
     </message>
     <message>
-        <location line="+3"/>
-        <source>Cannot write default address</source>
-        <translation>Non è possibile scrivere l&apos;indirizzo di default</translation>
-    </message>
-    <message>
-        <location line="+65"/>
         <source>Rescanning...</source>
-        <translation>Ripetere la scansione...</translation>
+        <translation>Ripetizione scansione...</translation>
     </message>
     <message>
-        <location line="-58"/>
         <source>Done loading</source>
         <translation>Caricamento completato</translation>
-    </message>
-    <message>
-        <location line="+84"/>
-        <source>To use the %s option</source>
-        <translation>Per usare la opzione %s</translation>
-    </message>
-    <message>
-        <location line="-76"/>
-        <source>Error</source>
-        <translation>Errore</translation>
-    </message>
-    <message>
-        <location line="-31"/>
-        <source>You must set rpcpassword=&lt;password&gt; in the configuration file:
-%s
-If the file does not exist, create it with owner-readable-only file permissions.</source>
-        <translation>Devi settare rpcpassword=&lt;password&gt; nel file di configurazione: %s Se il file non esiste, crealo con i permessi di amministratore</translation>
     </message>
 </context>
 </TS>

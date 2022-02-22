@@ -5,6 +5,7 @@
 #include "db/log_reader.h"
 
 #include <stdio.h>
+
 #include "leveldb/env.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
@@ -12,8 +13,7 @@
 namespace leveldb {
 namespace log {
 
-Reader::Reporter::~Reporter() {
-}
+Reader::Reporter::~Reporter() = default;
 
 Reader::Reader(SequentialFile* file, Reporter* reporter, bool checksum,
                uint64_t initial_offset)
@@ -25,20 +25,17 @@ Reader::Reader(SequentialFile* file, Reporter* reporter, bool checksum,
       eof_(false),
       last_record_offset_(0),
       end_of_buffer_offset_(0),
-      initial_offset_(initial_offset) {
-}
+      initial_offset_(initial_offset),
+      resyncing_(initial_offset > 0) {}
 
-Reader::~Reader() {
-  delete[] backing_store_;
-}
+Reader::~Reader() { delete[] backing_store_; }
 
 bool Reader::SkipToInitialBlock() {
-  size_t offset_in_block = initial_offset_ % kBlockSize;
+  const size_t offset_in_block = initial_offset_ % kBlockSize;
   uint64_t block_start_location = initial_offset_ - offset_in_block;
 
   // Don't search a block if we'd be in the trailer
   if (offset_in_block > kBlockSize - 6) {
-    offset_in_block = 0;
     block_start_location += kBlockSize;
   }
 
@@ -72,8 +69,25 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch) {
 
   Slice fragment;
   while (true) {
-    uint64_t physical_record_offset = end_of_buffer_offset_ - buffer_.size();
     const unsigned int record_type = ReadPhysicalRecord(&fragment);
+
+    // ReadPhysicalRecord may have only had an empty trailer remaining in its
+    // internal buffer. Calculate the offset of the next physical record now
+    // that it has returned, properly accounting for its header size.
+    uint64_t physical_record_offset =
+        end_of_buffer_offset_ - buffer_.size() - kHeaderSize - fragment.size();
+
+    if (resyncing_) {
+      if (record_type == kMiddleType) {
+        continue;
+      } else if (record_type == kLastType) {
+        resyncing_ = false;
+        continue;
+      } else {
+        resyncing_ = false;
+      }
+    }
+
     switch (record_type) {
       case kFullType:
         if (in_fragmented_record) {
@@ -81,9 +95,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch) {
           // it could emit an empty kFirstType record at the tail end
           // of a block followed by a kFullType or kFirstType record
           // at the beginning of the next block.
-          if (scratch->empty()) {
-            in_fragmented_record = false;
-          } else {
+          if (!scratch->empty()) {
             ReportCorruption(scratch->size(), "partial record without end(1)");
           }
         }
@@ -99,9 +111,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch) {
           // it could emit an empty kFirstType record at the tail end
           // of a block followed by a kFullType or kFirstType record
           // at the beginning of the next block.
-          if (scratch->empty()) {
-            in_fragmented_record = false;
-          } else {
+          if (!scratch->empty()) {
             ReportCorruption(scratch->size(), "partial record without end(2)");
           }
         }
@@ -133,7 +143,9 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch) {
 
       case kEof:
         if (in_fragmented_record) {
-          ReportCorruption(scratch->size(), "partial record without end(3)");
+          // This can be caused by the writer dying immediately after
+          // writing a physical record but before completing the next; don't
+          // treat it as a corruption, just ignore the entire logical record.
           scratch->clear();
         }
         return false;
@@ -161,18 +173,16 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch) {
   return false;
 }
 
-uint64_t Reader::LastRecordOffset() {
-  return last_record_offset_;
+uint64_t Reader::LastRecordOffset() { return last_record_offset_; }
+
+void Reader::ReportCorruption(uint64_t bytes, const char* reason) {
+  ReportDrop(bytes, Status::Corruption(reason, file_->GetName()));
 }
 
-void Reader::ReportCorruption(size_t bytes, const char* reason) {
-  ReportDrop(bytes, Status::Corruption(reason));
-}
-
-void Reader::ReportDrop(size_t bytes, const Status& reason) {
-  if (reporter_ != NULL &&
+void Reader::ReportDrop(uint64_t bytes, const Status& reason) {
+  if (reporter_ != nullptr &&
       end_of_buffer_offset_ - buffer_.size() - bytes >= initial_offset_) {
-    reporter_->Corruption(bytes, reason);
+    reporter_->Corruption(static_cast<size_t>(bytes), reason);
   }
 }
 
@@ -193,13 +203,12 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result) {
           eof_ = true;
         }
         continue;
-      } else if (buffer_.size() == 0) {
-        // End of file
-        return kEof;
       } else {
-        size_t drop_size = buffer_.size();
+        // Note that if buffer_ is non-empty, we have a truncated header at the
+        // end of the file, which can be caused by the writer crashing in the
+        // middle of writing the header. Instead of considering this an error,
+        // just report EOF.
         buffer_.clear();
-        ReportCorruption(drop_size, "truncated record at end of file");
         return kEof;
       }
     }
@@ -213,8 +222,14 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result) {
     if (kHeaderSize + length > buffer_.size()) {
       size_t drop_size = buffer_.size();
       buffer_.clear();
-      ReportCorruption(drop_size, "bad record length");
-      return kBadRecord;
+      if (!eof_) {
+        ReportCorruption(drop_size, "bad record length");
+        return kBadRecord;
+      }
+      // If the end of the file has been reached without reading |length| bytes
+      // of payload, assume the writer died in the middle of writing the record.
+      // Don't report a corruption.
+      return kEof;
     }
 
     if (type == kZeroType && length == 0) {
