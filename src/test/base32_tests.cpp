@@ -1,8 +1,13 @@
+// Copyright (c) 2012-2017 The Bitcoin Core developers
+// Distributed under the MIT software license, see the accompanying
+// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+
+#include <utilstrencodings.h>
+#include <test/test_bitcoin.h>
+
 #include <boost/test/unit_test.hpp>
 
-#include "util.h"
-
-BOOST_AUTO_TEST_SUITE(base32_tests)
+BOOST_FIXTURE_TEST_SUITE(base32_tests, BasicTestingSetup)
 
 BOOST_AUTO_TEST_CASE(base32_testvectors)
 {
@@ -11,9 +16,9 @@ BOOST_AUTO_TEST_CASE(base32_testvectors)
     for (unsigned int i=0; i<sizeof(vstrIn)/sizeof(vstrIn[0]); i++)
     {
         std::string strEnc = EncodeBase32(vstrIn[i]);
-        BOOST_CHECK(strEnc == vstrOut[i]);
+        BOOST_CHECK_EQUAL(strEnc, vstrOut[i]);
         std::string strDec = DecodeBase32(vstrOut[i]);
-        BOOST_CHECK(strDec == vstrIn[i]);
+        BOOST_CHECK_EQUAL(strDec, vstrIn[i]);
     }
 }
 

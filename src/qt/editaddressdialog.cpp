@@ -1,15 +1,23 @@
-#include "editaddressdialog.h"
-#include "ui_editaddressdialog.h"
+// Copyright (c) 2011-2017 The Bitcoin Core developers
+// Distributed under the MIT software license, see the accompanying
+// file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include "addresstablemodel.h"
-#include "guiutil.h"
+#include <qt/editaddressdialog.h>
+#include <qt/forms/ui_editaddressdialog.h>
+
+#include <qt/addresstablemodel.h>
+#include <qt/guiutil.h>
 
 #include <QDataWidgetMapper>
 #include <QMessageBox>
 
-EditAddressDialog::EditAddressDialog(Mode mode, QWidget *parent) :
+
+EditAddressDialog::EditAddressDialog(Mode _mode, QWidget *parent) :
     QDialog(parent),
-    ui(new Ui::EditAddressDialog), mapper(0), mode(mode), model(0)
+    ui(new Ui::EditAddressDialog),
+    mapper(0),
+    mode(_mode),
+    model(0)
 {
     ui->setupUi(this);
 
@@ -17,10 +25,6 @@ EditAddressDialog::EditAddressDialog(Mode mode, QWidget *parent) :
 
     switch(mode)
     {
-    case NewReceivingAddress:
-        setWindowTitle(tr("New receiving address"));
-        ui->addressEdit->setEnabled(false);
-        break;
     case NewSendingAddress:
         setWindowTitle(tr("New sending address"));
         break;
@@ -42,13 +46,13 @@ EditAddressDialog::~EditAddressDialog()
     delete ui;
 }
 
-void EditAddressDialog::setModel(AddressTableModel *model)
+void EditAddressDialog::setModel(AddressTableModel *_model)
 {
-    this->model = model;
-    if(!model)
+    this->model = _model;
+    if(!_model)
         return;
 
-    mapper->setModel(model);
+    mapper->setModel(_model);
     mapper->addMapping(ui->labelEdit, AddressTableModel::Label);
     mapper->addMapping(ui->addressEdit, AddressTableModel::Address);
 }
@@ -65,12 +69,12 @@ bool EditAddressDialog::saveCurrentRow()
 
     switch(mode)
     {
-    case NewReceivingAddress:
     case NewSendingAddress:
         address = model->addRow(
-                mode == NewSendingAddress ? AddressTableModel::Send : AddressTableModel::Receive,
+                AddressTableModel::Send,
                 ui->labelEdit->text(),
-                ui->addressEdit->text());
+                ui->addressEdit->text(),
+                model->GetDefaultAddressType());
         break;
     case EditReceivingAddress:
     case EditSendingAddress:
@@ -105,7 +109,7 @@ void EditAddressDialog::accept()
             break;
         case AddressTableModel::DUPLICATE_ADDRESS:
             QMessageBox::warning(this, windowTitle(),
-                tr("The entered address \"%1\" is already in the address book.").arg(ui->addressEdit->text()),
+                getDuplicateAddressWarning(),
                 QMessageBox::Ok, QMessageBox::Ok);
             break;
         case AddressTableModel::WALLET_UNLOCK_FAILURE:
@@ -125,13 +129,32 @@ void EditAddressDialog::accept()
     QDialog::accept();
 }
 
+QString EditAddressDialog::getDuplicateAddressWarning() const
+{
+    QString dup_address = ui->addressEdit->text();
+    QString existing_label = model->labelForAddress(dup_address);
+    QString existing_purpose = model->purposeForAddress(dup_address);
+
+    if (existing_purpose == "receive" &&
+            (mode == NewSendingAddress || mode == EditSendingAddress)) {
+        return tr(
+            "Address \"%1\" already exists as a receiving address with label "
+            "\"%2\" and so cannot be added as a sending address."
+            ).arg(dup_address).arg(existing_label);
+    }
+    return tr(
+        "The entered address \"%1\" is already in the address book with "
+        "label \"%2\"."
+        ).arg(dup_address).arg(existing_label);
+}
+
 QString EditAddressDialog::getAddress() const
 {
     return address;
 }
 
-void EditAddressDialog::setAddress(const QString &address)
+void EditAddressDialog::setAddress(const QString &_address)
 {
-    this->address = address;
-    ui->addressEdit->setText(address);
+    this->address = _address;
+    ui->addressEdit->setText(_address);
 }
