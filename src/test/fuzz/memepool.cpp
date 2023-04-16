@@ -27,6 +27,41 @@ const constexpr size_t MAX_LINEARIZATION_CLUSTER = 32;
 template<size_t Size>
 using BitMatrix = std::array<std::bitset<Size>, Size>;
 
+#define ROTL(x, b) (uint64_t)(((x) << (b)) | ((x) >> (64 - (b))))
+
+inline uint64_t RdSeed() noexcept
+{
+    uint8_t ok;
+    uint64_t r1;
+    do {
+        __asm__ volatile (".byte 0x48, 0x0f, 0xc7, 0xf8; setc %1" : "=a"(r1), "=q"(ok) :: "cc"); // rdseed %rax
+        if (ok) break;
+        __asm__ volatile ("pause");
+    } while(true);
+    return r1;
+}
+
+class RNG
+{
+    uint64_t v0 = RdSeed(), v1 = RdSeed(), v2 = RdSeed(), v3 = RdSeed();
+
+public:
+    uint64_t operator()()
+    {
+        const uint64_t result = ROTL(v0 + v3, 23) + v0;
+        const uint64_t t = v1 << 17;
+        v2 ^= v0;
+        v3 ^= v1;
+        v1 ^= v2;
+        v0 ^= v3;
+        v2 ^= t;
+        v3 = ROTL(v3, 45);
+        return result;
+    }
+};
+
+RNG GLOBAL_RNG;
+
 template<typename SizeType, SizeType Size>
 class UnionFind
 {
@@ -69,7 +104,7 @@ public:
 
 struct ChunkData
 {
-    uint64_t sats;
+    uint32_t sats;
     uint32_t bytes;
 
     ChunkData() : sats{0}, bytes{0} {}
@@ -147,7 +182,7 @@ struct ChunkData
 
     friend std::ostream& operator<<(std::ostream& o, const ChunkData& data)
     {
-        o << "(" << data.sats << "/" << data.bytes << ")";
+        o << "(" << data.sats << "/" << data.bytes << "=" << ((double)data.sats / data.bytes) << ")";
         return o;
     }
 };
@@ -364,6 +399,16 @@ std::tuple<std::bitset<Size>, ChunkData, uint64_t> FindBestCandidates(const std:
     return {best_select, best_acc, count};
 }
 
+
+#define SIPROUND do { \
+    v0 += v1; v1 = ROTL(v1, 13); v1 ^= v0; \
+    v0 = ROTL(v0, 32); \
+    v2 += v3; v3 = ROTL(v3, 16); v3 ^= v2; \
+    v0 += v3; v3 = ROTL(v3, 21); v3 ^= v0; \
+    v2 += v1; v1 = ROTL(v1, 17); v1 ^= v2; \
+    v2 = ROTL(v2, 32); \
+} while (0)
+
 template<size_t Size>
 struct LinearClusterWithDeps
 {
@@ -383,6 +428,38 @@ struct LinearClusterWithDeps
             }
             ++cluster_size;
         }
+    }
+
+    uint64_t hash(uint64_t init) const 
+    {
+        uint64_t v0 = 0x736f6d6570736575ULL ^ init;
+        uint64_t v1 = 0x646f72616e646f6dULL ^ init;
+        uint64_t v2 = 0x6c7967656e657261ULL ^ init;
+        uint64_t v3 = 0x7465646279746573ULL ^ init;
+        v3 ^= cluster_size;
+        SIPROUND;
+        v0 ^= cluster_size;
+        for (size_t i = 0; i < cluster_size; ++i) {
+            v3 ^= txdata[i].sats;
+            SIPROUND;
+            v0 ^= txdata[i].sats;
+            v3 ^= txdata[i].bytes;
+            SIPROUND;
+            v0 ^= txdata[i].bytes;
+            for (size_t j = 0; j < cluster_size; j += 64) {
+                uint64_t v{0};
+                for (size_t j0 = 0; j0 < 64 && j+j0 < cluster_size; ++j0) {
+                    v |= uint64_t{deps[i][j+j0]} << j0;
+                }
+                v3 ^= v;
+                SIPROUND;
+                v0 ^= v;
+            }
+        }
+        v2 ^= 0xFF;
+        SIPROUND;
+        SIPROUND;
+        return v0 ^ v1 ^ v2 ^ v3;
     }
 
     bool IsConnected() const { return ::IsConnected(deps, cluster_size); }
@@ -482,6 +559,101 @@ BitMatrix<Size> ComputeDescendants(const BitMatrix<Size>& deps, size_t size)
             }
         }
     } while (changed);
+    return ret;
+}
+
+template<size_t Size>
+struct ChunkingResult
+{
+    std::bitset<Size> selection;
+    ChunkData feerate;
+    size_t iterations;
+    size_t comparisons;
+
+    ChunkingResult(const std::bitset<Size> s, ChunkData f, size_t i, size_t c) : selection(s), feerate(f), iterations(i), comparisons(c) {}
+};
+
+template<size_t Size>
+bool EquivalentChunking(const std::vector<ChunkingResult<Size>>& a, const std::vector<ChunkingResult<Size>>& b)
+{
+    if (a.size() != b.size()) return false;
+    size_t idx{0};
+    while (idx != a.size()) {
+        ChunkData cumul_a{a[idx].feerate}, cumul_b{b[idx].feerate};
+        if (cumul_a.CompareJustFeerate(cumul_b) != 0) return false;
+        ++idx;
+        size_t idx_a{idx}, idx_b{idx};
+        while (idx_a != a.size() && cumul_a.CompareJustFeerate(a[idx_a].feerate) == 0) {
+            cumul_a += a[idx_a].feerate;
+            ++idx_a;
+        }
+        while (idx_b != b.size() && cumul_b.CompareJustFeerate(b[idx_b].feerate) == 0) {
+            cumul_b += b[idx_b].feerate;
+            ++idx_b;
+        }
+        if (idx_a != idx_b) return false;
+        if (cumul_a.bytes != cumul_b.bytes) return false;
+        assert(cumul_a == cumul_b);
+        idx = idx_a;
+    }
+    return true;
+}
+
+template<size_t Size>
+std::vector<ChunkingResult<Size>> FindOptimalChunks(const LinearClusterWithDeps<Size>& cluster)
+{
+    auto ancestors = ComputeAncestors(cluster.deps, cluster.cluster_size);
+
+    std::vector<ChunkingResult<Size>> ret;
+    std::bitset<Size> done, all;
+
+    struct Sol
+    {
+        std::bitset<Size> select;
+        ChunkData achieved;
+        size_t expanded;
+
+        Sol() = default;
+        Sol(const std::bitset<Size>& sel, const ChunkData& ach, size_t exp) : select(sel), achieved(ach), expanded(exp) {}
+    };
+
+    for (size_t i = 0; i < cluster.cluster_size; ++i) all[i] = true;
+    while (done != all) {
+        size_t iterations{0}, comparisons{0};
+        ChunkData best;
+        std::bitset<Size> best_select;
+        std::vector<Sol> sols;
+        sols.emplace_back(done, ChunkData{}, 0);
+        while (!sols.empty()) {
+            ++iterations;
+            Sol& ent = sols.back();
+            assert(ent.expanded <= cluster.cluster_size);
+            while (ent.expanded < cluster.cluster_size && done[ent.expanded]) ++ent.expanded;
+            assert(ent.expanded <= cluster.cluster_size);
+            if (ent.expanded == cluster.cluster_size) {
+                sols.pop_back();
+            } else {
+                ChunkData next = ent.achieved;
+                std::bitset<Size> next_select = ent.select | ancestors[ent.expanded];
+                std::bitset<Size> to_add = next_select & ~ent.select;
+                assert(!to_add.none());
+                for (size_t j = 0; j < cluster.cluster_size; ++j) {
+                    if (to_add[j]) next += cluster.txdata[j];
+                }
+                ++comparisons;
+                if (next > best) {
+                    best = next;
+                    best_select = next_select;
+                }
+                ++ent.expanded;
+                sols.emplace_back(next_select, next, ent.expanded);
+            }
+        }
+
+        ret.emplace_back(best_select & ~done, best, iterations, comparisons);
+        done = best_select;
+    }
+
     return ret;
 }
 
@@ -590,7 +762,7 @@ IncExcStats<Size> AnalyzeMurch(const LinearClusterWithDeps<Size>& cluster)
 
     auto ancestors = ComputeAncestors(cluster.deps, cluster.cluster_size);
     auto descendants = ComputeDescendants(cluster.deps, cluster.cluster_size);
-    auto parents = ComputeDirectParents(ancestors, cluster.cluster_size);
+/*    auto parents = ComputeDirectParents(ancestors, cluster.cluster_size);*/
 
     std::array<ChunkData, Size> ancestor_data;
     for (size_t i = 0; i < cluster.cluster_size; ++i) {
@@ -742,7 +914,6 @@ IncExcStats<Size> AnalyzeIncExc(const LinearClusterWithDeps<Size>& cluster)
 /*    std::vector<IncExcSolution<Size>> queue;*/
 
     size_t adds{0};
-    size_t iterations{0};
 
     auto add_fn = [&](std::bitset<Size> inc, const std::bitset<Size>& exc) {
         ChunkData acc;
@@ -774,7 +945,6 @@ IncExcStats<Size> AnalyzeIncExc(const LinearClusterWithDeps<Size>& cluster)
         if (acc < best.achieved) return;
         IncExcSolution<Size> sol{.inc = inc, .exc = exc, .achieved = achieved, .potential = acc};
         if (sol.achieved > best.achieved) {
-            iterations = adds;
             best = sol;
         }
         queue.emplace(sol);
@@ -821,16 +991,6 @@ IncExcStats<Size> AnalyzeIncExc(const LinearClusterWithDeps<Size>& cluster)
     return {.iterations = adds, .queue_size = max_queue, .select = best.inc, .achieved = best.achieved};
 }
 
-template<size_t Size>
-struct ChunkingResult
-{
-    std::bitset<Size> selection;
-    ChunkData feerate;
-    size_t iterations;
-    size_t comparisons;
-
-    ChunkingResult(const std::bitset<Size> s, ChunkData f, size_t i, size_t c) : selection(s), feerate(f), iterations(i), comparisons(c) {}
-};
 
 template<size_t Size>
 struct FullStats
@@ -889,7 +1049,7 @@ FullStats<Size> AnalyzeIncExcOpt(const LinearClusterWithDeps<Size>& cluster)
     std::iota(sorted_to_idx, sorted_to_idx + cluster.cluster_size, unsigned{0});
     std::sort(sorted_to_idx, sorted_to_idx + cluster.cluster_size, [&](unsigned a, unsigned b) {
         ++comparisons;
-        return cluster.txdata[a] > cluster.txdata[b];
+        return cluster.txdata[a].Compare(cluster.txdata[b]) > 0;
     });
     unsigned idx_to_sorted[Size];
     ChunkData sorted_data[Size];
@@ -963,10 +1123,9 @@ FullStats<Size> AnalyzeIncExcOpt(const LinearClusterWithDeps<Size>& cluster)
             uint64_t undecided = all & ~(inc | exc);
             while (undecided) {
                 int pos = StripBit(undecided);
-                auto next = acc + sorted_data[pos];
                 ++comparisons;
-                if (next > acc) {
-                    acc = next;
+                if (sorted_data[pos].CompareJustFeerate(acc) > 0) {
+                    acc += sorted_data[pos];
                     satisfied |= uint64_t{1} << pos;
                     required |= ancestors[pos];
                     if (!(required & ~satisfied)) {
@@ -978,9 +1137,9 @@ FullStats<Size> AnalyzeIncExcOpt(const LinearClusterWithDeps<Size>& cluster)
                 }
             }
             ++comparisons;
-            if (acc < best_achieved) return;
+            if (acc.Compare(best_achieved) <= 0) return;
             ++comparisons;
-            if (achieved > best_achieved) {
+            if (achieved.Compare(best_achieved) > 0) {
                 best_achieved = achieved;
                 best = inc;
             }
@@ -997,7 +1156,7 @@ FullStats<Size> AnalyzeIncExcOpt(const LinearClusterWithDeps<Size>& cluster)
         while (!queue.empty()) {
             Sol elem = queue.top();
             ++comparisons;
-            if (elem.potential <= best_achieved) break;
+            if (elem.potential.Compare(best_achieved) <= 0) break;
             queue.pop();
             ++iterations;
 
@@ -1038,15 +1197,16 @@ FullStats<Size> AnalyzeIncExcFull(const LinearClusterWithDeps<Size>& cluster)
     auto descendants = ComputeDescendants(cluster.deps, cluster.cluster_size);
     std::bitset<Size> done;
 
-    size_t comparisons{0};
 
     std::array<size_t, Size> direct_order;
     std::iota(direct_order.begin(), direct_order.begin() + cluster.cluster_size, size_t{0});
     std::sort(direct_order.begin(), direct_order.begin() + cluster.cluster_size, [&](size_t a, size_t b) {
-        ++comparisons;
+        // Don't count comparisons in here; they can always be maximized to O(n log n) by presenting
+        // input in a pessimal order.
         return cluster.txdata[a] > cluster.txdata[b];
     });
 
+    size_t comparisons{0};
 
     auto compare_fn = [&](const IncExcSolution<Size>& a, const IncExcSolution<Size>& b) {
         int cmp_pot = a.potential.Compare(b.potential);
@@ -1548,24 +1708,20 @@ FUZZ_TARGET(memepool_analyze_incexc_full)
 
     if (!cluster.IsConnected()) return;
 
-    const auto& [comparisons, chunks, duration] = AnalyzeIncExcFull(cluster);
+    const auto& [comparisons, chunks, duration] = AnalyzeIncExcOpt<MAX_LINEARIZATION_CLUSTER>(cluster);
 
-    const auto& [comparisons_opt, chunks_opt, duration_opt] = AnalyzeIncExcOpt<MAX_LINEARIZATION_CLUSTER>(cluster);
-    bool same = chunks.size() == chunks_opt.size();
-    for (size_t i = 0; i < chunks.size(); ++i) {
-        if (chunks[i].feerate != chunks_opt[i].feerate) {
-            same = false;
-        }
+    if (cluster.cluster_size <= 10 || (cluster.cluster_size <= 22 && GLOBAL_RNG() >> (74 - cluster.cluster_size) == 0)) {
+        auto best_chunks = FindOptimalChunks(cluster);
+        bool eq = EquivalentChunking(chunks, best_chunks);
+        if (!eq) std::cerr << "DIFF " << cluster << " optimal=" << best_chunks << " found=" << chunks << std::endl;
+        assert(eq);
     }
 
-    if (!same) {
-        std::cerr << "DIFF: " << cluster << " full=" << chunks << " opt=" << chunks_opt << std::endl;
-        assert(false);
-    }
-
+/*
     if (cluster.cluster_size >= 16) {
         std::cerr << "STAT: size " << cluster.cluster_size << " comptime " << (duration_opt / comparisons_opt) << " comptime_old " << (duration / comparisons) << " comparisons " << comparisons_opt << " cluster " << cluster <<  " result " << chunks_opt << std::endl;
     }
+*/
 
     static std::array<size_t, MAX_LINEARIZATION_CLUSTER+1> MAX_COMPS;
 
@@ -1579,7 +1735,7 @@ FUZZ_TARGET(memepool_analyze_incexc_full)
 
     }
 
-    static constexpr size_t KNOWN_LIMITS[] = {0,  4, 17, 39, 72, 118, 180, 256, 423, 713, 1153, 1872, 3156, 5032, 8006, 12727, 20487, 33674, 53178, 81259, 136830, 217915, 348602, 559523, 842778, 1308488, 1921476}; /* highest individual feerate first; num comparisons; full chunking */
+    static constexpr size_t KNOWN_LIMITS[] = {0,  4, 17, 39, 72, 118, 178, 251, 423, 713, 1146, 1865, 3149, 5017, 8008, 12738, 20390, 33634, 53619, 81236, 138000, 217939, 348463, 559652, 844640, 1310447, 1990701}; /* highest individual feerate first; num comparisons; full chunking */
     /*                                        0   1   2   3   4    5    6    7    8    9    10    11    12    13    14     15     16     17     18     19      20      21      22      23      24       25       26 */
     /*                                        0   4   9  15  22   30   39   49   60   72    85    99   114   130   147    165    184    204    225    247     270     294     319     345     372      400      429 */
 
