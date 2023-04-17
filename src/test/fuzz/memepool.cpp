@@ -1032,7 +1032,7 @@ int inline StripBit(uint64_t& x)
     return pos;
 }
 
-template<unsigned Size>
+template<unsigned Size, bool QuadPot = false>
 FullStats<Size> AnalyzeIncExcOpt(const LinearClusterWithDeps<Size>& cluster)
 {
     static_assert(Size <= 64);
@@ -1111,42 +1111,76 @@ FullStats<Size> AnalyzeIncExcOpt(const LinearClusterWithDeps<Size>& cluster)
         std::priority_queue<Sol, std::vector<Sol>, decltype(compare_fn)> queue{compare_fn};
 
         auto add_fn = [&](ChunkData prev, uint64_t prevmask, uint64_t inc, uint64_t exc) {
-            ChunkData acc = prev;
+            ChunkData potential = prev;
             uint64_t to_add = inc & ~prevmask;
             while (to_add) {
                 int pos = StripBit(to_add);
-                acc += sorted_data[pos];
+                potential += sorted_data[pos];
             }
-            ChunkData achieved = acc;
+            ChunkData achieved = potential;
+
             uint64_t satisfied = inc;
             uint64_t required{0};
             uint64_t undecided = all & ~(inc | exc);
             while (undecided) {
                 int pos = StripBit(undecided);
                 ++comparisons;
-                if (sorted_data[pos].CompareJustFeerate(acc) > 0) {
-                    acc += sorted_data[pos];
+                if (sorted_data[pos].CompareJustFeerate(potential) > 0) {
+                    potential += sorted_data[pos];
                     satisfied |= uint64_t{1} << pos;
                     required |= ancestors[pos];
                     if (!(required & ~satisfied)) {
                         inc = satisfied;
-                        achieved = acc;
+                        achieved = potential;
                     }
                 } else {
                     break;
                 }
             }
+
             ++comparisons;
-            if (acc.Compare(best_achieved) <= 0) return;
+            if (potential.Compare(best_achieved) <= 0) return;
             ++comparisons;
             if (achieved.Compare(best_achieved) > 0) {
                 best_achieved = achieved;
                 best = inc;
             }
+
+            if constexpr (QuadPot) {
+                auto old_potential = potential;
+                potential = achieved;
+                uint64_t local_undecided{all & ~(inc | exc)};
+                while (local_undecided) {
+                    int pos = StripBit(local_undecided);
+                    ++comparisons;
+                    if (achieved.CompareJustFeerate(sorted_data[pos]) >= 0) break;
+                    uint64_t local_inc{inc | ancestors[pos]};
+                    ChunkData local_fee{achieved};
+                    uint64_t to_add{local_inc & ~inc};
+                    while (to_add) {
+                        int inner_pos = StripBit(to_add);
+                        local_fee += sorted_data[inner_pos];
+                    }
+                    uint64_t left{local_undecided & ~local_inc};
+                    while (left) {
+                        int inner_pos = StripBit(left);
+                        ChunkData next{local_fee + sorted_data[inner_pos]};
+                        ++comparisons;
+                        if (next.Compare(local_fee) <= 0) break;
+                        local_fee = next;
+                    }
+                    ++comparisons;
+                    if (local_fee.Compare(potential) > 0) potential = local_fee;
+                    //
+                    local_undecided &= ~descendants[pos];
+                }
+                assert(old_potential.CompareJustFeerate(potential) >= 0);
+            }
+
             Sol sol;
             sol.inc = inc;
             sol.exc = exc;
-            sol.potential = acc;
+            sol.potential = potential;
             sol.achieved = achieved;
             queue.emplace(sol);
         };
@@ -1766,6 +1800,42 @@ FUZZ_TARGET(memepool_analyze_incexc_full)
     if (cluster.cluster_size == 26 && comparisons >= KNOWN_LIMITS[cluster.cluster_size]) std::cerr << "COMP " << (comparisons > KNOWN_LIMITS[cluster.cluster_size] ? "EXCEED" : "LIMIT") << " " << cluster.cluster_size << ": " << comparisons << ": CLUSTER " << cluster << " [SUBS=" << cluster.CountCandidates() << ",CHUNKS=" << chunks << "] dur=" << duration << std::endl;
 
 /*    if (cluster.cluster_size >= 0 && cluster.cluster_size <= 26) assert(comparisons <= KNOWN_LIMITS[cluster.cluster_size]);*/
+}
+
+FUZZ_TARGET(memepool_analyze_incexc_quad)
+{
+    FuzzedDataProvider provider(buffer.data(), buffer.size());
+
+    LinearClusterWithDeps<MAX_LINEARIZATION_CLUSTER> cluster(provider);
+
+    if (!cluster.IsConnected()) return;
+
+    const auto& [comparisons, chunks, duration] = AnalyzeIncExcOpt<MAX_LINEARIZATION_CLUSTER, true>(cluster);
+
+    if (cluster.cluster_size <= 10 || (cluster.cluster_size <= 22 && GLOBAL_RNG() >> (74 - cluster.cluster_size) == 0)) {
+        auto best_chunks = FindOptimalChunks(cluster);
+        bool eq = EquivalentChunking(chunks, best_chunks);
+        if (!eq) std::cerr << "DIFF " << cluster << " optimal=" << best_chunks << " found=" << chunks << std::endl;
+        assert(eq);
+    }
+
+/*
+    if (cluster.cluster_size >= 16) {
+        std::cerr << "STAT: size " << cluster.cluster_size << " comptime " << (duration_opt / comparisons_opt) << " comptime_old " << (duration / comparisons) << " comparisons " << comparisons_opt << " cluster " << cluster <<  " result " << chunks_opt << std::endl;
+    }
+*/
+
+    static std::array<size_t, MAX_LINEARIZATION_CLUSTER+1> MAX_COMPS;
+
+    if (comparisons > MAX_COMPS[cluster.cluster_size]) {
+        MAX_COMPS[cluster.cluster_size] = comparisons;
+        std::cerr << "COMPS:";
+        for (size_t i = 0; i <= MAX_LINEARIZATION_CLUSTER; ++i) {
+            std::cerr << " " << i << ":" << MAX_COMPS[i];
+        }
+        std::cerr << std::endl;
+
+    }
 }
 
 FUZZ_TARGET(memepool_analyze_murch)
