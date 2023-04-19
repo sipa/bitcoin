@@ -1032,7 +1032,7 @@ int inline StripBit(uint64_t& x)
     return pos;
 }
 
-template<unsigned Size, bool QuadPot = false>
+template<unsigned Size>
 FullStats<Size> AnalyzeIncExcOpt(const LinearClusterWithDeps<Size>& cluster)
 {
     static_assert(Size <= 64);
@@ -1144,37 +1144,6 @@ FullStats<Size> AnalyzeIncExcOpt(const LinearClusterWithDeps<Size>& cluster)
             if (achieved.Compare(best_achieved) > 0) {
                 best_achieved = achieved;
                 best = inc;
-            }
-
-            if constexpr (QuadPot) {
-                auto old_potential = potential;
-                potential = achieved;
-                uint64_t local_undecided{all & ~(inc | exc)};
-                while (local_undecided) {
-                    int pos = StripBit(local_undecided);
-                    ++comparisons;
-                    if (achieved.CompareJustFeerate(sorted_data[pos]) >= 0) break;
-                    uint64_t local_inc{inc | ancestors[pos]};
-                    ChunkData local_fee{achieved};
-                    uint64_t to_add{local_inc & ~inc};
-                    while (to_add) {
-                        int inner_pos = StripBit(to_add);
-                        local_fee += sorted_data[inner_pos];
-                    }
-                    uint64_t left{local_undecided & ~local_inc};
-                    while (left) {
-                        int inner_pos = StripBit(left);
-                        ChunkData next{local_fee + sorted_data[inner_pos]};
-                        ++comparisons;
-                        if (next.Compare(local_fee) <= 0) break;
-                        local_fee = next;
-                    }
-                    ++comparisons;
-                    if (local_fee.Compare(potential) > 0) potential = local_fee;
-                    //
-                    local_undecided &= ~descendants[pos];
-                }
-                assert(old_potential.CompareJustFeerate(potential) >= 0);
             }
 
             Sol sol;
@@ -1769,7 +1738,7 @@ FUZZ_TARGET(memepool_analyze_incexc_full)
 
     }
 
-    static constexpr size_t KNOWN_LIMITS[] = {0,  4, 17, 39, 72, 118, 178, 251, 423, 713, 1146, 1865, 3149, 5017, 8008, 12738, 20390, 33634, 53619, 81236, 138000, 217939, 348463, 559652, 844640, 1310447, 1990701}; /* highest individual feerate first; num comparisons; full chunking */
+    static constexpr size_t KNOWN_LIMITS[] = {0,  4, 17, 39, 72, 118, 178, 251, 423, 713, 1147, 1865, 3150, 5017, 8008, 12810, 20724, 33638, 53639, 81237, 138487, 221596, 350641, 560548, 873338, 1310511, 1995197}; /* highest individual feerate first; num comparisons; full chunking */
     /*                                        0   1   2   3   4    5    6    7    8    9    10    11    12    13    14     15     16     17     18     19      20      21      22      23      24       25       26 */
     /*                                        0   4   9  15  22   30   39   49   60   72    85    99   114   130   147    165    184    204    225    247     270     294     319     345     372      400      429 */
 
@@ -1799,43 +1768,7 @@ FUZZ_TARGET(memepool_analyze_incexc_full)
     if (cluster.cluster_size == 25 && comparisons >= KNOWN_LIMITS[cluster.cluster_size]) std::cerr << "COMP " << (comparisons > KNOWN_LIMITS[cluster.cluster_size] ? "EXCEED" : "LIMIT") << " " << cluster.cluster_size << ": " << comparisons << ": CLUSTER " << cluster << " [SUBS=" << cluster.CountCandidates() << ",CHUNKS=" << chunks << "] dur=" << duration << std::endl;
     if (cluster.cluster_size == 26 && comparisons >= KNOWN_LIMITS[cluster.cluster_size]) std::cerr << "COMP " << (comparisons > KNOWN_LIMITS[cluster.cluster_size] ? "EXCEED" : "LIMIT") << " " << cluster.cluster_size << ": " << comparisons << ": CLUSTER " << cluster << " [SUBS=" << cluster.CountCandidates() << ",CHUNKS=" << chunks << "] dur=" << duration << std::endl;
 
-/*    if (cluster.cluster_size >= 0 && cluster.cluster_size <= 26) assert(comparisons <= KNOWN_LIMITS[cluster.cluster_size]);*/
-}
-
-FUZZ_TARGET(memepool_analyze_incexc_quad)
-{
-    FuzzedDataProvider provider(buffer.data(), buffer.size());
-
-    LinearClusterWithDeps<MAX_LINEARIZATION_CLUSTER> cluster(provider);
-
-    if (!cluster.IsConnected()) return;
-
-    const auto& [comparisons, chunks, duration] = AnalyzeIncExcOpt<MAX_LINEARIZATION_CLUSTER, true>(cluster);
-
-    if (cluster.cluster_size <= 10 || (cluster.cluster_size <= 22 && GLOBAL_RNG() >> (74 - cluster.cluster_size) == 0)) {
-        auto best_chunks = FindOptimalChunks(cluster);
-        bool eq = EquivalentChunking(chunks, best_chunks);
-        if (!eq) std::cerr << "DIFF " << cluster << " optimal=" << best_chunks << " found=" << chunks << std::endl;
-        assert(eq);
-    }
-
-/*
-    if (cluster.cluster_size >= 16) {
-        std::cerr << "STAT: size " << cluster.cluster_size << " comptime " << (duration_opt / comparisons_opt) << " comptime_old " << (duration / comparisons) << " comparisons " << comparisons_opt << " cluster " << cluster <<  " result " << chunks_opt << std::endl;
-    }
-*/
-
-    static std::array<size_t, MAX_LINEARIZATION_CLUSTER+1> MAX_COMPS;
-
-    if (comparisons > MAX_COMPS[cluster.cluster_size]) {
-        MAX_COMPS[cluster.cluster_size] = comparisons;
-        std::cerr << "COMPS:";
-        for (size_t i = 0; i <= MAX_LINEARIZATION_CLUSTER; ++i) {
-            std::cerr << " " << i << ":" << MAX_COMPS[i];
-        }
-        std::cerr << std::endl;
-
-    }
+    if (cluster.cluster_size >= 0 && cluster.cluster_size <= 26) assert(comparisons <= KNOWN_LIMITS[cluster.cluster_size]);
 }
 
 FUZZ_TARGET(memepool_analyze_murch)
