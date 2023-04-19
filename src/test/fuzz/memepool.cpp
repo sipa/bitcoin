@@ -1058,8 +1058,8 @@ FullStats<Size> AnalyzeIncExcOpt(const LinearClusterWithDeps<Size>& cluster)
         sorted_data[i] = cluster.txdata[sorted_to_idx[i]];
     }
 
-    uint64_t ancestors[Size] = {0};
-    for (unsigned i = 0; i < cluster.cluster_size; ++i) ancestors[i] = uint64_t{1} << i;
+    uint64_t ancdes[2][Size] = {0};
+    for (unsigned i = 0; i < cluster.cluster_size; ++i) ancdes[0][i] = uint64_t{1} << i;
     bool changed;
     do {
         changed = false;
@@ -1068,21 +1068,20 @@ FullStats<Size> AnalyzeIncExcOpt(const LinearClusterWithDeps<Size>& cluster)
             uint64_t deps = cluster.deps[i].to_ullong();
             while (deps) {
                 int pos = StripBit(deps);
-                uint64_t next = ancestors[sorted_i] | ancestors[idx_to_sorted[pos]];
-                if (next != ancestors[sorted_i]) {
-                    ancestors[sorted_i] = next;
+                uint64_t next = ancdes[0][sorted_i] | ancdes[0][idx_to_sorted[pos]];
+                if (next != ancdes[0][sorted_i]) {
+                    ancdes[0][sorted_i] = next;
                     changed = true;
                 }
             }
         }
     } while(changed);
 
-    uint64_t descendants[Size] = {0};
     for (unsigned i = 0; i < cluster.cluster_size; ++i) {
-        uint64_t deps = ancestors[i];
+        uint64_t deps = ancdes[0][i];
         while (deps) {
             int pos = StripBit(deps);
-            descendants[pos] |= uint64_t{1} << i;
+            ancdes[1][pos] |= uint64_t{1} << i;
         }
     }
 
@@ -1128,7 +1127,7 @@ FullStats<Size> AnalyzeIncExcOpt(const LinearClusterWithDeps<Size>& cluster)
                 if (sorted_data[pos].CompareJustFeerate(potential) > 0) {
                     potential += sorted_data[pos];
                     satisfied |= uint64_t{1} << pos;
-                    required |= ancestors[pos];
+                    required |= ancdes[0][pos];
                     if (!(required & ~satisfied)) {
                         inc = satisfied;
                         achieved = potential;
@@ -1166,8 +1165,8 @@ FullStats<Size> AnalyzeIncExcOpt(const LinearClusterWithDeps<Size>& cluster)
             uint64_t undecided = all & ~(elem.inc | elem.exc);
             if (undecided) {
                 int idx = StripBit(undecided);
-                add_fn(elem.achieved, elem.inc, elem.inc | ancestors[idx], elem.exc);
-                add_fn(elem.achieved, elem.inc, elem.inc, elem.exc | descendants[idx]);
+                add_fn(elem.achieved, elem.inc, elem.inc | ancdes[0][idx], elem.exc);
+                add_fn(elem.achieved, elem.inc, elem.inc, elem.exc | ancdes[1][idx]);
             }
         }
 
