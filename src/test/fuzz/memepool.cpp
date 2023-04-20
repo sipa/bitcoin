@@ -576,13 +576,13 @@ struct ChunkingResult
 template<size_t Size>
 bool EquivalentChunking(const std::vector<ChunkingResult<Size>>& a, const std::vector<ChunkingResult<Size>>& b)
 {
-    if (a.size() != b.size()) return false;
-    size_t idx{0};
-    while (idx != a.size()) {
-        ChunkData cumul_a{a[idx].feerate}, cumul_b{b[idx].feerate};
+    size_t idx_a{0}, idx_b{0};
+    while (idx_a != a.size() || idx_b != b.size()) {
+        if (idx_a == a.size() || idx_b == b.size()) return false;
+        ChunkData cumul_a{a[idx_a].feerate}, cumul_b{b[idx_b].feerate};
         if (cumul_a.CompareJustFeerate(cumul_b) != 0) return false;
-        ++idx;
-        size_t idx_a{idx}, idx_b{idx};
+        ++idx_a;
+        ++idx_b;
         while (idx_a != a.size() && cumul_a.CompareJustFeerate(a[idx_a].feerate) == 0) {
             cumul_a += a[idx_a].feerate;
             ++idx_a;
@@ -594,7 +594,6 @@ bool EquivalentChunking(const std::vector<ChunkingResult<Size>>& a, const std::v
         if (idx_a != idx_b) return false;
         if (cumul_a.bytes != cumul_b.bytes) return false;
         assert(cumul_a == cumul_b);
-        idx = idx_a;
     }
     return true;
 }
@@ -966,7 +965,6 @@ IncExcStats<Size> AnalyzeIncExc(const LinearClusterWithDeps<Size>& cluster)
         bool first = elem.inc.none();
         queue.pop();
 /*        std::cerr << "PROC inc=" << elem.inc << " exc=" << elem.exc << std::endl;*/
-        if (elem.potential <= best.achieved) continue;
 
         bool have_branch{false};
         size_t branch_idx{0};
@@ -1058,7 +1056,16 @@ FullStats<Size> AnalyzeIncExcOpt(const LinearClusterWithDeps<Size>& cluster)
         sorted_data[i] = cluster.txdata[sorted_to_idx[i]];
     }
 
-    uint64_t ancdes[2][Size] = {0};
+    auto sum_fn = [&](uint64_t mask) {
+        ChunkData ret;
+        while (mask) {
+            int pos = StripBit(mask);
+            ret += sorted_data[pos];
+        }
+        return ret;
+    };
+
+    uint64_t ancdes[2][Size] = {{0},{0}};
     for (unsigned i = 0; i < cluster.cluster_size; ++i) ancdes[0][i] = uint64_t{1} << i;
     bool changed;
     do {
@@ -1094,9 +1101,8 @@ FullStats<Size> AnalyzeIncExcOpt(const LinearClusterWithDeps<Size>& cluster)
     uint64_t done{0};
     uint64_t all = (~uint64_t{0}) >> (64 - cluster.cluster_size);
 
-    auto compare_fn = [&](const Sol& a, const Sol& b) {
-        ++comparisons;
-        return a.potential.Compare(b.potential) < 0;
+    static const auto compare_fn = [](const Sol& a, const Sol& b) {
+        return a.achieved.bytes > b.achieved.bytes;
     };
 
     std::vector<ChunkingResult<Size>> chunks;
@@ -1110,12 +1116,7 @@ FullStats<Size> AnalyzeIncExcOpt(const LinearClusterWithDeps<Size>& cluster)
         std::priority_queue<Sol, std::vector<Sol>, decltype(compare_fn)> queue{compare_fn};
 
         auto add_fn = [&](ChunkData prev, uint64_t prevmask, uint64_t inc, uint64_t exc) {
-            ChunkData potential = prev;
-            uint64_t to_add = inc & ~prevmask;
-            while (to_add) {
-                int pos = StripBit(to_add);
-                potential += sorted_data[pos];
-            }
+            ChunkData potential = prev + sum_fn(inc & ~prevmask);
             ChunkData achieved = potential;
 
             uint64_t satisfied = inc;
@@ -1158,7 +1159,6 @@ FullStats<Size> AnalyzeIncExcOpt(const LinearClusterWithDeps<Size>& cluster)
         while (!queue.empty()) {
             Sol elem = queue.top();
             ++comparisons;
-            if (elem.potential.Compare(best_achieved) <= 0) break;
             queue.pop();
             ++iterations;
 
@@ -1737,17 +1737,17 @@ FUZZ_TARGET(memepool_analyze_incexc_full)
 
     }
 
-    static constexpr size_t KNOWN_LIMITS[] = {0,  4, 17, 39, 72, 118, 178, 251, 423, 713, 1147, 1865, 3150, 5017, 8008, 12810, 20724, 33638, 53639, 81237, 138487, 221596, 350641, 560548, 873338, 1310511, 1995197}; /* highest individual feerate first; num comparisons; full chunking */
+    static constexpr size_t KNOWN_LIMITS[] = {0,  4, 17, 38, 72, 119, 177, 249, 335, 514,  770, 1183, 1834, 2818, 4181,  6440, 10123, 15128, 22948, 33482,  55482,  84737, 131446, 201394, 303571,  454081,  685079}; /* highest individual feerate first; num comparisons; full chunking */
     /*                                        0   1   2   3   4    5    6    7    8    9    10    11    12    13    14     15     16     17     18     19      20      21      22      23      24       25       26 */
     /*                                        0   4   9  15  22   30   39   49   60   72    85    99   114   130   147    165    184    204    225    247     270     294     319     345     372      400      429 */
 
 /*    if (cluster.cluster_size == 3 && comparisons >= KNOWN_LIMITS[cluster.cluster_size]) std::cerr << "COMP " << (comparisons > KNOWN_LIMITS[cluster.cluster_size] ? "EXCEED" : "LIMIT") << " " << cluster.cluster_size << ": " << comparisons << ": CLUSTER " << cluster << " [SUBS=" << cluster.CountCandidates() << ",CHUNKS=" << chunks << "] dur=" << duration << std::endl;
     if (cluster.cluster_size == 4 && comparisons >= KNOWN_LIMITS[cluster.cluster_size]) std::cerr << "COMP " << (comparisons > KNOWN_LIMITS[cluster.cluster_size] ? "EXCEED" : "LIMIT") << " " << cluster.cluster_size << ": " << comparisons << ": CLUSTER " << cluster << " [SUBS=" << cluster.CountCandidates() << ",CHUNKS=" << chunks << "] dur=" << duration << std::endl;
     if (cluster.cluster_size == 5 && comparisons >= KNOWN_LIMITS[cluster.cluster_size]) std::cerr << "COMP " << (comparisons > KNOWN_LIMITS[cluster.cluster_size] ? "EXCEED" : "LIMIT") << " " << cluster.cluster_size << ": " << comparisons << ": CLUSTER " << cluster << " [SUBS=" << cluster.CountCandidates() << ",CHUNKS=" << chunks << "] dur=" << duration << std::endl;
-    if (cluster.cluster_size == 6 && comparisons >= KNOWN_LIMITS[cluster.cluster_size]) std::cerr << "COMP " << (comparisons > KNOWN_LIMITS[cluster.cluster_size] ? "EXCEED" : "LIMIT") << " " << cluster.cluster_size << ": " << comparisons << ": CLUSTER " << cluster << " [SUBS=" << cluster.CountCandidates() << ",CHUNKS=" << chunks << "] dur=" << duration << std::endl;
+    if (cluster.cluster_size == 6 && comparisons >= KNOWN_LIMITS[cluster.cluster_size]) std::cerr << "COMP " << (comparisons > KNOWN_LIMITS[cluster.cluster_size] ? "EXCEED" : "LIMIT") << " " << cluster.cluster_size << ": " << comparisons << ": CLUSTER " << cluster << " [SUBS=" << cluster.CountCandidates() << ",CHUNKS=" << chunks << "] dur=" << duration << std::endl;*/
     if (cluster.cluster_size == 7 && comparisons >= KNOWN_LIMITS[cluster.cluster_size]) std::cerr << "COMP " << (comparisons > KNOWN_LIMITS[cluster.cluster_size] ? "EXCEED" : "LIMIT") << " " << cluster.cluster_size << ": " << comparisons << ": CLUSTER " << cluster << " [SUBS=" << cluster.CountCandidates() << ",CHUNKS=" << chunks << "] dur=" << duration << std::endl;
     if (cluster.cluster_size == 8 && comparisons >= KNOWN_LIMITS[cluster.cluster_size]) std::cerr << "COMP " << (comparisons > KNOWN_LIMITS[cluster.cluster_size] ? "EXCEED" : "LIMIT") << " " << cluster.cluster_size << ": " << comparisons << ": CLUSTER " << cluster << " [SUBS=" << cluster.CountCandidates() << ",CHUNKS=" << chunks << "] dur=" << duration << std::endl;
-    if (cluster.cluster_size == 9 && comparisons >= KNOWN_LIMITS[cluster.cluster_size]) std::cerr << "COMP " << (comparisons > KNOWN_LIMITS[cluster.cluster_size] ? "EXCEED" : "LIMIT") << " " << cluster.cluster_size << ": " << comparisons << ": CLUSTER " << cluster << " [SUBS=" << cluster.CountCandidates() << ",CHUNKS=" << chunks << "] dur=" << duration << std::endl;*/
+    if (cluster.cluster_size == 9 && comparisons >= KNOWN_LIMITS[cluster.cluster_size]) std::cerr << "COMP " << (comparisons > KNOWN_LIMITS[cluster.cluster_size] ? "EXCEED" : "LIMIT") << " " << cluster.cluster_size << ": " << comparisons << ": CLUSTER " << cluster << " [SUBS=" << cluster.CountCandidates() << ",CHUNKS=" << chunks << "] dur=" << duration << std::endl;
 
     if (cluster.cluster_size == 10 && comparisons >= KNOWN_LIMITS[cluster.cluster_size]) std::cerr << "COMP " << (comparisons > KNOWN_LIMITS[cluster.cluster_size] ? "EXCEED" : "LIMIT") << " " << cluster.cluster_size << ": " << comparisons << ": CLUSTER " << cluster << " [SUBS=" << cluster.CountCandidates() << ",CHUNKS=" << chunks << "] dur=" << duration << std::endl;
     if (cluster.cluster_size == 11 && comparisons >= KNOWN_LIMITS[cluster.cluster_size]) std::cerr << "COMP " << (comparisons > KNOWN_LIMITS[cluster.cluster_size] ? "EXCEED" : "LIMIT") << " " << cluster.cluster_size << ": " << comparisons << ": CLUSTER " << cluster << " [SUBS=" << cluster.CountCandidates() << ",CHUNKS=" << chunks << "] dur=" << duration << std::endl;
