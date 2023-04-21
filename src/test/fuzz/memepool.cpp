@@ -1053,14 +1053,14 @@ int inline StripTopBit(uint64_t& x)
 template<typename Iter, typename Fn>
 Iter Filter(Iter begin, Iter end, Fn fn)
 {
-    while (begin != end) {
-        if (fn(*begin)) {
-            ++begin;
-        } else {
-            --end;
-            using std::swap;
-            if (begin != end) swap(*begin, *end);
-        }
+    while (true) {
+        while (begin != end && !fn(*begin)) ++begin;
+        if (begin == end) break;
+        --end;
+        while (begin != end && fn(*end)) --end;
+        if (begin == end) break;
+        std::iter_swap(begin, end);
+        ++begin;
     }
     return end;
 }
@@ -1734,6 +1734,33 @@ FUZZ_TARGET(memepool_analyze_incexc)
         }
         std::cerr << std::endl;
     }
+}
+
+FUZZ_TARGET(memepool_filter)
+{
+    FuzzedDataProvider provider(buffer.data(), buffer.size());
+
+    std::vector<uint64_t> vec;
+    while (vec.size() != 20 && provider.ConsumeBool()) {
+        vec.push_back(provider.ConsumeIntegral<uint64_t>());
+    }
+
+    std::vector<uint64_t> tmp = vec;
+
+    static constexpr auto is_bad = [](uint64_t x) -> bool { return (((uint32_t)x) >> 23) & 1; };
+
+    auto limit = Filter(tmp.begin(), tmp.end(), is_bad);
+
+    for (auto it = tmp.begin(); it != limit; ++it) {
+        assert(!is_bad(*it));
+    }
+    for (auto it = limit; it != tmp.end(); ++it) {
+        assert(is_bad(*it));
+    }
+
+    std::sort(vec.begin(), vec.end());
+    std::sort(tmp.begin(), tmp.end());
+    assert(vec == tmp);
 }
 
 FUZZ_TARGET(memepool_analyze_incexc_full)
