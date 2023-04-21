@@ -1030,6 +1030,41 @@ int inline StripBit(uint64_t& x)
     return pos;
 }
 
+int inline StripTopBit(uint64_t& x)
+{
+    int pos;
+    constexpr auto digits = std::numeric_limits<uint64_t>::digits;
+    constexpr auto digits_u = std::numeric_limits<unsigned>::digits;
+    constexpr auto digits_ul = std::numeric_limits<unsigned long>::digits;
+    constexpr auto digits_ull = std::numeric_limits<unsigned long long>::digits;
+
+    if constexpr (digits >= digits_u) {
+        pos = digits_u - 1 - __builtin_clz(x);
+    } else if constexpr (digits >= digits_ul) {
+        pos = digits_ul - 1 - __builtin_clzl(x);
+    } else {
+        static_assert(digits >= digits_ull);
+        pos = digits_ull - 1 - __builtin_clzll(x);
+    }
+    x -= (uint64_t{1} << pos);
+    return pos;
+}
+
+template<typename Iter, typename Fn>
+Iter Filter(Iter begin, Iter end, Fn fn)
+{
+    while (begin != end) {
+        if (fn(*begin)) {
+            ++begin;
+        } else {
+            --end;
+            using std::swap;
+            if (begin != end) swap(*begin, *end);
+        }
+    }
+    return end;
+}
+
 template<unsigned Size>
 FullStats<Size> AnalyzeIncExcOpt(const LinearClusterWithDeps<Size>& cluster)
 {
@@ -1736,7 +1771,7 @@ FUZZ_TARGET(memepool_analyze_incexc_full)
 
     }
 
-    static constexpr size_t KNOWN_LIMITS[] = {0,  4, 17, 38, 72, 119, 177, 249, 335, 514,  770, 1183, 1834, 2820, 4181,  6440, 10164, 15506, 23932, 33482,  55482,  84737, 131446, 201394, 303571,  454081,  685079}; /* highest individual feerate first; num comparisons; full chunking */
+    static constexpr size_t KNOWN_LIMITS[] = {0,  4, 17, 38, 72, 119, 177, 249, 335, 514,  770, 1183, 1834, 2820, 4181,  6440, 10164, 15506, 23934, 33482,  55482,  84737, 131446, 201394, 303571,  454081,  685079}; /* highest individual feerate first; num comparisons; full chunking */
     /*                                        0   1   2   3   4    5    6    7    8    9    10    11    12    13    14     15     16     17     18     19      20      21      22      23      24       25       26 */
     /*                                        0   4   9  15  22   30   39   49   60   72    85    99   114   130   147    165    184    204    225    247     270     294     319     345     372      400      429 */
 
