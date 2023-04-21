@@ -1096,6 +1096,8 @@ FullStats<Size> AnalyzeIncExcOpt(const LinearClusterWithDeps<Size>& cluster)
     {
         uint64_t inc, exc;
         ChunkData potential, achieved;
+
+        Sol(uint64_t inc_, uint64_t exc_, const ChunkData& pot_, const ChunkData& ach_) : inc(inc_), exc(exc_), potential(pot_), achieved(ach_) {}
     };
 
     uint64_t done{0};
@@ -1106,14 +1108,13 @@ FullStats<Size> AnalyzeIncExcOpt(const LinearClusterWithDeps<Size>& cluster)
     };
 
     std::vector<ChunkingResult<Size>> chunks;
+    std::vector<Sol> queue;
 
     while (done != all) {
         const size_t start_comparisons = comparisons;
         size_t iterations{0};
         uint64_t best{0};
         ChunkData best_achieved;
-
-        std::priority_queue<Sol, std::vector<Sol>, decltype(compare_fn)> queue{compare_fn};
 
         auto add_fn = [&](ChunkData prev, uint64_t prevmask, uint64_t inc, uint64_t exc) {
             ChunkData potential = prev + sum_fn(inc & ~prevmask);
@@ -1146,24 +1147,22 @@ FullStats<Size> AnalyzeIncExcOpt(const LinearClusterWithDeps<Size>& cluster)
                 best = inc;
             }
 
-            Sol sol;
-            sol.inc = inc;
-            sol.exc = exc;
-            sol.potential = potential;
-            sol.achieved = achieved;
-            queue.emplace(sol);
+            queue.emplace_back(inc, exc, potential, achieved);
+            std::push_heap(queue.begin(), queue.end(), compare_fn);
         };
 
+        queue.clear();
         add_fn({}, done, done, 0);
 
         while (!queue.empty()) {
-            Sol elem = queue.top();
+            std::pop_heap(queue.begin(), queue.end(), compare_fn);
+            Sol elem = queue.back();
             ++comparisons;
-            queue.pop();
-            ++iterations;
+            queue.pop_back();
 
             uint64_t undecided = all & ~(elem.inc | elem.exc);
             if (undecided) {
+                ++iterations;
                 int idx = StripBit(undecided);
                 add_fn(elem.achieved, elem.inc, elem.inc | ancdes[0][idx], elem.exc);
                 add_fn(elem.achieved, elem.inc, elem.inc, elem.exc | ancdes[1][idx]);
@@ -1737,7 +1736,7 @@ FUZZ_TARGET(memepool_analyze_incexc_full)
 
     }
 
-    static constexpr size_t KNOWN_LIMITS[] = {0,  4, 17, 38, 72, 119, 177, 249, 335, 514,  770, 1183, 1834, 2820, 4181,  6440, 10164, 15506, 23931, 33482,  55482,  84737, 131446, 201394, 303571,  454081,  685079}; /* highest individual feerate first; num comparisons; full chunking */
+    static constexpr size_t KNOWN_LIMITS[] = {0,  4, 17, 38, 72, 119, 177, 249, 335, 514,  770, 1183, 1834, 2820, 4181,  6440, 10164, 15506, 23932, 33482,  55482,  84737, 131446, 201394, 303571,  454081,  685079}; /* highest individual feerate first; num comparisons; full chunking */
     /*                                        0   1   2   3   4    5    6    7    8    9    10    11    12    13    14     15     16     17     18     19      20      21      22      23      24       25       26 */
     /*                                        0   4   9  15  22   30   39   49   60   72    85    99   114   130   147    165    184    204    225    247     270     294     319     345     372      400      429 */
 
