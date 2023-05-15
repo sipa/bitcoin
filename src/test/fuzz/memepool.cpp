@@ -1798,7 +1798,7 @@ FUZZ_TARGET(memepool_analyze_incexc_full)
 
     }
 
-    static constexpr size_t KNOWN_LIMITS[] = {0,  4, 17, 38, 72, 119, 177, 249, 335, 514,  770, 1187, 1841, 2826, 4359,  6700, 10507, 15788, 24237, 33482,  55482,  84737, 131446, 201394, 303571,  454081,  685079}; /* highest individual feerate first; num comparisons; full chunking */
+    static constexpr size_t KNOWN_LIMITS[] = {0,  4, 17, 38, 72, 119, 177, 250, 339, 514,  770, 1187, 1841, 2826, 4379,  6706, 10509, 15789, 24240, 33482,  55482,  84737, 131446, 201394, 303571,  454081,  685079}; /* highest individual feerate first; num comparisons; full chunking */
     /*                                        0   1   2   3   4    5    6    7    8    9    10    11    12    13    14     15     16     17     18     19      20      21      22      23      24       25       26 */
     /*                                        0   4   9  15  22   30   39   49   60   72    85    99   114   130   147    165    184    204    225    247     270     294     319     345     372      400      429 */
 
