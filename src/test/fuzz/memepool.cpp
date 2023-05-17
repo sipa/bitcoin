@@ -1198,7 +1198,6 @@ FullStats<Size> AnalyzeIncExcOpt(const LinearClusterWithDeps<Size>& cluster)
         while (!queue.empty()) {
             std::pop_heap(queue.begin(), queue.end(), compare_fn);
             Sol elem = queue.back();
-            ++comparisons;
             queue.pop_back();
 
             uint64_t undecided = all & ~(elem.inc | elem.exc);
