@@ -4,14 +4,21 @@
 
 #include <consensus/amount.h>
 #include <pubkey.h>
+#include <crypto/sha1.h>
 #include <test/fuzz/util.h>
 #include <test/util/script.h>
 #include <util/check.h>
 #include <util/overflow.h>
 #include <util/rbf.h>
+#include <util/strencodings.h>
 #include <util/time.h>
 #include <version.h>
 
+#include <unistd.h>
+#include <tinyformat.h>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
 #include <memory>
 
 std::vector<uint8_t> ConstructPubKeyBytes(FuzzedDataProvider& fuzzed_data_provider, Span<const uint8_t> byte_data, const bool compressed) noexcept
@@ -351,4 +358,33 @@ int FuzzedFileProvider::close(void* cookie)
     FuzzedFileProvider* fuzzed_file = (FuzzedFileProvider*)cookie;
     SetFuzzedErrNo(fuzzed_file->m_fuzzed_data_provider);
     return fuzzed_file->m_fuzzed_data_provider.ConsumeIntegralInRange<int>(-1, 0);
+}
+
+bool FuzzSave(Span<const uint8_t> input) noexcept
+{
+    static const bool save_enabled = getenv("FUZZ_SAVE_DIR") != nullptr;
+    if (save_enabled) {
+        static pid_t pid = getpid();
+        static const std::filesystem::path outdir{getenv("FUZZ_SAVE_DIR")};
+        assert(std::filesystem::is_directory(outdir));
+        unsigned char hash[20];
+        CSHA1().Write(input.data(), input.size()).Finalize(hash);
+        auto path = outdir / HexStr(hash);
+        if (std::filesystem::exists(path)) {
+            auto last = std::filesystem::last_write_time(path);
+            auto now = std::filesystem::file_time_type::clock::now();
+            if (now > last + std::chrono::seconds{10}) return false;
+            return true;
+        }
+        auto tmppath = outdir / ".." / strprintf("temp-%i-%s", pid, HexStr(hash));
+        {
+            std::ofstream out;
+            out.open(tmppath, std::ios::out | std::ios::binary);
+            assert(out.is_open());
+            out.write((const char*)input.data(), input.size());
+            out.close();
+        }
+        std::filesystem::rename(tmppath, path);
+    }
+    return true;
 }

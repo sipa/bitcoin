@@ -4,6 +4,7 @@
 
 #include <stdint.h>
 #include <time.h>
+#include <cmath>
 
 #include <bitset>
 #include <vector>
@@ -428,6 +429,11 @@ struct LinearClusterWithDeps
             }
             ++cluster_size;
         }
+    }
+
+    size_t SerSize() const
+    {
+        return (cluster_size * (cluster_size + 7)) / 2U;
     }
 
     uint64_t hash(uint64_t init) const 
@@ -1829,6 +1835,49 @@ FUZZ_TARGET(memepool_analyze_incexc_full)
     if (cluster.cluster_size == 26 && comparisons >= KNOWN_LIMITS[cluster.cluster_size]) std::cerr << "COMP " << (comparisons > KNOWN_LIMITS[cluster.cluster_size] ? "EXCEED" : "LIMIT") << " " << cluster.cluster_size << ": " << comparisons << ": CLUSTER " << cluster << " [SUBS=" << cluster.CountCandidates() << ",CHUNKS=" << chunks << "] dur=" << duration << std::endl;
 
     if (cluster.cluster_size >= 0 && cluster.cluster_size <= 26) assert(comparisons <= KNOWN_LIMITS[cluster.cluster_size]);
+}
+
+FUZZ_TARGET(memepool_incexc_auto)
+{
+    FuzzedDataProvider provider(buffer.data(), buffer.size());
+
+    LinearClusterWithDeps<MAX_LINEARIZATION_CLUSTER> cluster(provider);
+
+    if (!cluster.IsConnected()) return;
+
+    const auto& [comparisons, chunks, duration] = AnalyzeIncExcOpt<MAX_LINEARIZATION_CLUSTER>(cluster);
+
+    if (cluster.cluster_size <= 10 || (cluster.cluster_size <= 22 && GLOBAL_RNG() >> (74 - cluster.cluster_size) == 0)) {
+        auto best_chunks = FindOptimalChunks(cluster);
+        bool eq = EquivalentChunking(chunks, best_chunks);
+        if (!eq) std::cerr << "DIFF " << cluster << " optimal=" << best_chunks << " found=" << chunks << std::endl;
+        assert(eq);
+    }
+
+    static std::map<std::pair<int, unsigned long>, std::pair<uint64_t, uint64_t>> COUNTS;
+
+    std::pair<int, unsigned long> key{cluster.cluster_size, (unsigned long)std::floor(1000.0 * ::log(comparisons))};
+    std::pair<uint64_t, uint64_t>& val = COUNTS[key];
+    ++val.first;
+    if (val.first > val.second) {
+        std::cerr << "COMP " << cluster.cluster_size << ": " << comparisons << ": CLUSTER " << cluster << " [SUBS=" << cluster.CountCandidates() << ",CHUNKS=" << chunks << "] dur/comp=" << (duration / comparisons) << " count=" << val.first << std::endl;
+        if (!FuzzSave(buffer.first(cluster.SerSize()))) {
+            val.first = ((val.first * 17) >> 4) + 1;
+        }
+    }
+    while (val.second >= val.first) {
+        val.second = (val.second * 2) + 1;
+    }
+
+    static std::array<size_t, MAX_LINEARIZATION_CLUSTER+1> MAX_COMPS;
+    if (comparisons > MAX_COMPS[cluster.cluster_size]) {
+        MAX_COMPS[cluster.cluster_size] = comparisons;
+        std::cerr << "COMPS:";
+        for (size_t i = 0; i <= MAX_LINEARIZATION_CLUSTER; ++i) {
+            std::cerr << " " << i << ":" << MAX_COMPS[i];
+        }
+        std::cerr << std::endl;
+    }
 }
 
 FUZZ_TARGET(memepool_analyze_murch)
