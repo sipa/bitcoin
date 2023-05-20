@@ -634,7 +634,7 @@ bool EquivalentChunking(const std::vector<ChunkingResult<Size>>& a, const std::v
             cumul_b += b[idx_b].feerate;
             ++idx_b;
         }
-/*        if (idx_a != idx_b) return false;*/
+        if (idx_a != idx_b) return false;
         if (cumul_a.bytes != cumul_b.bytes) return false;
         assert(cumul_a == cumul_b);
     }
