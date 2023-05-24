@@ -680,8 +680,43 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const SortedCluster<S>& sc
         add_fn(new_inc, exc, new_inc_feerate, true);
     }
 
-    ret.best_candidate_set = scluster.SortedToOriginal(best_candidate);
+    ret.best_candidate_set = scluster.SortedToOriginal(best_candidate) / done;
     ret.best_candidate_feerate = best_feerate;
+    return ret;
+}
+
+
+struct FullLinearizationStats
+{
+    size_t iterations{0};
+    size_t comparisons{0};
+};
+
+template<typename S>
+FullLinearizationStats LinearizeClusterEfficient(const Cluster<S>& cluster)
+{
+    FullLinearizationStats ret;
+
+    S all, done;
+    for (unsigned i = 0; i < cluster.size(); ++i) all.Set(i);
+
+    SortedCluster<S> scluster(cluster);
+
+    while ((all / done).Any()) {
+        auto cand_analysis = FindBestCandidateSetEfficient(scluster, done);
+/*
+        assert(!cand_analysis.best_candidate_set.None());
+        assert((cand_analysis.best_candidate_set / all).None());
+        assert((done & cand_analysis.best_candidate_set).None());
+        auto recomp = ComputeSetFeeRate(cluster, cand_analysis.best_candidate_set);
+        assert(recomp.sats == cand_analysis.best_candidate_feerate.sats);
+        assert(recomp.bytes == cand_analysis.best_candidate_feerate.bytes);
+*/
+        ret.iterations += cand_analysis.iterations;
+        ret.comparisons += cand_analysis.comparisons;
+        done |= cand_analysis.best_candidate_set;
+    }
+
     return ret;
 }
 
@@ -850,4 +885,35 @@ FUZZ_TARGET(clustermempool_efficient_equals_exhaustive_nodone)
         }
         std::cerr << std::endl;
     }
+}
+
+FUZZ_TARGET(clustermempool_efficient_full)
+{
+    FuzzedDataProvider provider(buffer.data(), buffer.size());
+
+    Cluster<BitSet> cluster = FuzzReadCluster<BitSet>(provider, /*only_complete=*/false);
+    if (cluster.size() > 26) return;
+
+    BitSet all;
+    for (unsigned i = 0; i < cluster.size(); ++i) all.Set(i);
+    if (!IsConnectedSubset(cluster, all)) return;
+
+/*    std::cerr << "CLUSTER " << cluster << std::endl;*/
+
+    std::vector<std::pair<double, FullLinearizationStats>> durations;
+    durations.reserve(11);
+
+    for (unsigned i = 0; i < 11; ++i) {
+        struct timespec measure_start, measure_stop;
+        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &measure_start);
+        auto stats = LinearizeClusterEfficient(cluster);
+        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &measure_stop);
+        double duration = (double)((int64_t)measure_stop.tv_sec - (int64_t)measure_start.tv_sec) + 0.000000001*(double)((int64_t)measure_stop.tv_nsec - (int64_t)measure_start.tv_nsec);
+        durations.emplace_back(duration, stats);
+    }
+
+    std::sort(durations.begin(), durations.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    const auto& [duration, stats] = durations[5];
+
+    std::cerr << "LINEARIZE(" << cluster.size() << ") time=" << duration << " iters=" << stats.iterations << " time/iters=" << (duration / stats.iterations) << " comps=" << stats.comparisons << " time/comps=" << (duration / stats.comparisons) << std::endl;
 }
