@@ -201,6 +201,22 @@ class IntBitSet
 
     IntBitSet(I val) : m_val{val} {}
 
+    class BitPopper
+    {
+        I m_val;
+        friend class IntBitSet;
+        BitPopper(I val) : m_val(val) {}
+    public:
+        explicit operator bool() const { return m_val != 0; }
+
+        unsigned Pop()
+        {
+            int ret = CountTrailingZeroes(m_val);
+            m_val &= m_val - I{1U};
+            return ret;
+        }
+    };
+
 public:
     static const unsigned SIZE = std::numeric_limits<I>::digits;
 
@@ -212,14 +228,7 @@ public:
     bool operator[](unsigned pos) const noexcept { return (m_val >> pos) & 1U; }
     bool None() const noexcept { return m_val == 0; }
     bool Any() const noexcept { return m_val != 0; }
-
-    unsigned StripLowest() noexcept
-    {
-        int ret = CountTrailingZeroes(m_val);
-        m_val &= m_val - I{1U};
-        return ret;
-    }
-
+    BitPopper OneBits() const { return BitPopper(m_val); }
     IntBitSet& operator|=(const IntBitSet& a) { m_val |= a.m_val; return *this; }
     friend IntBitSet operator&(const IntBitSet& a, const IntBitSet& b) { return IntBitSet{a.m_val & b.m_val}; }
     friend IntBitSet operator|(const IntBitSet& a, const IntBitSet& b) { return IntBitSet{a.m_val | b.m_val}; }
@@ -292,18 +301,18 @@ bool IsConnectedSubset(const Cluster<S>& cluster, const S& select)
 
     /* Build up UF data structure. */
     UnionFind<unsigned, S::SIZE> uf(cluster.size());
-    S todo{select};
-    while (todo.Any()) {
-        unsigned pos = todo.StripLowest();
-        S deps = cluster[pos].second & select;
-        while (deps.Any()) uf.Union(pos, deps.StripLowest());
+    auto todo{select.OneBits()};
+    while (todo) {
+        unsigned pos = todo.Pop();
+        auto deps{(cluster[pos].second & select).OneBits()};
+        while (deps) uf.Union(pos, deps.Pop());
     }
 
     /* Test that all selected entries in uf have the same representative. */
-    todo = select;
-    unsigned root = uf.Find(todo.StripLowest());
-    while (todo.Any()) {
-        if (uf.Find(todo.StripLowest()) != root) return false;
+    todo = select.OneBits();
+    unsigned root = uf.Find(todo.Pop());
+    while (todo) {
+        if (uf.Find(todo.Pop()) != root) return false;
     }
     return true;
 }
@@ -364,9 +373,9 @@ public:
     {
         m_descendantsets.resize(anc.Size());
         for (size_t i = 0; i < anc.Size(); ++i) {
-            S ancs = anc[i];
-            while (ancs.Any()) {
-                m_descendantsets[ancs.StripLowest()].Set(i);
+            auto ancestors{anc[i].OneBits()};
+            while (ancestors) {
+                m_descendantsets[ancestors.Pop()].Set(i);
             }
         }
     }
@@ -395,11 +404,12 @@ struct CandidateSetAnalysis
 };
 
 template<typename S>
-FeeAndSize ComputeSetFeeRate(const Cluster<S>& cluster, S select)
+FeeAndSize ComputeSetFeeRate(const Cluster<S>& cluster, const S& select)
 {
     FeeAndSize ret;
-    while (select.Any()) {
-        ret += cluster[select.StripLowest()].first;
+    auto todo{select.OneBits()};
+    while (todo) {
+        ret += cluster[todo.Pop()].first;
     }
     return ret;
 }
@@ -523,20 +533,22 @@ public:
     const S& GetAncestorSet(unsigned pos) const noexcept { return m_ancestorsets[pos]; }
     const S& GetDescendantSet(unsigned pos) const noexcept { return m_descendantsets[pos]; }
 
-    S OriginalToSorted(S val) const noexcept
+    S OriginalToSorted(const S& val) const noexcept
     {
         S ret;
-        while (val.Any()) {
-            ret.Set(m_original_to_sorted[val.StripLowest()]);
+        auto todo{val.OneBits()};
+        while (todo) {
+            ret.Set(m_original_to_sorted[todo.Pop()]);
         }
         return ret;
     }
 
-    S SortedToOriginal(S val) const noexcept
+    S SortedToOriginal(const S& val) const noexcept
     {
         S ret;
-        while (val.Any()) {
-            ret.Set(m_sorted_to_original[val.StripLowest()]);
+        auto todo{val.OneBits()};
+        while (todo) {
+            ret.Set(m_sorted_to_original[todo.Pop()]);
         }
         return ret;
     }
@@ -614,9 +626,9 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const SortedCluster<S>& sc
         FeeAndSize pot_feerate = inc_feerate;
         S satisfied = inc;
         S required;
-        S undecided = all / (inc | exc);
-        while (undecided.Any()) {
-            unsigned pos = undecided.StripLowest();
+        auto undecided{(all / (inc | exc)).OneBits()};
+        while (undecided) {
+            unsigned pos = undecided.Pop();
             bool to_add = pot_feerate.IsEmpty();
             if (!to_add) {
                 ++ret.comparisons;
@@ -671,9 +683,9 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const SortedCluster<S>& sc
             if (FeeRateBetterOrEqual(best_feerate, pot_feerate)) continue;
         }
 
-        auto undecided = all / (inc | exc);
-        assert(undecided.Any());
-        unsigned pos = undecided.StripLowest();
+        auto undecided{(all / (inc | exc)).OneBits()};
+        assert(!!undecided);
+        unsigned pos = undecided.Pop();
         add_fn(inc, exc | scluster.GetDescendantSet(pos), inc_feerate, false);
         auto new_inc = inc | scluster.GetAncestorSet(pos);
         auto new_inc_feerate = inc_feerate + ComputeSetFeeRate(cluster, new_inc / inc);
