@@ -137,18 +137,18 @@ bool IsConnectedSubset(const Cluster<S>& cluster, const S& select)
 
     /* Build up UF data structure. */
     UnionFind<unsigned, S::MAX_SIZE> uf(cluster.size());
-    auto todo{select.OneBits()};
+    auto todo{select.Elements()};
     while (todo) {
-        unsigned pos = todo.Pop();
-        auto deps{(cluster[pos].second & select).OneBits()};
-        while (deps) uf.Union(pos, deps.Pop());
+        unsigned pos = todo.Next();
+        auto deps{(cluster[pos].second & select).Elements()};
+        while (deps) uf.Union(pos, deps.Next());
     }
 
     /* Test that all selected entries in uf have the same representative. */
-    todo = select.OneBits();
-    unsigned root = uf.Find(todo.Pop());
+    todo = select.Elements();
+    unsigned root = uf.Find(todo.Next());
     while (todo) {
-        if (uf.Find(todo.Pop()) != root) return false;
+        if (uf.Find(todo.Next()) != root) return false;
     }
     return true;
 }
@@ -403,9 +403,9 @@ FUZZ_TARGET(clustermempool_efficient_equals_exhaustive_mul5)
         // Item 5*i+1 (= original i)
         all.Set(5 * i + 1);
         BitSet parents;
-        auto todo{orig_cluster[i].second.OneBits()};
+        auto todo{orig_cluster[i].second.Elements()};
         while (todo) {
-            parents.Set(todo.Pop() * 5 + 1);
+            parents.Set(todo.Next() * 5 + 1);
         }
         cluster.emplace_back(orig_cluster[i].first, std::move(parents));
 

@@ -156,7 +156,7 @@ class IntBitSet
 
     IntBitSet(I val) noexcept : m_val{val} {}
 
-    /** Class of objects returned by OneBits(). */
+    /** Class of objects returned by Elements(). */
     class BitPopper
     {
         I m_val;
@@ -165,7 +165,7 @@ class IntBitSet
     public:
         explicit operator bool() const noexcept { return m_val != 0; }
 
-        unsigned Pop() noexcept
+        unsigned Next() noexcept
         {
             int ret = CountTrailingZeroes(m_val);
             m_val &= m_val - I{1U};
@@ -185,7 +185,7 @@ public:
     bool operator[](unsigned pos) const noexcept { return (m_val >> pos) & 1U; }
     bool None() const noexcept { return m_val == 0; }
     bool Any() const noexcept { return m_val != 0; }
-    BitPopper OneBits() const noexcept { return BitPopper(m_val); }
+    BitPopper Elements() const noexcept { return BitPopper(m_val); }
     IntBitSet& operator|=(const IntBitSet& a) noexcept { m_val |= a.m_val; return *this; }
     friend IntBitSet operator&(const IntBitSet& a, const IntBitSet& b) noexcept { return IntBitSet{a.m_val & b.m_val}; }
     friend IntBitSet operator|(const IntBitSet& a, const IntBitSet& b) noexcept { return IntBitSet{a.m_val | b.m_val}; }
@@ -199,6 +199,7 @@ public:
 template<typename I, unsigned N>
 class MultiIntBitSet
 {
+    // Only binary, unsigned, integer, types allowed.
     static_assert(std::is_integral_v<I> && std::is_unsigned_v<I> && std::numeric_limits<I>::radix == 2);
     static constexpr unsigned LIMB_BITS = std::numeric_limits<I>::digits;
 
@@ -218,7 +219,7 @@ class MultiIntBitSet
             return m_idx < N;
         }
 
-        unsigned Pop() noexcept
+        unsigned Next() noexcept
         {
             while (m_val[m_idx] == 0) ++m_idx;
             assert(m_idx < N);
@@ -261,7 +262,7 @@ public:
         return false;
     }
 
-    BitPopper OneBits() const noexcept { return BitPopper(m_val); }
+    BitPopper Elements() const noexcept { return BitPopper(m_val); }
 
     MultiIntBitSet& operator|=(const MultiIntBitSet& a) noexcept
     {
@@ -367,9 +368,9 @@ public:
     {
         m_descendantsets.resize(anc.Size());
         for (size_t i = 0; i < anc.Size(); ++i) {
-            auto ancestors{anc[i].OneBits()};
+            auto ancestors{anc[i].Elements()};
             while (ancestors) {
-                m_descendantsets[ancestors.Pop()].Set(i);
+                m_descendantsets[ancestors.Next()].Set(i);
             }
         }
     }
@@ -407,9 +408,9 @@ template<typename S>
 FeeAndSize ComputeSetFeeRate(const Cluster<S>& cluster, const S& select)
 {
     FeeAndSize ret;
-    auto todo{select.OneBits()};
+    auto todo{select.Elements()};
     while (todo) {
-        ret += cluster[todo.Pop()].first;
+        ret += cluster[todo.Next()].first;
     }
     return ret;
 }
@@ -441,9 +442,9 @@ public:
     S OriginalToSorted(const S& val) const noexcept
     {
         S ret;
-        auto todo{val.OneBits()};
+        auto todo{val.Elements()};
         while (todo) {
-            ret.Set(m_original_to_sorted[todo.Pop()]);
+            ret.Set(m_original_to_sorted[todo.Next()]);
         }
         return ret;
     }
@@ -452,9 +453,9 @@ public:
     S SortedToOriginal(const S& val) const noexcept
     {
         S ret;
-        auto todo{val.OneBits()};
+        auto todo{val.Elements()};
         while (todo) {
-            ret.Set(m_sorted_to_original[todo.Pop()]);
+            ret.Set(m_sorted_to_original[todo.Next()]);
         }
         return ret;
     }
@@ -556,9 +557,9 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const SortedCluster<S>& sc
         /** The set of ancestors of everything in pot, combined. */
         S required;
         // Loop over all undecided transactions (not yet included or excluded), from high to low feerate.
-        auto undecided{(all / (inc | exc)).OneBits()};
+        auto undecided{(all / (inc | exc)).Elements()};
         while (undecided) {
-            unsigned pos = undecided.Pop();
+            unsigned pos = undecided.Next();
             // Determine if adding transaction pos to pot (ignoring topology) would improve it. If not,
             // we're done updating pot/pot_feerate (and inc/inc_feerate).
             if (!pot_feerate.IsEmpty()) {
@@ -625,9 +626,9 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const SortedCluster<S>& sc
         }
 
         // Decide which transaction to split on (highest undecidedindividual feerate one left).
-        auto undecided{(all / (inc | exc)).OneBits()};
+        auto undecided{(all / (inc | exc)).Elements()};
         assert(!!undecided);
-        unsigned pos = undecided.Pop();
+        unsigned pos = undecided.Next();
 
         // Consider adding a work item corresponding to that transaction excluded.
         add_fn(inc, exc | scluster.GetDescendantSet(pos), inc_feerate, false);
@@ -667,9 +668,9 @@ std::vector<unsigned> LinearizeCluster(const Cluster<S>& cluster)
         assert(!analysis.best_candidate_set.None());
         assert((analysis.best_candidate_set & done).None());
         size_t old_size = ret.size();
-        auto to_set{analysis.best_candidate_set.OneBits()};
+        auto to_set{analysis.best_candidate_set.Elements()};
         while (to_set) {
-            ret.emplace_back(to_set.Pop());
+            ret.emplace_back(to_set.Next());
         }
         std::sort(ret.begin() + old_size, ret.end(), [&](unsigned a, unsigned b) {
             return anc[a].Count() < anc[b].Count();
