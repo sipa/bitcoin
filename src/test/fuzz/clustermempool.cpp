@@ -887,6 +887,7 @@ FullLinearizationStats LinearizeClusterEfficient(const Cluster<S>& cluster)
 }
 
 using BitSet = MultiIntBitSet<uint64_t, 2>;
+//using BitSet = IntBitSet<uint64_t>;
 
 /*
 #define ROTL(x, b) (uint64_t)(((x) << (b)) | ((x) >> (64 - (b))))
@@ -1010,6 +1011,10 @@ FUZZ_TARGET(clustermempool_efficient_equals_exhaustive_nodone)
 
     Cluster<BitSet> cluster = FuzzReadCluster<BitSet>(provider, /*only_complete=*/false);
 
+    BitSet all;
+    for (unsigned i = 0; i < cluster.size(); ++i) all.Set(i);
+    if (!IsConnectedSubset(cluster, all)) return;
+
     AncestorSets anc(cluster);
 
 /*    auto [_, anc_feerate] = FindBestAncestorSet(cluster, anc, {});*/
@@ -1022,6 +1027,7 @@ FUZZ_TARGET(clustermempool_efficient_equals_exhaustive_nodone)
     assert(ret_exhaustive.best_candidate_feerate.sats == ret_efficient.best_candidate_feerate.sats);
     assert(ret_exhaustive.best_candidate_feerate.bytes == ret_efficient.best_candidate_feerate.bytes);
 
+/*
     static std::array<size_t, 30> MAX_COMPS;
     static std::array<size_t, 30> MAX_ITERS;
     static std::array<size_t, 30> MAX_QUEUE;
@@ -1057,6 +1063,72 @@ FUZZ_TARGET(clustermempool_efficient_equals_exhaustive_nodone)
             }
         }
         std::cerr << std::endl;
+    }
+*/
+}
+
+FUZZ_TARGET(clustermempool_efficient_equals_exhaustive_mul5)
+{
+    FuzzedDataProvider provider(buffer.data(), buffer.size());
+
+    Cluster<BitSet> orig_cluster = FuzzReadCluster<BitSet>(provider, /*only_complete=*/false);
+    if (orig_cluster.size() * 5 > 128) return;
+
+    BitSet orig_all;
+    for (unsigned i = 0; i < orig_cluster.size(); ++i) orig_all.Set(i);
+    if (!IsConnectedSubset(orig_cluster, orig_all)) return;
+
+    BitSet done, all;
+    Cluster<BitSet> cluster;
+    for (size_t i = 0; i < orig_cluster.size(); ++i) {
+        // Item 5*i
+        done.Set(5 * i);
+        cluster.emplace_back(orig_cluster[i].first, BitSet{});
+
+        // Item 5*i+1 (= original i)
+        all.Set(5 * i + 1);
+        BitSet parents;
+        auto todo{orig_cluster[i].second.OneBits()};
+        while (todo) {
+            parents.Set(todo.Pop() * 5 + 1);
+        }
+        cluster.emplace_back(orig_cluster[i].first, std::move(parents));
+
+        // Item 5*i+2
+        all.Set(5 * i + 1);
+        done.Set(5 * i + 2);
+        cluster.emplace_back(orig_cluster[i].first, BitSet{});
+
+        // Item 5*i+3
+        done.Set(5 * i + 3);
+        cluster.emplace_back(orig_cluster[i].first, BitSet{});
+
+        // Item 5*i+4
+        done.Set(5 * i + 4);
+        cluster.emplace_back(orig_cluster[i].first, BitSet{});
+    }
+    assert(cluster.size() == orig_cluster.size() * 5);
+    assert(IsConnectedSubset(cluster, all));
+
+    AncestorSets anc(cluster);
+
+/*    auto [_, anc_feerate] = FindBestAncestorSet(cluster, anc, {});*/
+
+    SortedCluster<BitSet> scluster(cluster);
+
+    auto ret_efficient = FindBestCandidateSetEfficient(scluster, done);
+    auto ret_exhaustive = FindBestCandidateSetExhaustive(cluster, anc, done);
+    auto feerate_efficient = ComputeSetFeeRate(cluster, ret_efficient.best_candidate_set);
+
+    assert(ret_exhaustive.best_candidate_feerate.sats == ret_efficient.best_candidate_feerate.sats);
+    assert(ret_exhaustive.best_candidate_feerate.bytes == ret_efficient.best_candidate_feerate.bytes);
+    assert(feerate_efficient.sats == ret_exhaustive.best_candidate_feerate.sats);
+    assert(feerate_efficient.bytes == ret_exhaustive.best_candidate_feerate.bytes);
+
+    static unsigned prev{0};
+    if (cluster.size() > prev) {
+        prev = cluster.size();
+        std::cerr << "SIZE " << prev << std::endl;
     }
 }
 
