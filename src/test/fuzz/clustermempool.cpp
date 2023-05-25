@@ -283,24 +283,25 @@ FUZZ_TARGET(clustermempool_exhaustive_equals_naive)
 
     // Compute number of candidate sets and best feerate of found result.
     assert(ret_exhaustive.num_candidate_sets == ret_naive.num_candidate_sets);
-    assert(ret_exhaustive.best_candidate_feerate.sats == ret_naive.best_candidate_feerate.sats);
-    assert(ret_exhaustive.best_candidate_feerate.bytes == ret_naive.best_candidate_feerate.bytes);
+    assert(ret_exhaustive.best_candidate_feerate == ret_naive.best_candidate_feerate);
 
     // We cannot require that the actual candidate returned is identical, because there may be
     // multiple, and the algorithms iterate in different order. Instead, recompute the feerate of
     // the candidate returned by the exhaustive one and check that it matches the claimed value.
     auto feerate_exhaustive = ComputeSetFeeRate(cluster, ret_exhaustive.best_candidate_set);
-    assert(feerate_exhaustive.sats == ret_exhaustive.best_candidate_feerate.sats);
-    assert(feerate_exhaustive.bytes == ret_exhaustive.best_candidate_feerate.bytes);
+    assert(feerate_exhaustive == ret_exhaustive.best_candidate_feerate);
 }
 
 FUZZ_TARGET(clustermempool_efficient_equals_exhaustive)
 {
     FuzzedDataProvider provider(buffer.data(), buffer.size());
 
+    // Read cluster from fuzzer.
     Cluster<BitSet> cluster = FuzzReadCluster<BitSet>(provider, /*only_complete=*/true);
-
+    // Compute ancestor sets.
     AncestorSets anc(cluster);
+
+    // Find a topologically (but not necessarily connected) subset to set as "done" already.
     BitSet done;
     for (size_t i = 0; i < cluster.size(); ++i) {
         if (provider.ConsumeBool()) {
@@ -308,143 +309,27 @@ FUZZ_TARGET(clustermempool_efficient_equals_exhaustive)
         }
     }
 
-    SortedCluster<BitSet> scluster(cluster);
+    // Sort the cluster by individual feerate.
+    SortedCluster<BitSet> cluster_sorted(cluster);
+    // Compute ancestor sets.
+    AncestorSets<BitSet> anc_sorted(cluster_sorted.cluster);
+    // Compute descendant sets.
+    DescendantSets<BitSet> desc_sorted(anc_sorted);
+    // Convert done to sorted ordering.
+    BitSet done_sorted = cluster_sorted.OriginalToSorted(done);
 
+    // Run both algorithms.
     auto ret_exhaustive = FindBestCandidateSetExhaustive(cluster, anc, done);
-    auto ret_efficient = FindBestCandidateSetEfficient(scluster, done);
-    auto feerate_efficient = ComputeSetFeeRate(cluster, ret_efficient.best_candidate_set);
+    auto ret_efficient = FindBestCandidateSetEfficient(cluster_sorted.cluster, anc_sorted, desc_sorted, done_sorted);
 
-    assert(ret_exhaustive.best_candidate_feerate.sats == ret_efficient.best_candidate_feerate.sats);
-    assert(ret_exhaustive.best_candidate_feerate.bytes == ret_efficient.best_candidate_feerate.bytes);
-    assert(feerate_efficient.sats == ret_exhaustive.best_candidate_feerate.sats);
-    assert(feerate_efficient.bytes == ret_exhaustive.best_candidate_feerate.bytes);
-}
+    // Compare best found feerates.
+    assert(ret_exhaustive.best_candidate_feerate == ret_efficient.best_candidate_feerate);
 
-FUZZ_TARGET(clustermempool_efficient_equals_exhaustive_nodone)
-{
-    FuzzedDataProvider provider(buffer.data(), buffer.size());
-
-    Cluster<BitSet> cluster = FuzzReadCluster<BitSet>(provider, /*only_complete=*/false);
-
-    BitSet all;
-    for (unsigned i = 0; i < cluster.size(); ++i) all.Set(i);
-    if (!IsConnectedSubset(cluster, all)) return;
-
-    AncestorSets anc(cluster);
-
-/*    auto [_, anc_feerate] = FindBestAncestorSet(cluster, anc, {});*/
-
-    SortedCluster<BitSet> scluster(cluster);
-
-    auto ret_efficient = FindBestCandidateSetEfficient(scluster, {});
-    auto ret_exhaustive = FindBestCandidateSetExhaustive(cluster, anc, {});
-
-    assert(ret_exhaustive.best_candidate_feerate.sats == ret_efficient.best_candidate_feerate.sats);
-    assert(ret_exhaustive.best_candidate_feerate.bytes == ret_efficient.best_candidate_feerate.bytes);
-
-/*
-    static std::array<size_t, 30> MAX_COMPS;
-    static std::array<size_t, 30> MAX_ITERS;
-    static std::array<size_t, 30> MAX_QUEUE;
-
-    if (ret_efficient.comparisons > MAX_COMPS[cluster.size()]) {
-        MAX_COMPS[cluster.size()] = ret_efficient.comparisons;
-        std::cerr << "COMPS:";
-        for (size_t i = 0; i <= 26; ++i) {
-            if (MAX_COMPS[i]) {
-                std::cerr << " " << i << ":" << MAX_COMPS[i];
-            }
-        }
-        std::cerr << std::endl;
-    }
-
-    if (ret_efficient.iterations > MAX_ITERS[cluster.size()]) {
-        MAX_ITERS[cluster.size()] = ret_efficient.iterations;
-        std::cerr << "ITERS:";
-        for (size_t i = 0; i <= 26; ++i) {
-            if (MAX_ITERS[i]) {
-                std::cerr << " " << i << ":" << MAX_ITERS[i];
-            }
-        }
-        std::cerr << std::endl;
-    }
-
-    if (ret_efficient.max_queue_size > MAX_QUEUE[cluster.size()]) {
-        MAX_QUEUE[cluster.size()] = ret_efficient.max_queue_size;
-        std::cerr << "QUEUE:";
-        for (size_t i = 0; i <= 26; ++i) {
-            if (MAX_QUEUE[i]) {
-                std::cerr << " " << i << ":" << MAX_QUEUE[i];
-            }
-        }
-        std::cerr << std::endl;
-    }
-*/
-}
-
-FUZZ_TARGET(clustermempool_efficient_equals_exhaustive_mul5)
-{
-    FuzzedDataProvider provider(buffer.data(), buffer.size());
-
-    Cluster<BitSet> orig_cluster = FuzzReadCluster<BitSet>(provider, /*only_complete=*/false);
-    if (orig_cluster.size() * 5 > 128) return;
-
-    BitSet orig_all;
-    for (unsigned i = 0; i < orig_cluster.size(); ++i) orig_all.Set(i);
-    if (!IsConnectedSubset(orig_cluster, orig_all)) return;
-
-    BitSet done, all;
-    Cluster<BitSet> cluster;
-    for (size_t i = 0; i < orig_cluster.size(); ++i) {
-        // Item 5*i
-        done.Set(5 * i);
-        cluster.emplace_back(orig_cluster[i].first, BitSet{});
-
-        // Item 5*i+1 (= original i)
-        all.Set(5 * i + 1);
-        BitSet parents;
-        auto todo{orig_cluster[i].second.Elements()};
-        while (todo) {
-            parents.Set(todo.Next() * 5 + 1);
-        }
-        cluster.emplace_back(orig_cluster[i].first, std::move(parents));
-
-        // Item 5*i+2
-        all.Set(5 * i + 1);
-        done.Set(5 * i + 2);
-        cluster.emplace_back(orig_cluster[i].first, BitSet{});
-
-        // Item 5*i+3
-        done.Set(5 * i + 3);
-        cluster.emplace_back(orig_cluster[i].first, BitSet{});
-
-        // Item 5*i+4
-        done.Set(5 * i + 4);
-        cluster.emplace_back(orig_cluster[i].first, BitSet{});
-    }
-    assert(cluster.size() == orig_cluster.size() * 5);
-    assert(IsConnectedSubset(cluster, all));
-
-    AncestorSets anc(cluster);
-
-/*    auto [_, anc_feerate] = FindBestAncestorSet(cluster, anc, {});*/
-
-    SortedCluster<BitSet> scluster(cluster);
-
-    auto ret_efficient = FindBestCandidateSetEfficient(scluster, done);
-    auto ret_exhaustive = FindBestCandidateSetExhaustive(cluster, anc, done);
-    auto feerate_efficient = ComputeSetFeeRate(cluster, ret_efficient.best_candidate_set);
-
-    assert(ret_exhaustive.best_candidate_feerate.sats == ret_efficient.best_candidate_feerate.sats);
-    assert(ret_exhaustive.best_candidate_feerate.bytes == ret_efficient.best_candidate_feerate.bytes);
-    assert(feerate_efficient.sats == ret_exhaustive.best_candidate_feerate.sats);
-    assert(feerate_efficient.bytes == ret_exhaustive.best_candidate_feerate.bytes);
-
-    static unsigned prev{0};
-    if (cluster.size() > prev) {
-        prev = cluster.size();
-        std::cerr << "SIZE " << prev << std::endl;
-    }
+    // We cannot require that the actual candidate returned is identical, because there may be
+    // multiple, and the algorithms iterate in different order. Instead, recompute the feerate of
+    // the candidate returned by the efficient one and check that it matches the claimed value.
+    auto feerate_efficient = ComputeSetFeeRate(cluster_sorted.cluster, ret_efficient.best_candidate_set);
+    assert(feerate_efficient == ret_exhaustive.best_candidate_feerate);
 }
 
 FUZZ_TARGET(clustermempool_linearize)
@@ -456,8 +341,6 @@ FUZZ_TARGET(clustermempool_linearize)
     BitSet all;
     for (unsigned i = 0; i < cluster.size(); ++i) all.Set(i);
     if (!IsConnectedSubset(cluster, all)) return;
-
-/*    std::cerr << "CLUSTER " << cluster << std::endl;*/
 
     std::vector<std::pair<double, std::vector<unsigned>>> results;
     results.reserve(11);
@@ -475,10 +358,12 @@ FUZZ_TARGET(clustermempool_linearize)
     const auto& [duration, linearization] = results[5];
 
     BitSet satisfied;
+    assert(linearization.size() == cluster.size());
     for (unsigned idx : linearization) {
         assert((cluster[idx].second / satisfied).None());
         satisfied.Set(idx);
     }
+    assert(satisfied == all);
 
     std::cerr << "LINEARIZE(" << cluster.size() << ") time=" << duration /*<< " iters=" << stats.iterations << " time/iters=" << (duration / stats.iterations) << " comps=" << stats.comparisons << " time/comps=" << (duration / stats.comparisons)*/ << std::endl;
 }

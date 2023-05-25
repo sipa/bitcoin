@@ -90,6 +90,11 @@ struct FeeAndSize
         return FeeAndSize{a.sats + b.sats, a.bytes + b.bytes};
     }
 
+    /** Compare two FeeAndSize objects (both same fee and size). */
+    friend bool operator==(const FeeAndSize& a, const FeeAndSize& b)
+    {
+        return a.sats == b.sats && a.bytes == b.bytes;
+    }
 };
 
 enum class EqualFeeRate
@@ -420,23 +425,11 @@ template<typename S>
 struct SortedCluster
 {
     /** The cluster in individual feerate sorted order (both itself and its dependencies) */
-    Cluster<S> m_sorted_cluster;
-    /** AncestorSets object with ancestor sets corresponding to m_sorted_cluster ordering. */
-    AncestorSets<S> m_ancestorsets;
-    /** DescendantSets object with descendant sets corresponding to m_sorted_cluster ordering. */
-    DescendantSets<S> m_descendantsets;
+    Cluster<S> cluster;
     /** Mapping from the original order (input to constructor) to sorted order. */
-    std::vector<unsigned> m_original_to_sorted;
+    std::vector<unsigned> original_to_sorted;
     /** Mapping back from sorted order to the order given to the constructor. */
-    std::vector<unsigned> m_sorted_to_original;
-
-public:
-    /** Get sorted cluster object. */
-    const Cluster<S>& GetCluster() const noexcept { return m_sorted_cluster; }
-    /** Get ancestor set (using sorted order indexing) */
-    const S& GetAncestorSet(unsigned pos) const noexcept { return m_ancestorsets[pos]; }
-    /** Get descendant set (using sorted order indexing) */
-    const S& GetDescendantSet(unsigned pos) const noexcept { return m_descendantsets[pos]; }
+    std::vector<unsigned> sorted_to_original;
 
     /** Given a set with indexes in original order, compute one in sorted order. */
     S OriginalToSorted(const S& val) const noexcept
@@ -444,7 +437,7 @@ public:
         S ret;
         auto todo{val.Elements()};
         while (todo) {
-            ret.Set(m_original_to_sorted[todo.Next()]);
+            ret.Set(original_to_sorted[todo.Next()]);
         }
         return ret;
     }
@@ -455,38 +448,32 @@ public:
         S ret;
         auto todo{val.Elements()};
         while (todo) {
-            ret.Set(m_sorted_to_original[todo.Next()]);
+            ret.Set(sorted_to_original[todo.Next()]);
         }
         return ret;
     }
 
     /** Construct a sorted cluster object given a (non-sorted) cluster as input. */
-    SortedCluster(const Cluster<S>& cluster)
+    SortedCluster(const Cluster<S>& orig_cluster)
     {
         // Allocate vectors.
-        m_sorted_to_original.resize(cluster.size());
-        m_original_to_sorted.resize(cluster.size());
-        m_sorted_cluster.resize(cluster.size());
-
-        // Compute m_sorted_to_original mapping.
-        std::iota(m_sorted_to_original.begin(), m_sorted_to_original.end(), 0U);
-        std::sort(m_sorted_to_original.begin(), m_sorted_to_original.end(), [&](unsigned i, unsigned j) {
-            return FeeRateBetter(cluster[i].first, cluster[j].first);
+        sorted_to_original.resize(orig_cluster.size());
+        original_to_sorted.resize(orig_cluster.size());
+        cluster.resize(orig_cluster.size());
+        // Compute sorted_to_original mapping.
+        std::iota(sorted_to_original.begin(), sorted_to_original.end(), 0U);
+        std::sort(sorted_to_original.begin(), sorted_to_original.end(), [&](unsigned i, unsigned j) {
+            return FeeRateBetter(orig_cluster[i].first, orig_cluster[j].first);
         });
-
-        // Use m_sorted_to_original to fill m_sorted_cluster and m_original_to_sorted.
-        for (size_t i = 0; i < cluster.size(); ++i) {
-            m_original_to_sorted[m_sorted_to_original[i]] = i;
+        // Use sorted_to_original to fill original_to_sorted.
+        for (size_t i = 0; i < orig_cluster.size(); ++i) {
+            original_to_sorted[sorted_to_original[i]] = i;
         }
-
-        for (size_t i = 0; i < cluster.size(); ++i) {
-            m_sorted_cluster[i].first = cluster[m_sorted_to_original[i]].first;
-            m_sorted_cluster[i].second = OriginalToSorted(cluster[m_sorted_to_original[i]].second);
+        // Use sorted_to_original to fill cluster.
+        for (size_t i = 0; i < orig_cluster.size(); ++i) {
+            cluster[i].first = orig_cluster[sorted_to_original[i]].first;
+            cluster[i].second = OriginalToSorted(orig_cluster[sorted_to_original[i]].second);
         }
-
-        // Compute AncestorSets and DescendantSets.
-        m_ancestorsets = AncestorSets(m_sorted_cluster);
-        m_descendantsets = DescendantSets(m_ancestorsets);
     }
 };
 
@@ -522,11 +509,14 @@ CandidateSetAnalysis<S> FindBestAncestorSet(const Cluster<S>& cluster, const Anc
     return ret;
 }
 
-/** An efficient algorithm for finding the best candidate set. Believed to be O(~1.6^n). */
+/** An efficient algorithm for finding the best candidate set. Believed to be O(~1.6^n).
+ *
+ * cluster must be sorted (see SortedCluster) by individual feerate, and anc/desc/done must use
+ * the same indexing as cluster.
+ */
 template<typename S>
-CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const SortedCluster<S>& scluster, const S& done)
+CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster, const AncestorSets<S>& anc, const DescendantSets<S>& desc, const S& done)
 {
-    const Cluster<S>& cluster = scluster.GetCluster();
     // Queue of work units. Each consists of:
     // - inc: bitset of transactions definitely included (always includes done)
     // - exc: bitset of transactions definitely excluded
@@ -570,7 +560,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const SortedCluster<S>& sc
             pot_feerate += cluster[pos].first;
             pot.Set(pos);
             // Update the combined ancestors of pot.
-            required |= scluster.GetAncestorSet(pos);
+            required |= anc[pos];
             // If at this point pot covers all its own ancestors, it means pot is topologically
             // valid. Perform jump ahead (update inc/inc_feerate to match pot/pot_feerate).
             if ((required / pot).None()) {
@@ -608,7 +598,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const SortedCluster<S>& sc
     };
 
     // Start by adding a work queue item corresponding to just what's done beforehand.
-    add_fn(scluster.OriginalToSorted(done), S{}, FeeAndSize{}, false);
+    add_fn(done, S{}, FeeAndSize{}, false);
 
     // Work processing loop.
     while (queue.size()) {
@@ -631,16 +621,16 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const SortedCluster<S>& sc
         unsigned pos = undecided.Next();
 
         // Consider adding a work item corresponding to that transaction excluded.
-        add_fn(inc, exc | scluster.GetDescendantSet(pos), inc_feerate, false);
+        add_fn(inc, exc | desc[pos], inc_feerate, false);
 
         // Consider adding a work item corresponding to that transaction included.
-        auto new_inc = inc | scluster.GetAncestorSet(pos);
+        auto new_inc = inc | anc[pos];
         auto new_inc_feerate = inc_feerate + ComputeSetFeeRate(cluster, new_inc / inc);
         add_fn(new_inc, exc, new_inc_feerate, true);
     }
 
     // Translate the best found candidate to the old sort order and return.
-    ret.best_candidate_set = scluster.SortedToOriginal(best_candidate) / done;
+    ret.best_candidate_set = best_candidate / done;
     ret.best_candidate_feerate = best_feerate;
     return ret;
 }
@@ -655,15 +645,16 @@ std::vector<unsigned> LinearizeCluster(const Cluster<S>& cluster)
     unsigned left = cluster.size();
     for (unsigned i = 0; i < cluster.size(); ++i) all.Set(i);
 
-    AncestorSets<S> anc(cluster);
     SortedCluster<S> scluster(cluster);
+    AncestorSets<S> anc(scluster.cluster);
+    DescendantSets<S> desc(anc);
 
     while (left > 0) {
         CandidateSetAnalysis<S> analysis;
         if (left > 10) {
-            analysis = FindBestAncestorSet(cluster, anc, done);
+            analysis = FindBestAncestorSet(scluster.cluster, anc, done);
         } else {
-            analysis = FindBestCandidateSetEfficient(scluster, done);
+            analysis = FindBestCandidateSetEfficient(scluster.cluster, anc, desc, done);
         }
         assert(!analysis.best_candidate_set.None());
         assert((analysis.best_candidate_set & done).None());
@@ -677,6 +668,10 @@ std::vector<unsigned> LinearizeCluster(const Cluster<S>& cluster)
         });
         done |= analysis.best_candidate_set;
         left -= analysis.best_candidate_set.Count();
+    }
+
+    for (unsigned i = 0; i < cluster.size(); ++i) {
+        ret[i] = scluster.sorted_to_original[ret[i]];
     }
 
     return ret;
