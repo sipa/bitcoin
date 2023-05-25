@@ -545,7 +545,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         /** The set of transactions corresponding to that potential feerate. */
         S pot = inc;
         /** The set of ancestors of everything in pot, combined. */
-        S required;
+        S pot_ancestors;
         // Loop over all undecided transactions (not yet included or excluded), from high to low feerate.
         auto undecided{(all / (inc | exc)).Elements()};
         while (undecided) {
@@ -560,10 +560,10 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
             pot_feerate += cluster[pos].first;
             pot.Set(pos);
             // Update the combined ancestors of pot.
-            required |= anc[pos];
+            pot_ancestors |= anc[pos];
             // If at this point pot covers all its own ancestors, it means pot is topologically
             // valid. Perform jump ahead (update inc/inc_feerate to match pot/pot_feerate).
-            if ((required / pot).None()) {
+            if ((pot_ancestors / pot).None()) {
                 inc = pot;
                 inc_feerate = pot_feerate;
                 inc_changed = true;
@@ -608,7 +608,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         auto [inc, exc, inc_feerate, pot_feerate] = queue.back();
         queue.pop_back();
 
-        // If this item's potential feerate is worse than the best seen so far, drop it.
+        // If this item's potential feerate is not better than the best seen so far, drop it.
         assert(pot_feerate.bytes > 0);
         if (!best_feerate.IsEmpty()) {
             ++ret.comparisons;
@@ -629,7 +629,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         add_fn(new_inc, exc, new_inc_feerate, true);
     }
 
-    // Translate the best found candidate to the old sort order and return.
+    // Return.
     ret.best_candidate_set = best_candidate / done;
     ret.best_candidate_feerate = best_feerate;
     return ret;
