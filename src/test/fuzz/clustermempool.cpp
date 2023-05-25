@@ -23,7 +23,7 @@ namespace {
 
 /** Wrapper around __builtin_ctz[l][l] for supporting unsigned integer types. */
 template<typename I>
-int inline CountTrailingZeroes(I v)
+unsigned inline CountTrailingZeroes(I v)
 {
     static_assert(std::is_integral_v<I> && std::is_unsigned_v<I> && std::numeric_limits<I>::radix == 2);
     constexpr auto digits = std::numeric_limits<I>::digits;
@@ -37,6 +37,25 @@ int inline CountTrailingZeroes(I v)
     } else {
         static_assert(digits <= digits_ull);
         return __builtin_ctzll(v);
+    }
+}
+
+/** Wrapper around __builtin_popcount[l][l] for supporting unsigned integer types. */
+template<typename I>
+unsigned inline PopCount(I v)
+{
+    static_assert(std::is_integral_v<I> && std::is_unsigned_v<I> && std::numeric_limits<I>::radix == 2);
+    constexpr auto digits = std::numeric_limits<I>::digits;
+    constexpr auto digits_u = std::numeric_limits<unsigned>::digits;
+    constexpr auto digits_ul = std::numeric_limits<unsigned long>::digits;
+    constexpr auto digits_ull = std::numeric_limits<unsigned long long>::digits;
+    if constexpr (digits <= digits_u) {
+        return __builtin_popcount(v);
+    } else if constexpr (digits <= digits_ul) {
+        return __builtin_popcountl(v);
+    } else {
+        static_assert(digits <= digits_ull);
+        return __builtin_popcountll(v);
     }
 }
 
@@ -212,12 +231,13 @@ class IntBitSet
     };
 
 public:
-    static constexpr unsigned SIZE = std::numeric_limits<I>::digits;
+    static constexpr unsigned MAX_SIZE = std::numeric_limits<I>::digits;
 
     IntBitSet() noexcept : m_val{0} {}
     IntBitSet(const IntBitSet&) noexcept = default;
     IntBitSet& operator=(const IntBitSet&) noexcept = default;
 
+    unsigned Count() const noexcept { return PopCount(m_val); }
     void Set(unsigned pos) noexcept { m_val |= I{1U} << pos; }
     bool operator[](unsigned pos) const noexcept { return (m_val >> pos) & 1U; }
     bool None() const noexcept { return m_val == 0; }
@@ -235,7 +255,7 @@ public:
     {
         s << "[";
         size_t cnt = 0;
-        for (size_t i = 0; i < SIZE; ++i) {
+        for (size_t i = 0; i < MAX_SIZE; ++i) {
             if (bs[i]) {
                 if (cnt) s << ",";
                 ++cnt;
@@ -281,7 +301,7 @@ class MultiIntBitSet
     };
 
 public:
-    static constexpr unsigned SIZE = LIMB_BITS * N;
+    static constexpr unsigned MAX_SIZE = LIMB_BITS * N;
 
     MultiIntBitSet() noexcept : m_val{} {}
     MultiIntBitSet(const MultiIntBitSet&) noexcept = default;
@@ -289,6 +309,13 @@ public:
 
     void Set(unsigned pos) noexcept { m_val[pos / LIMB_BITS] |= I{1U} << (pos % LIMB_BITS); }
     bool operator[](unsigned pos) const noexcept { return (m_val[pos / LIMB_BITS] >> (pos % LIMB_BITS)) & 1U; }
+
+    unsigned Count() const noexcept
+    {
+        unsigned ret{0};
+        for (I v : m_val) ret += PopCount(v);
+        return ret;
+    }
 
     bool None() const noexcept
     {
@@ -351,7 +378,7 @@ public:
     {
         s << "[";
         size_t cnt = 0;
-        for (size_t i = 0; i < SIZE; ++i) {
+        for (size_t i = 0; i < MAX_SIZE; ++i) {
             if (bs[i]) {
                 if (cnt) s << ",";
                 ++cnt;
@@ -389,7 +416,7 @@ template<typename S>
 Cluster<S> FuzzReadCluster(FuzzedDataProvider& provider, bool only_complete)
 {
     Cluster<S> ret;
-    while (ret.size() < S::SIZE && provider.remaining_bytes()) {
+    while (ret.size() < S::MAX_SIZE && provider.remaining_bytes()) {
         if (only_complete && provider.remaining_bytes() < 4U + ret.size()) break;
         uint64_t sats = provider.ConsumeIntegralInRange<uint32_t>(0, 0xFFFF);
         uint32_t bytes = provider.ConsumeIntegralInRange<uint32_t>(1, 0x10000);
@@ -410,7 +437,7 @@ bool IsConnectedSubset(const Cluster<S>& cluster, const S& select)
     if (select.None()) return true;
 
     /* Build up UF data structure. */
-    UnionFind<unsigned, S::SIZE> uf(cluster.size());
+    UnionFind<unsigned, S::MAX_SIZE> uf(cluster.size());
     auto todo{select.OneBits()};
     while (todo) {
         unsigned pos = todo.Pop();
@@ -711,21 +738,36 @@ public:
 
 /** Given a cluster and its ancestor sets, find the one with the highest feerate. */
 template<typename S>
-std::pair<S, FeeAndSize> FindBestAncestorSet(const Cluster<S>& cluster, const AncestorSets<S>& anc, const S& done)
+CandidateSetAnalysis<S> FindBestAncestorSet(const Cluster<S>& cluster, const AncestorSets<S>& anc, const S& done)
 {
     FeeAndSize best_feerate;
     S best_set;
+    CandidateSetAnalysis<S> ret;
+    ret.max_queue_size = 1;
+
+/*    std::cerr << "ANCS " << cluster << " DONE=" << done << std::endl;*/
 
     for (size_t i = 0; i < cluster.size(); ++i) {
         if (done[i]) continue;
+        ++ret.iterations;
+        ++ret.num_candidate_sets;
         FeeAndSize feerate = ComputeSetFeeRate(cluster, anc[i] / done);
-        if (i == 0 || FeeRateBetter(feerate, best_feerate)) {
+        assert(!feerate.IsEmpty());
+        bool new_best = best_feerate.IsEmpty();
+        if (!new_best) {
+            ++ret.comparisons;
+            new_best = FeeRateBetter(feerate, best_feerate);
+        }
+        if (new_best) {
             best_feerate = feerate;
             best_set = anc[i];
         }
     }
 
-    return {best_set, best_feerate};
+    ret.best_candidate_set = best_set / done;
+    ret.best_candidate_feerate = best_feerate;
+
+    return ret;
 }
 
 /** An efficient algorithm for finding the best candidate set. Believed to be O(~1.6^n). */
@@ -851,36 +893,38 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const SortedCluster<S>& sc
     return ret;
 }
 
-
-struct FullLinearizationStats
-{
-    size_t iterations{0};
-    size_t comparisons{0};
-};
-
 template<typename S>
-FullLinearizationStats LinearizeClusterEfficient(const Cluster<S>& cluster)
+std::vector<unsigned> LinearizeCluster(const Cluster<S>& cluster)
 {
-    FullLinearizationStats ret;
+    std::vector<unsigned> ret;
+    ret.reserve(cluster.size());
 
     S all, done;
+    unsigned left = cluster.size();
     for (unsigned i = 0; i < cluster.size(); ++i) all.Set(i);
 
+    AncestorSets<S> anc(cluster);
     SortedCluster<S> scluster(cluster);
 
-    while ((all / done).Any()) {
-        auto cand_analysis = FindBestCandidateSetEfficient(scluster, done);
-/*
-        assert(!cand_analysis.best_candidate_set.None());
-        assert((cand_analysis.best_candidate_set / all).None());
-        assert((done & cand_analysis.best_candidate_set).None());
-        auto recomp = ComputeSetFeeRate(cluster, cand_analysis.best_candidate_set);
-        assert(recomp.sats == cand_analysis.best_candidate_feerate.sats);
-        assert(recomp.bytes == cand_analysis.best_candidate_feerate.bytes);
-*/
-        ret.iterations += cand_analysis.iterations;
-        ret.comparisons += cand_analysis.comparisons;
-        done |= cand_analysis.best_candidate_set;
+    while (left > 0) {
+        CandidateSetAnalysis<S> analysis;
+        if (left > 10) {
+            analysis = FindBestAncestorSet(cluster, anc, done);
+        } else {
+            analysis = FindBestCandidateSetEfficient(scluster, done);
+        }
+        assert(!analysis.best_candidate_set.None());
+        assert((analysis.best_candidate_set & done).None());
+        size_t old_size = ret.size();
+        auto to_set{analysis.best_candidate_set.OneBits()};
+        while (to_set) {
+            ret.emplace_back(to_set.Pop());
+        }
+        std::sort(ret.begin() + old_size, ret.end(), [&](unsigned a, unsigned b) {
+            return anc[a].Count() < anc[b].Count();
+        });
+        done |= analysis.best_candidate_set;
+        left -= analysis.best_candidate_set.Count();
     }
 
     return ret;
@@ -1132,12 +1176,11 @@ FUZZ_TARGET(clustermempool_efficient_equals_exhaustive_mul5)
     }
 }
 
-FUZZ_TARGET(clustermempool_efficient_full)
+FUZZ_TARGET(clustermempool_linearize)
 {
     FuzzedDataProvider provider(buffer.data(), buffer.size());
 
     Cluster<BitSet> cluster = FuzzReadCluster<BitSet>(provider, /*only_complete=*/false);
-    if (cluster.size() > 26) return;
 
     BitSet all;
     for (unsigned i = 0; i < cluster.size(); ++i) all.Set(i);
@@ -1145,20 +1188,26 @@ FUZZ_TARGET(clustermempool_efficient_full)
 
 /*    std::cerr << "CLUSTER " << cluster << std::endl;*/
 
-    std::vector<std::pair<double, FullLinearizationStats>> durations;
-    durations.reserve(11);
+    std::vector<std::pair<double, std::vector<unsigned>>> results;
+    results.reserve(11);
 
     for (unsigned i = 0; i < 11; ++i) {
         struct timespec measure_start, measure_stop;
         clock_gettime(CLOCK_THREAD_CPUTIME_ID, &measure_start);
-        auto stats = LinearizeClusterEfficient(cluster);
+        auto linearization = LinearizeCluster(cluster);
         clock_gettime(CLOCK_THREAD_CPUTIME_ID, &measure_stop);
         double duration = (double)((int64_t)measure_stop.tv_sec - (int64_t)measure_start.tv_sec) + 0.000000001*(double)((int64_t)measure_stop.tv_nsec - (int64_t)measure_start.tv_nsec);
-        durations.emplace_back(duration, stats);
+        results.emplace_back(duration, linearization);
     }
 
-    std::sort(durations.begin(), durations.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
-    const auto& [duration, stats] = durations[5];
+    std::sort(results.begin(), results.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    const auto& [duration, linearization] = results[5];
 
-    std::cerr << "LINEARIZE(" << cluster.size() << ") time=" << duration << " iters=" << stats.iterations << " time/iters=" << (duration / stats.iterations) << " comps=" << stats.comparisons << " time/comps=" << (duration / stats.comparisons) << std::endl;
+    BitSet satisfied;
+    for (unsigned idx : linearization) {
+        assert((cluster[idx].second / satisfied).None());
+        satisfied.Set(idx);
+    }
+
+    std::cerr << "LINEARIZE(" << cluster.size() << ") time=" << duration /*<< " iters=" << stats.iterations << " time/iters=" << (duration / stats.iterations) << " comps=" << stats.comparisons << " time/comps=" << (duration / stats.comparisons)*/ << std::endl;
 }
