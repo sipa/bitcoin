@@ -21,6 +21,7 @@
 
 namespace {
 
+/** Wrapper around __builtin_ctz[l][l] for supporting unsigned integer types. */
 template<typename I>
 int inline CountTrailingZeroes(I v)
 {
@@ -39,6 +40,7 @@ int inline CountTrailingZeroes(I v)
     }
 }
 
+/** Union-Find data structure. */
 template<typename SizeType, SizeType Size>
 class UnionFind
 {
@@ -46,6 +48,7 @@ class UnionFind
     SizeType m_size;
 
 public:
+    /** Initialize a UF data structure with size items, each in their own partition. */
     void Init(SizeType size)
     {
         m_size = size;
@@ -54,17 +57,21 @@ public:
         }
     }
 
+    /** Construct a UF data structure with size items, each in their own partition. */
     explicit UnionFind(SizeType size)
     {
         Init(size);
     }
 
+    /** Find a representative of the partition that item idx is in. */
     SizeType Find(SizeType idx)
     {
         SizeType start = idx;
+        // Chase references to make idx be the representative.
         while (m_ref[idx] != idx) {
             idx = m_ref[idx];
         }
+        // Update all references along the way to point to idx.
         while (m_ref[start] != idx) {
             SizeType prev = start;
             start = m_ref[start];
@@ -73,46 +80,38 @@ public:
         return idx;
     }
 
+    /** Merge the partitions that item a and item b are in. */
     void Union(SizeType a, SizeType b)
     {
         m_ref[Find(a)] = Find(b);
     }
 };
 
-enum class FeeRateOperator
-{
-    HIGHER,
-    LOWER,
-    DIFFERENT
-};
-
-enum class EqualFeeRate
-{
-    ALLOWED,
-    NOT_ALLOWED,
-    IF_SIZE_SMALLER,
-    IF_SIZE_NOT_LARGER
-};
-
+/** Data structure storing a fee (in sats) and a size (in vbytes or weight units). */
 struct FeeAndSize
 {
     uint64_t sats;
     uint32_t bytes;
 
+    /** Construct an IsEmpty() FeeAndSize. */
     FeeAndSize() : sats{0}, bytes{0} {}
 
+    /** Construct a FeeAndSize with specified fee and size. */
     FeeAndSize(uint64_t s, uint32_t b) : sats{s}, bytes{b}
     {
+        // If bytes==0, sats must be 0 as well.
         assert(bytes != 0 || sats == 0);
     }
 
     FeeAndSize(const FeeAndSize&) = default;
     FeeAndSize& operator=(const FeeAndSize&) = default;
 
+    /** Check if this is empty (size, and implicitly fee, 0). */
     bool IsEmpty() const {
         return bytes == 0;
     }
 
+    /** Add size and bytes of another FeeAndSize to this one. */
     void operator+=(const FeeAndSize& other)
     {
         sats += other.sats;
@@ -131,40 +130,32 @@ struct FeeAndSize
     }
 };
 
-template<FeeRateOperator DIR, EqualFeeRate EQ>
-bool FeeRateCompare(const FeeAndSize& a, const FeeAndSize& b)
+enum class EqualFeeRate
+{
+    NOT_ALLOWED,
+    IF_SIZE_SMALLER,
+    IF_SIZE_NOT_LARGER
+};
+
+/** Function for accurately comparing the feerates of two non-empty FeeAndSize objects. */
+template<EqualFeeRate EQ>
+bool FeeRateHigher(const FeeAndSize& a, const FeeAndSize& b)
 {
     if (__builtin_expect(((a.sats | b.sats) >> 32) != 0, false)) {
         unsigned __int128 v1 = (unsigned __int128)(a.sats) * b.bytes;
         unsigned __int128 v2 = (unsigned __int128)(b.sats) * a.bytes;
         if (v1 != v2) {
-            if constexpr (DIR == FeeRateOperator::LOWER) {
-                return v1 < v2;
-            } else if constexpr (DIR == FeeRateOperator::HIGHER) {
-                return v1 > v2;
-            } else {
-                static_assert(DIR == FeeRateOperator::DIFFERENT);
-                return true;
-            }
+            return v1 > v2;
         }
     } else {
         uint64_t v1 = uint64_t{(uint32_t)a.sats} * b.bytes;
         uint64_t v2 = uint64_t{(uint32_t)b.sats} * a.bytes;
         if (v1 != v2) {
-            if constexpr (DIR == FeeRateOperator::LOWER) {
-                return v1 < v2;
-            } else if constexpr (DIR == FeeRateOperator::HIGHER) {
-                return v1 > v2;
-            } else {
-                static_assert(DIR == FeeRateOperator::DIFFERENT);
-                return true;
-            }
+            return v1 > v2;
         }
     }
     if constexpr (EQ == EqualFeeRate::NOT_ALLOWED) {
         return false;
-    } else if constexpr (EQ == EqualFeeRate::ALLOWED) {
-        return true;
     } else if constexpr (EQ == EqualFeeRate::IF_SIZE_SMALLER) {
         return a.bytes < b.bytes;
     } else {
@@ -176,40 +167,43 @@ bool FeeRateCompare(const FeeAndSize& a, const FeeAndSize& b)
 /** Determine whether a has higher feerate than b, or has the same feerate but smaller size. */
 bool FeeRateBetter(const FeeAndSize& a, const FeeAndSize& b)
 {
-    return FeeRateCompare<FeeRateOperator::HIGHER, EqualFeeRate::IF_SIZE_SMALLER>(a, b);
+    return FeeRateHigher<EqualFeeRate::IF_SIZE_SMALLER>(a, b);
 }
 
 /** Determine whether a has higher feerate then b. */
 bool JustFeeRateBetter(const FeeAndSize& a, const FeeAndSize& b)
 {
-    return FeeRateCompare<FeeRateOperator::HIGHER, EqualFeeRate::NOT_ALLOWED>(a, b);
+    return FeeRateHigher<EqualFeeRate::NOT_ALLOWED>(a, b);
 }
 
 /** Determine whether a has higher feerate, or has the same feerate but the same or smaller size. */
 bool FeeRateBetterOrEqual(const FeeAndSize& a, const FeeAndSize& b)
 {
-    return FeeRateCompare<FeeRateOperator::HIGHER, EqualFeeRate::IF_SIZE_NOT_LARGER>(a, b);
+    return FeeRateHigher<EqualFeeRate::IF_SIZE_NOT_LARGER>(a, b);
 }
 
 /** A bitset implementation backed by a single integer of type I. */
 template<typename I>
 class IntBitSet
 {
+    // Only binary, unsigned, integer, types allowed.
     static_assert(std::is_integral_v<I> && std::is_unsigned_v<I> && std::numeric_limits<I>::radix == 2);
 
+    /** Integer whose bits represent this bitset. */
     I m_val;
 
-    IntBitSet(I val) : m_val{val} {}
+    IntBitSet(I val) noexcept : m_val{val} {}
 
+    /** Class of objects returned by OneBits(). */
     class BitPopper
     {
         I m_val;
         friend class IntBitSet;
-        BitPopper(I val) : m_val(val) {}
+        BitPopper(I val) noexcept : m_val(val) {}
     public:
-        explicit operator bool() const { return m_val != 0; }
+        explicit operator bool() const noexcept { return m_val != 0; }
 
-        unsigned Pop()
+        unsigned Pop() noexcept
         {
             int ret = CountTrailingZeroes(m_val);
             m_val &= m_val - I{1U};
@@ -228,14 +222,14 @@ public:
     bool operator[](unsigned pos) const noexcept { return (m_val >> pos) & 1U; }
     bool None() const noexcept { return m_val == 0; }
     bool Any() const noexcept { return m_val != 0; }
-    BitPopper OneBits() const { return BitPopper(m_val); }
-    IntBitSet& operator|=(const IntBitSet& a) { m_val |= a.m_val; return *this; }
-    friend IntBitSet operator&(const IntBitSet& a, const IntBitSet& b) { return IntBitSet{a.m_val & b.m_val}; }
-    friend IntBitSet operator|(const IntBitSet& a, const IntBitSet& b) { return IntBitSet{a.m_val | b.m_val}; }
-    friend IntBitSet operator/(const IntBitSet& a, const IntBitSet& b) { return IntBitSet{a.m_val & ~b.m_val}; }
-    friend bool operator<(const IntBitSet& a, const IntBitSet& b) { return a.m_val < b.m_val; }
-    friend bool operator!=(const IntBitSet& a, const IntBitSet& b) { return a.m_val != b.m_val; }
-    friend bool operator==(const IntBitSet& a, const IntBitSet& b) { return a.m_val == b.m_val; }
+    BitPopper OneBits() const noexcept { return BitPopper(m_val); }
+    IntBitSet& operator|=(const IntBitSet& a) noexcept { m_val |= a.m_val; return *this; }
+    friend IntBitSet operator&(const IntBitSet& a, const IntBitSet& b) noexcept { return IntBitSet{a.m_val & b.m_val}; }
+    friend IntBitSet operator|(const IntBitSet& a, const IntBitSet& b) noexcept { return IntBitSet{a.m_val | b.m_val}; }
+    friend IntBitSet operator/(const IntBitSet& a, const IntBitSet& b) noexcept { return IntBitSet{a.m_val & ~b.m_val}; }
+    friend bool operator<(const IntBitSet& a, const IntBitSet& b) noexcept { return a.m_val < b.m_val; }
+    friend bool operator!=(const IntBitSet& a, const IntBitSet& b) noexcept { return a.m_val != b.m_val; }
+    friend bool operator==(const IntBitSet& a, const IntBitSet& b) noexcept { return a.m_val == b.m_val; }
 
     friend std::ostream& operator<<(std::ostream& s, const IntBitSet& bs)
     {
@@ -267,15 +261,19 @@ class MultiIntBitSet
         std::array<I, N> m_val;
         mutable unsigned m_idx;
         friend class MultiIntBitSet;
-        BitPopper(const std::array<I, N>& val) : m_val(val) {}
-        void Advance() const { while (m_idx < N && m_val[m_idx] == 0) ++m_idx; }
+        BitPopper(const std::array<I, N>& val) : m_val(val), m_idx{0} {}
 
     public:
-        explicit operator bool() const { Advance(); return m_idx < N; }
-
-        unsigned Pop()
+        explicit operator bool() const noexcept
         {
-            Advance();
+            while (m_idx < N && m_val[m_idx] == 0) ++m_idx;
+            return m_idx < N;
+        }
+
+        unsigned Pop() noexcept
+        {
+            while (m_val[m_idx] == 0) ++m_idx;
+            assert(m_idx < N);
             int ret = CountTrailingZeroes(m_val[m_idx]);
             m_val[m_idx] &= m_val[m_idx] - I{1U};
             return ret + m_idx * LIMB_BITS;
@@ -291,16 +289,63 @@ public:
 
     void Set(unsigned pos) noexcept { m_val[pos / LIMB_BITS] |= I{1U} << (pos % LIMB_BITS); }
     bool operator[](unsigned pos) const noexcept { return (m_val[pos / LIMB_BITS] >> (pos % LIMB_BITS)) & 1U; }
-    bool None() const noexcept { for (auto v : m_val) { if (v != 0) return false; } return true; }
-    bool Any() const noexcept { for (auto v : m_val) { if (v != 0) return true; } return false; }
-    BitPopper OneBits() const { return BitPopper(m_val); }
-    MultiIntBitSet& operator|=(const MultiIntBitSet& a) { for (unsigned i = 0; i < N; ++i) { m_val[i] |= a.m_val[i]; } return *this; }
-    friend MultiIntBitSet operator&(const MultiIntBitSet& a, const MultiIntBitSet& b) { MultiIntBitSet r; for (unsigned i = 0; i < N; ++i) { r.m_val[i] = a.m_val[i] & b.m_val[i]; } return r; }
-    friend MultiIntBitSet operator|(const MultiIntBitSet& a, const MultiIntBitSet& b) { MultiIntBitSet r; for (unsigned i = 0; i < N; ++i) { r.m_val[i] = a.m_val[i] | b.m_val[i]; } return r; }
-    friend MultiIntBitSet operator/(const MultiIntBitSet& a, const MultiIntBitSet& b) { MultiIntBitSet r; for (unsigned i = 0; i < N; ++i) { r.m_val[i] = a.m_val[i] & ~b.m_val[i]; } return r; }
-    friend bool operator<(const MultiIntBitSet& a, const MultiIntBitSet& b) { return a.m_val < b.m_val; }
-    friend bool operator!=(const MultiIntBitSet& a, const MultiIntBitSet& b) { return a.m_val != b.m_val; }
-    friend bool operator==(const MultiIntBitSet& a, const MultiIntBitSet& b) { return a.m_val == b.m_val; }
+
+    bool None() const noexcept
+    {
+        for (auto v : m_val) {
+            if (v != 0) return false;
+        }
+        return true;
+    }
+
+    bool Any() const noexcept
+    {
+        for (auto v : m_val) {
+            if (v != 0) return true;
+        }
+        return false;
+    }
+
+    BitPopper OneBits() const noexcept { return BitPopper(m_val); }
+
+    MultiIntBitSet& operator|=(const MultiIntBitSet& a) noexcept
+    {
+        for (unsigned i = 0; i < N; ++i) {
+            m_val[i] |= a.m_val[i];
+        }
+        return *this;
+    }
+
+    friend MultiIntBitSet operator&(const MultiIntBitSet& a, const MultiIntBitSet& b) noexcept
+    {
+        MultiIntBitSet r;
+        for (unsigned i = 0; i < N; ++i) {
+            r.m_val[i] = a.m_val[i] & b.m_val[i];
+        }
+        return r;
+    }
+
+    friend MultiIntBitSet operator|(const MultiIntBitSet& a, const MultiIntBitSet& b) noexcept
+    {
+        MultiIntBitSet r;
+        for (unsigned i = 0; i < N; ++i) {
+            r.m_val[i] = a.m_val[i] | b.m_val[i];
+        }
+        return r;
+    }
+
+    friend MultiIntBitSet operator/(const MultiIntBitSet& a, const MultiIntBitSet& b) noexcept
+    {
+        MultiIntBitSet r;
+        for (unsigned i = 0; i < N; ++i) {
+            r.m_val[i] = a.m_val[i] & ~b.m_val[i];
+        }
+        return r;
+    }
+
+    friend bool operator<(const MultiIntBitSet& a, const MultiIntBitSet& b) noexcept { return a.m_val < b.m_val; }
+    friend bool operator!=(const MultiIntBitSet& a, const MultiIntBitSet& b) noexcept { return a.m_val != b.m_val; }
+    friend bool operator==(const MultiIntBitSet& a, const MultiIntBitSet& b) noexcept { return a.m_val == b.m_val; }
 
     friend std::ostream& operator<<(std::ostream& s, const MultiIntBitSet& bs)
     {
@@ -417,11 +462,11 @@ public:
         } while(changed);
     }
 
-    AncestorSets() = default;
+    AncestorSets() noexcept = default;
     AncestorSets(const AncestorSets&) = delete;
-    AncestorSets(AncestorSets&&) = default;
+    AncestorSets(AncestorSets&&) noexcept = default;
     AncestorSets& operator=(const AncestorSets&) = delete;
-    AncestorSets& operator=(AncestorSets&&) = default;
+    AncestorSets& operator=(AncestorSets&&) noexcept = default;
 
     const S& operator[](unsigned pos) const noexcept { return m_ancestorsets[pos]; }
     size_t Size() const noexcept { return m_ancestorsets.size(); }
@@ -445,29 +490,35 @@ public:
         }
     }
 
-    DescendantSets() = default;
+    DescendantSets() noexcept = default;
     DescendantSets(const DescendantSets&) = delete;
-    DescendantSets(DescendantSets&&) = default;
+    DescendantSets(DescendantSets&&) noexcept = default;
     DescendantSets& operator=(const DescendantSets&) = delete;
-    DescendantSets& operator=(DescendantSets&&) = default;
+    DescendantSets& operator=(DescendantSets&&) noexcept = default;
 
-    const S& operator[](unsigned pos) const { return m_descendantsets[pos]; }
+    const S& operator[](unsigned pos) const noexcept { return m_descendantsets[pos]; }
 };
 
+/** Output of FindBestCandidateSet* functions. */
 template<typename S>
 struct CandidateSetAnalysis
 {
+    /** Total number of candidate sets found/considered. */
     size_t num_candidate_sets{0};
+    /** Best found candidate set. */
     S best_candidate_set{};
+    /** Fee and size of best found candidate set. */
     FeeAndSize best_candidate_feerate{};
 
+    /** Maximum search queue size. */
     size_t max_queue_size{0};
+    /** Total number of queue processing iterations performed. */
     size_t iterations{0};
+    /** Number of feerate comparisons performed. */
     size_t comparisons{0};
-    size_t threshold_iterations{0};
-    size_t threshold_comparisons{0};
 };
 
+/** Compute the combined fee and size of a subset of a cluster. */
 template<typename S>
 FeeAndSize ComputeSetFeeRate(const Cluster<S>& cluster, const S& select)
 {
@@ -487,7 +538,7 @@ FeeAndSize ComputeSetFeeRate(const Cluster<S>& cluster, const S& select)
 template<typename S>
 CandidateSetAnalysis<S> FindBestCandidateSetNaive(const Cluster<S>& cluster, const S& done)
 {
-    assert(cluster.size() <= 25);
+    assert(cluster.size() <= 25); // This becomes really unwieldy for large clusters
     CandidateSetAnalysis<S> ret;
 
     // Iterate over all subsets of the cluster ((setval >> i) & 1 => tx i is included).
@@ -587,17 +638,26 @@ CandidateSetAnalysis<S> FindBestCandidateSetExhaustive(const Cluster<S>& cluster
 template<typename S>
 struct SortedCluster
 {
+    /** The cluster in individual feerate sorted order (both itself and its dependencies) */
     Cluster<S> m_sorted_cluster;
+    /** AncestorSets object with ancestor sets corresponding to m_sorted_cluster ordering. */
     AncestorSets<S> m_ancestorsets;
+    /** DescendantSets object with descendant sets corresponding to m_sorted_cluster ordering. */
     DescendantSets<S> m_descendantsets;
+    /** Mapping from the original order (input to constructor) to sorted order. */
     std::vector<unsigned> m_original_to_sorted;
+    /** Mapping back from sorted order to the order given to the constructor. */
     std::vector<unsigned> m_sorted_to_original;
 
 public:
+    /** Get sorted cluster object. */
     const Cluster<S>& GetCluster() const noexcept { return m_sorted_cluster; }
+    /** Get ancestor set (using sorted order indexing) */
     const S& GetAncestorSet(unsigned pos) const noexcept { return m_ancestorsets[pos]; }
+    /** Get descendant set (using sorted order indexing) */
     const S& GetDescendantSet(unsigned pos) const noexcept { return m_descendantsets[pos]; }
 
+    /** Given a set with indexes in original order, compute one in sorted order. */
     S OriginalToSorted(const S& val) const noexcept
     {
         S ret;
@@ -608,6 +668,7 @@ public:
         return ret;
     }
 
+    /** Given a set with indexes in sorted order, compute on in original order. */
     S SortedToOriginal(const S& val) const noexcept
     {
         S ret;
@@ -618,6 +679,7 @@ public:
         return ret;
     }
 
+    /** Construct a sorted cluster object given a (non-sorted) cluster as input. */
     SortedCluster(const Cluster<S>& cluster)
     {
         // Allocate vectors.
@@ -647,6 +709,7 @@ public:
     }
 };
 
+/** Given a cluster and its ancestor sets, find the one with the highest feerate. */
 template<typename S>
 std::pair<S, FeeAndSize> FindBestAncestorSet(const Cluster<S>& cluster, const AncestorSets<S>& anc, const S& done)
 {
@@ -654,7 +717,8 @@ std::pair<S, FeeAndSize> FindBestAncestorSet(const Cluster<S>& cluster, const An
     S best_set;
 
     for (size_t i = 0; i < cluster.size(); ++i) {
-        FeeAndSize feerate = ComputeSetFeeRate(cluster, anc[i]);
+        if (done[i]) continue;
+        FeeAndSize feerate = ComputeSetFeeRate(cluster, anc[i] / done);
         if (i == 0 || FeeRateBetter(feerate, best_feerate)) {
             best_feerate = feerate;
             best_set = anc[i];
@@ -679,38 +743,56 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const SortedCluster<S>& sc
 
     CandidateSetAnalysis<S> ret;
 
+    // Compute "all" set, with all the cluster's transaction.
     S all;
-    for (unsigned i = 0; i < cluster.size(); ++i) {
-        all.Set(i);
-    }
+    for (unsigned i = 0; i < cluster.size(); ++i) all.Set(i);
 
     S best_candidate;
     FeeAndSize best_feerate;
 
+    // Internal add function: given inc/exc, inc's feerate, and whether inc can possibly be a new
+    // best (inc_changed), add an item to the work queue and perform other bookkeeping.
     auto add_fn = [&](S inc, S exc, FeeAndSize inc_feerate, bool inc_changed) {
+        // In the loop below, we do two things simultaneously:
+        // - compute the pot_feerate for the queue item.
+        // - perform "jump ahead", which may add additional transactions to inc
+        /** The new potential feerate. */
         FeeAndSize pot_feerate = inc_feerate;
-        S satisfied = inc;
+        /** The set of transactions corresponding to that potential feerate. */
+        S pot = inc;
+        /** The set of ancestors of everything in pot, combined. */
         S required;
+        // Loop over all undecided transactions (not yet included or excluded), from high to low feerate.
         auto undecided{(all / (inc | exc)).OneBits()};
         while (undecided) {
             unsigned pos = undecided.Pop();
-            bool to_add = pot_feerate.IsEmpty();
-            if (!to_add) {
+            // Determine if adding transaction pos to pot (ignoring topology) would improve it. If not,
+            // we're done updating pot/pot_feerate (and inc/inc_feerate).
+            if (!pot_feerate.IsEmpty()) {
                 ++ret.comparisons;
                 if (!JustFeeRateBetter(cluster[pos].first, pot_feerate)) break;
             }
+            // Add the transaction to pot/pot_feerate.
             pot_feerate += cluster[pos].first;
-            satisfied.Set(pos);
+            pot.Set(pos);
+            // Update the combined ancestors of pot.
             required |= scluster.GetAncestorSet(pos);
-            if ((required / satisfied).None()) {
-                inc = satisfied;
+            // If at this point pot covers all its own ancestors, it means pot is topologically
+            // valid. Perform jump ahead (update inc/inc_feerate to match pot/pot_feerate).
+            if ((required / pot).None()) {
+                inc = pot;
                 inc_feerate = pot_feerate;
                 inc_changed = true;
             }
         }
 
+        // If the potential feerate is nothing, this is certainly uninteresting to work on.
         if (pot_feerate.IsEmpty()) return;
+
+        // If inc is different from inc of the parent work item that spawned it, consider whether
+        // it's the new best we've seen.
         if (inc_changed) {
+            ++ret.num_candidate_sets;
             assert(!inc_feerate.IsEmpty());
             bool new_best = best_feerate.IsEmpty();
             if (!new_best) {
@@ -722,41 +804,48 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const SortedCluster<S>& sc
                 best_candidate = inc;
             }
         }
+
+        // Only if there are undecided transaction left besides inc and exc actually add it to the
+        // queue.
         if ((all / (inc | exc)).Any()) {
             queue.emplace_back(inc, exc, inc_feerate, pot_feerate);
             ret.max_queue_size = std::max(ret.max_queue_size, queue.size());
         }
     };
 
+    // Start by adding a work queue item corresponding to just what's done beforehand.
     add_fn(scluster.OriginalToSorted(done), S{}, FeeAndSize{}, false);
 
+    // Work processing loop.
     while (queue.size()) {
         ++ret.iterations;
 
-/*
-        size_t rand = GLOBAL_RNG() % queue.size();
-        if (rand) {
-            std::swap(*(queue.end() - 1), *(queue.end() - 1 - rand));
-        }
-*/
-
+        // Pop the last element of the queue.
         auto [inc, exc, inc_feerate, pot_feerate] = queue.back();
         queue.pop_back();
+
+        // If this item's potential feerate is worse than the best seen so far, drop it.
         assert(pot_feerate.bytes > 0);
         if (!best_feerate.IsEmpty()) {
             ++ret.comparisons;
             if (FeeRateBetterOrEqual(best_feerate, pot_feerate)) continue;
         }
 
+        // Decide which transaction to split on (highest undecidedindividual feerate one left).
         auto undecided{(all / (inc | exc)).OneBits()};
         assert(!!undecided);
         unsigned pos = undecided.Pop();
+
+        // Consider adding a work item corresponding to that transaction excluded.
         add_fn(inc, exc | scluster.GetDescendantSet(pos), inc_feerate, false);
+
+        // Consider adding a work item corresponding to that transaction included.
         auto new_inc = inc | scluster.GetAncestorSet(pos);
         auto new_inc_feerate = inc_feerate + ComputeSetFeeRate(cluster, new_inc / inc);
         add_fn(new_inc, exc, new_inc_feerate, true);
     }
 
+    // Translate the best found candidate to the old sort order and return.
     ret.best_candidate_set = scluster.SortedToOriginal(best_candidate) / done;
     ret.best_candidate_feerate = best_feerate;
     return ret;
@@ -860,9 +949,11 @@ FUZZ_TARGET(clustermempool_exhaustive_equals_naive)
 {
     FuzzedDataProvider provider(buffer.data(), buffer.size());
 
+    // Read cluster from fuzzer.
     Cluster<BitSet> cluster = FuzzReadCluster<BitSet>(provider, /*only_complete=*/true);
-
+    // Compute ancestor sets.
     AncestorSets anc(cluster);
+    // Find a topologically (but not necessarily connect) subset to set as "done" already.
     BitSet done;
     for (size_t i = 0; i < cluster.size(); ++i) {
         if (provider.ConsumeBool()) {
@@ -870,12 +961,21 @@ FUZZ_TARGET(clustermempool_exhaustive_equals_naive)
         }
     }
 
+    // Run both algorithms.
     auto ret_naive = FindBestCandidateSetNaive(cluster, done);
     auto ret_exhaustive = FindBestCandidateSetExhaustive(cluster, anc, done);
 
+    // Compute number of candidate sets and best feerate of found result.
     assert(ret_exhaustive.num_candidate_sets == ret_naive.num_candidate_sets);
     assert(ret_exhaustive.best_candidate_feerate.sats == ret_naive.best_candidate_feerate.sats);
     assert(ret_exhaustive.best_candidate_feerate.bytes == ret_naive.best_candidate_feerate.bytes);
+
+    // We cannot require that the actual candidate returned is identical, because there may be
+    // multiple, and the algorithms iterate in different order. Instead, recompute the feerate of
+    // the candidate returned by the exhaustive one and check that it matches the claimed value.
+    auto feerate_exhaustive = ComputeSetFeeRate(cluster, ret_exhaustive.best_candidate_set);
+    assert(feerate_exhaustive.sats == ret_exhaustive.best_candidate_feerate.sats);
+    assert(feerate_exhaustive.bytes == ret_exhaustive.best_candidate_feerate.bytes);
 }
 
 FUZZ_TARGET(clustermempool_efficient_equals_exhaustive)
@@ -892,23 +992,16 @@ FUZZ_TARGET(clustermempool_efficient_equals_exhaustive)
         }
     }
 
-
     SortedCluster<BitSet> scluster(cluster);
 
     auto ret_exhaustive = FindBestCandidateSetExhaustive(cluster, anc, done);
     auto ret_efficient = FindBestCandidateSetEfficient(scluster, done);
-
-    if ((ret_exhaustive.best_candidate_feerate.sats != ret_efficient.best_candidate_feerate.sats) ||
-        (ret_exhaustive.best_candidate_feerate.bytes != ret_efficient.best_candidate_feerate.bytes)) {
-
-        std::cerr << "CLUSTER=" << cluster << " DONE=" << done << std::endl;
-        std::cerr << "- SCLUSTER: CLUSTER=" << scluster.GetCluster() << " DONE=" << scluster.OriginalToSorted(done) << std::endl;    
-        std::cerr << "- EXHAUSTIVE: " << ret_exhaustive.best_candidate_set << " " << ret_exhaustive.best_candidate_feerate << std::endl;
-        std::cerr << "- EFFICIENT:  " << ret_efficient.best_candidate_set << " " << ret_efficient.best_candidate_feerate << std::endl;
-    }
+    auto feerate_efficient = ComputeSetFeeRate(cluster, ret_efficient.best_candidate_set);
 
     assert(ret_exhaustive.best_candidate_feerate.sats == ret_efficient.best_candidate_feerate.sats);
     assert(ret_exhaustive.best_candidate_feerate.bytes == ret_efficient.best_candidate_feerate.bytes);
+    assert(feerate_efficient.sats == ret_exhaustive.best_candidate_feerate.sats);
+    assert(feerate_efficient.bytes == ret_exhaustive.best_candidate_feerate.bytes);
 }
 
 FUZZ_TARGET(clustermempool_efficient_equals_exhaustive_nodone)
