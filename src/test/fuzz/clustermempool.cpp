@@ -18,6 +18,12 @@
 
 namespace {
 
+std::ostream& operator<<(std::ostream& o, const FeeAndSize& data)
+{
+    o << "(" << data.sats << "/" << data.bytes << "=" << ((double)data.sats / data.bytes) << ")";
+    return o;
+}
+
 /** Union-Find data structure. */
 template<typename SizeType, SizeType Size>
 class UnionFind
@@ -70,7 +76,7 @@ std::ostream& operator<<(std::ostream& s, const IntBitSet<I>& bs)
 {
     s << "[";
     size_t cnt = 0;
-    for (size_t i = 0; i < MAX_SIZE; ++i) {
+    for (size_t i = 0; i < bs.MAX_SIZE; ++i) {
         if (bs[i]) {
             if (cnt) s << ",";
             ++cnt;
@@ -86,7 +92,7 @@ std::ostream& operator<<(std::ostream& s, const MultiIntBitSet<I, N>& bs)
 {
     s << "[";
     size_t cnt = 0;
-    for (size_t i = 0; i < MAX_SIZE; ++i) {
+    for (size_t i = 0; i < bs.MAX_SIZE; ++i) {
         if (bs[i]) {
             if (cnt) s << ",";
             ++cnt;
