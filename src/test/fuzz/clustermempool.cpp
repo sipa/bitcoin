@@ -29,12 +29,12 @@ int inline CountTrailingZeroes(I v)
     constexpr auto digits_u = std::numeric_limits<unsigned>::digits;
     constexpr auto digits_ul = std::numeric_limits<unsigned long>::digits;
     constexpr auto digits_ull = std::numeric_limits<unsigned long long>::digits;
-    if constexpr (digits >= digits_u) {
+    if constexpr (digits <= digits_u) {
         return __builtin_ctz(v);
-    } else if constexpr (digits >= digits_ul) {
+    } else if constexpr (digits <= digits_ul) {
         return __builtin_ctzl(v);
     } else {
-        static_assert(digits >= digits_ull);
+        static_assert(digits <= digits_ull);
         return __builtin_ctzll(v);
     }
 }
@@ -827,17 +827,20 @@ FUZZ_TARGET(clustermempool_efficient_equals_exhaustive)
         }
     }
 
-//    std::cerr << "CLUSTER=" << cluster << " DONE=" << done << std::endl;
 
     SortedCluster<BitSet> scluster(cluster);
-
-//    std::cerr << "- SCLUSTER: CLUSTER=" << scluster.GetCluster() << " DONE=" << scluster.OriginalToSorted(done) << std::endl;
 
     auto ret_exhaustive = FindBestCandidateSetExhaustive(cluster, anc, done);
     auto ret_efficient = FindBestCandidateSetEfficient(scluster, done);
 
-//    std::cerr << "- EXHAUSTIVE: " << ret_exhaustive.best_candidate_set << " " << ret_exhaustive.best_candidate_feerate << std::endl;
-//    std::cerr << "- EFFICIENT:  " << ret_efficient.best_candidate_set << " " << ret_efficient.best_candidate_feerate << std::endl;
+    if ((ret_exhaustive.best_candidate_feerate.sats != ret_efficient.best_candidate_feerate.sats) ||
+        (ret_exhaustive.best_candidate_feerate.bytes != ret_efficient.best_candidate_feerate.bytes)) {
+
+        std::cerr << "CLUSTER=" << cluster << " DONE=" << done << std::endl;
+        std::cerr << "- SCLUSTER: CLUSTER=" << scluster.GetCluster() << " DONE=" << scluster.OriginalToSorted(done) << std::endl;    
+        std::cerr << "- EXHAUSTIVE: " << ret_exhaustive.best_candidate_set << " " << ret_exhaustive.best_candidate_feerate << std::endl;
+        std::cerr << "- EFFICIENT:  " << ret_efficient.best_candidate_set << " " << ret_efficient.best_candidate_feerate << std::endl;
+    }
 
     assert(ret_exhaustive.best_candidate_feerate.sats == ret_efficient.best_candidate_feerate.sats);
     assert(ret_exhaustive.best_candidate_feerate.bytes == ret_efficient.best_candidate_feerate.bytes);
