@@ -218,7 +218,7 @@ class IntBitSet
     };
 
 public:
-    static const unsigned SIZE = std::numeric_limits<I>::digits;
+    static constexpr unsigned SIZE = std::numeric_limits<I>::digits;
 
     IntBitSet() noexcept : m_val{0} {}
     IntBitSet(const IntBitSet&) noexcept = default;
@@ -238,6 +238,71 @@ public:
     friend bool operator==(const IntBitSet& a, const IntBitSet& b) { return a.m_val == b.m_val; }
 
     friend std::ostream& operator<<(std::ostream& s, const IntBitSet& bs)
+    {
+        s << "[";
+        size_t cnt = 0;
+        for (size_t i = 0; i < SIZE; ++i) {
+            if (bs[i]) {
+                if (cnt) s << ",";
+                ++cnt;
+                s << i;
+            }
+        }
+        s << "]";
+        return s;
+    }
+};
+
+/** A bitset implementation backed by N integers of type I. */
+template<typename I, unsigned N>
+class MultiIntBitSet
+{
+    static_assert(std::is_integral_v<I> && std::is_unsigned_v<I> && std::numeric_limits<I>::radix == 2);
+    static constexpr unsigned LIMB_BITS = std::numeric_limits<I>::digits;
+
+    std::array<I, N> m_val;
+
+    class BitPopper
+    {
+        std::array<I, N> m_val;
+        mutable unsigned m_idx;
+        friend class MultiIntBitSet;
+        BitPopper(const std::array<I, N>& val) : m_val(val) {}
+        void Advance() const { while (m_idx < N && m_val[m_idx] == 0) ++m_idx; }
+
+    public:
+        explicit operator bool() const { Advance(); return m_idx < N; }
+
+        unsigned Pop()
+        {
+            Advance();
+            int ret = CountTrailingZeroes(m_val[m_idx]);
+            m_val[m_idx] &= m_val[m_idx] - I{1U};
+            return ret + m_idx * LIMB_BITS;
+        }
+    };
+
+public:
+    static constexpr unsigned SIZE = LIMB_BITS * N;
+
+    MultiIntBitSet() noexcept : m_val{} {}
+    MultiIntBitSet(const MultiIntBitSet&) noexcept = default;
+    MultiIntBitSet& operator=(const MultiIntBitSet&) noexcept = default;
+
+    void Set(unsigned pos) noexcept { m_val[pos / LIMB_BITS] |= I{1U} << (pos % LIMB_BITS); }
+    bool operator[](unsigned pos) const noexcept { return (m_val[pos / LIMB_BITS] >> (pos % LIMB_BITS)) & 1U; }
+    bool None() const noexcept { for (auto v : m_val) { if (v != 0) return false; } return true; }
+    bool Any() const noexcept { for (auto v : m_val) { if (v != 0) return true; } return false; }
+    BitPopper OneBits() const { return BitPopper(m_val); }
+    MultiIntBitSet& operator|=(const MultiIntBitSet& a) { for (unsigned i = 0; i < N; ++i) { m_val[i] |= a.m_val[i]; } return *this; }
+    friend MultiIntBitSet operator&(const MultiIntBitSet& a, const MultiIntBitSet& b) { MultiIntBitSet r; for (unsigned i = 0; i < N; ++i) { r.m_val[i] = a.m_val[i] & b.m_val[i]; } return r; }
+    friend MultiIntBitSet operator|(const MultiIntBitSet& a, const MultiIntBitSet& b) { MultiIntBitSet r; for (unsigned i = 0; i < N; ++i) { r.m_val[i] = a.m_val[i] | b.m_val[i]; } return r; }
+    friend MultiIntBitSet operator/(const MultiIntBitSet& a, const MultiIntBitSet& b) { MultiIntBitSet r; for (unsigned i = 0; i < N; ++i) { r.m_val[i] = a.m_val[i] & ~b.m_val[i]; } return r; }
+    friend bool operator<(const MultiIntBitSet& a, const MultiIntBitSet& b) { return a.m_val < b.m_val; }
+    friend bool operator!=(const MultiIntBitSet& a, const MultiIntBitSet& b) { return a.m_val != b.m_val; }
+    friend bool operator==(const MultiIntBitSet& a, const MultiIntBitSet& b) { return a.m_val == b.m_val; }
+
+    friend std::ostream& operator<<(std::ostream& s, const MultiIntBitSet& bs)
     {
         s << "[";
         size_t cnt = 0;
@@ -732,7 +797,7 @@ FullLinearizationStats LinearizeClusterEfficient(const Cluster<S>& cluster)
     return ret;
 }
 
-using BitSet = IntBitSet<uint64_t>;
+using BitSet = MultiIntBitSet<uint64_t, 2>;
 
 /*
 #define ROTL(x, b) (uint64_t)(((x) << (b)) | ((x) >> (64 - (b))))
