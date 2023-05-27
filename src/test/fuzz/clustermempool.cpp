@@ -118,18 +118,39 @@ std::ostream& operator<<(std::ostream& o, const Cluster<S>& cluster)
 
 /** Load a Cluster from fuzz provider. */
 template<typename S>
-Cluster<S> FuzzReadCluster(FuzzedDataProvider& provider, bool only_complete)
+Cluster<S> FuzzReadCluster(FuzzedDataProvider& provider, bool only_complete, bool no_values, bool permute)
 {
+    std::vector<unsigned> permutation;
     Cluster<S> ret;
     while (ret.size() < S::MAX_SIZE && provider.remaining_bytes()) {
-        if (only_complete && provider.remaining_bytes() < 4U + ret.size()) break;
-        uint64_t sats = provider.ConsumeIntegralInRange<uint32_t>(0, 0xFFFF);
-        uint32_t bytes = provider.ConsumeIntegralInRange<uint32_t>(1, 0x10000);
+        if (only_complete && provider.remaining_bytes() < (no_values ? 0U : 4U) + (permute && ret.size()) + ret.size()) break;
+        uint64_t sats = no_values ? ret.size() : provider.ConsumeIntegralInRange<uint32_t>(0, 0xFFFF);
+        uint32_t bytes = no_values ? 1U : provider.ConsumeIntegralInRange<uint32_t>(1, 0x10000);
         S deps;
         for (size_t i = 0; i < ret.size(); ++i) {
             if (provider.ConsumeBool()) deps.Set(i);
         }
         ret.emplace_back(FeeAndSize{sats, bytes}, std::move(deps));
+        if (permute) {
+            unsigned location = ret.size() > 1 ? provider.ConsumeIntegralInRange<unsigned>(0, ret.size() - 1) : 0;
+            permutation.emplace_back(ret.size() - 1);
+            if (location != ret.size() - 1) {
+                std::swap(permutation[location], permutation.back());
+                std::swap(ret[location], ret.back());
+            }
+        }
+    }
+
+    if (permute) {
+        for (auto& entry : ret) {
+            S parents;
+            for (size_t i = 0; i < permutation.size(); ++i) {
+                if (entry.second[permutation[i]]) {
+                    parents.Set(i);
+                }
+            }
+            entry.second = parents;
+        }
     }
     return ret;
 }
@@ -272,7 +293,7 @@ FUZZ_TARGET(clustermempool_exhaustive_equals_naive)
     FuzzedDataProvider provider(buffer.data(), buffer.size());
 
     // Read cluster from fuzzer.
-    Cluster<BitSet> cluster = FuzzReadCluster<BitSet>(provider, /*only_complete=*/true);
+    Cluster<BitSet> cluster = FuzzReadCluster<BitSet>(provider, /*only_complete=*/true, /*no_values=*/false, /*permute=*/false);
     // Compute ancestor sets.
     AncestorSets anc(cluster);
     // Find a topologically (but not necessarily connect) subset to set as "done" already.
@@ -303,7 +324,7 @@ FUZZ_TARGET(clustermempool_efficient_equals_exhaustive)
     FuzzedDataProvider provider(buffer.data(), buffer.size());
 
     // Read cluster from fuzzer.
-    Cluster<BitSet> cluster = FuzzReadCluster<BitSet>(provider, /*only_complete=*/true);
+    Cluster<BitSet> cluster = FuzzReadCluster<BitSet>(provider, /*only_complete=*/true, /*no_values=*/false, /*permute=*/false);
     // Compute ancestor sets.
     AncestorSets anc(cluster);
 
@@ -342,7 +363,7 @@ FUZZ_TARGET(clustermempool_linearize)
 {
     FuzzedDataProvider provider(buffer.data(), buffer.size());
 
-    Cluster<BitSet> cluster = FuzzReadCluster<BitSet>(provider, /*only_complete=*/false);
+    Cluster<BitSet> cluster = FuzzReadCluster<BitSet>(provider, /*only_complete=*/false, /*no_values=*/false, /*permute=*/false);
 
     BitSet all;
     for (unsigned i = 0; i < cluster.size(); ++i) all.Set(i);
@@ -372,4 +393,33 @@ FUZZ_TARGET(clustermempool_linearize)
     assert(satisfied == all);
 
     std::cerr << "LINEARIZE(" << cluster.size() << ") time=" << duration /*<< " iters=" << stats.iterations << " time/iters=" << (duration / stats.iterations) << " comps=" << stats.comparisons << " time/comps=" << (duration / stats.comparisons)*/ << std::endl;
+}
+
+FUZZ_TARGET(clustermempool_ancestorset)
+{
+    FuzzedDataProvider provider(buffer.data(), buffer.size());
+
+    Cluster<BitSet> cluster = FuzzReadCluster<BitSet>(provider, /*only_complete=*/true, /*no_values=*/true, /*permute=*/true);
+
+/*    std::cerr << "CLUSTER " << cluster << std::endl;*/
+
+    AncestorSets<BitSet> anc(cluster);
+
+    for (unsigned i = 0; i < cluster.size(); ++i) {
+        BitSet ancs{cluster[i].second}; // Start with direct parents.
+        assert(!ancs[i]); // Transaction cannot have themself as parent.
+        // Add existing ancestors' parents until set no longer changes.
+        while (true) {
+            BitSet next_ancs = ancs;
+            auto todo{ancs.Elements()};
+            while (todo) {
+                next_ancs |= cluster[todo.Next()].second;
+            }
+            if (next_ancs == ancs) break;
+            ancs = next_ancs;
+        }
+        assert(!ancs[i]); // No cycles allowed.
+        ancs.Set(i);
+        assert(anc[i] == ancs); // Compare against AncestorSets output.
+    }
 }
