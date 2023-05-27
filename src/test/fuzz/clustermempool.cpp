@@ -284,7 +284,8 @@ CandidateSetAnalysis<S> FindBestCandidateSetExhaustive(const Cluster<S>& cluster
     return ret;
 }
 
-using BitSet = MultiIntBitSet<uint64_t, 2>;
+/*using BitSet = MultiIntBitSet<uint64_t, 2>;*/
+using BitSet = IntBitSet<uint64_t>;
 
 } // namespace
 

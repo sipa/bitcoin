@@ -529,8 +529,8 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
     FeeAndSize best_feerate;
 
     // Internal add function: given inc/exc, inc's feerate, and whether inc can possibly be a new
-    // best (inc_changed), add an item to the work queue and perform other bookkeeping.
-    auto add_fn = [&](S inc, S exc, FeeAndSize inc_feerate, bool inc_changed) {
+    // best seen so far, add an item to the work queue and perform other bookkeeping.
+    auto add_fn = [&](S inc, S exc, FeeAndSize inc_feerate, bool inc_may_be_best) {
         // In the loop below, we do two things simultaneously:
         // - compute the pot_feerate for the new queue item.
         // - perform "jump ahead", which may add additional transactions to inc
@@ -560,7 +560,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
             if ((pot_ancestors / pot).None()) {
                 inc = pot;
                 inc_feerate = pot_feerate;
-                inc_changed = true;
+                inc_may_be_best = true;
             }
         }
 
@@ -569,7 +569,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
 
         // If inc is different from inc of the parent work item that spawned it, consider whether
         // it's the new best we've seen.
-        if (inc_changed) {
+        if (inc_may_be_best) {
             ++ret.num_candidate_sets;
             assert(!inc_feerate.IsEmpty());
             bool new_best = best_feerate.IsEmpty();
@@ -617,13 +617,18 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         assert(!!undecided);
         unsigned pos = undecided.Next();
 
-        // Consider adding a work item corresponding to that transaction excluded.
+        // Consider adding a work item corresponding to that transaction excluded. As nothing is
+        // being added to inc, this new entry cannot be a new best.
         add_fn(inc, exc | desc[pos], inc_feerate, false);
 
-        // Consider adding a work item corresponding to that transaction included.
+        // Consider adding a work item corresponding to that transaction included. Since only
+        // connected subgraphs can be optimal candidates, if there is no overlap between the
+        // parent's included transactions (inc) and the ancestors of the newly added transaction
+        // (outside of done), we know it cannot possibly be the new best.
         auto new_inc = inc | anc[pos];
         auto new_inc_feerate = inc_feerate + ComputeSetFeeRate(cluster, new_inc / inc);
-        add_fn(new_inc, exc, new_inc_feerate, true);
+        bool may_be_new_best = ((inc & anc[pos]) / done).Any();
+        add_fn(new_inc, exc, new_inc_feerate, may_be_new_best);
     }
 
     // Return.
