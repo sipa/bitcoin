@@ -393,6 +393,8 @@ struct CandidateSetAnalysis
     S best_candidate_set{};
     /** Fee and size of best found candidate set. */
     FeeAndSize best_candidate_feerate{};
+    /** Index of the chosen transaction (ancestor set algorithm only). */
+    unsigned chosen_transaction{0};
 
     /** Maximum search queue size. */
     size_t max_queue_size{0};
@@ -475,8 +477,6 @@ struct SortedCluster
 template<typename S>
 CandidateSetAnalysis<S> FindBestAncestorSet(const Cluster<S>& cluster, const AncestorSets<S>& anc, const S& done)
 {
-    FeeAndSize best_feerate;
-    S best_set;
     CandidateSetAnalysis<S> ret;
     ret.max_queue_size = 1;
 
@@ -484,21 +484,20 @@ CandidateSetAnalysis<S> FindBestAncestorSet(const Cluster<S>& cluster, const Anc
         if (done[i]) continue;
         ++ret.iterations;
         ++ret.num_candidate_sets;
-        FeeAndSize feerate = ComputeSetFeeRate(cluster, anc[i] / done);
+        S candidate_set = anc[i] / done;
+        FeeAndSize feerate = ComputeSetFeeRate(cluster, candidate_set);
         assert(!feerate.IsEmpty());
-        bool new_best = best_feerate.IsEmpty();
+        bool new_best = ret.best_candidate_feerate.IsEmpty();
         if (!new_best) {
             ++ret.comparisons;
-            new_best = FeeRateBetter(feerate, best_feerate);
+            new_best = FeeRateBetter(feerate, ret.best_candidate_feerate);
         }
         if (new_best) {
-            best_feerate = feerate;
-            best_set = anc[i];
+            ret.best_candidate_feerate = feerate;
+            ret.best_candidate_set = candidate_set;
+            ret.chosen_transaction = i;
         }
     }
-
-    ret.best_candidate_set = best_set / done;
-    ret.best_candidate_feerate = best_feerate;
 
     return ret;
 }
@@ -524,6 +523,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
     // Compute "all" set, with all the cluster's transaction.
     S all;
     for (unsigned i = 0; i < cluster.size(); ++i) all.Set(i);
+    if (done == all) return ret;
 
     S best_candidate;
     FeeAndSize best_feerate;
@@ -532,7 +532,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
     // best (inc_changed), add an item to the work queue and perform other bookkeeping.
     auto add_fn = [&](S inc, S exc, FeeAndSize inc_feerate, bool inc_changed) {
         // In the loop below, we do two things simultaneously:
-        // - compute the pot_feerate for the queue item.
+        // - compute the pot_feerate for the new queue item.
         // - perform "jump ahead", which may add additional transactions to inc
         /** The new potential feerate. */
         FeeAndSize pot_feerate = inc_feerate;
@@ -583,7 +583,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
             }
         }
 
-        // Only if there are undecided transaction left besides inc and exc actually add it to the
+        // Only if there are undecided transactions left besides inc and exc actually add it to the
         // queue.
         if ((all / (inc | exc)).Any()) {
             queue.emplace_back(inc, exc, inc_feerate, pot_feerate);
@@ -591,8 +591,11 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         }
     };
 
-    // Start by adding a work queue item corresponding to just what's done beforehand.
-    add_fn(done, S{}, FeeAndSize{}, false);
+    // Find best ancestor set to seed the search. Add a queue item corresponding to the transaction
+    // with the highest ancestor set feerate excluded, and one with it included.
+    auto ret_ancestor = FindBestAncestorSet(cluster, anc, done);
+    add_fn(done, desc[ret_ancestor.chosen_transaction], {}, false);
+    add_fn(done | ret_ancestor.best_candidate_set, {}, ret_ancestor.best_candidate_feerate, true);
 
     // Work processing loop.
     while (queue.size()) {
@@ -609,7 +612,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
             if (FeeRateBetterOrEqual(best_feerate, pot_feerate)) continue;
         }
 
-        // Decide which transaction to split on (highest undecidedindividual feerate one left).
+        // Decide which transaction to split on (highest undecided individual feerate one left).
         auto undecided{(all / (inc | exc)).Elements()};
         assert(!!undecided);
         unsigned pos = undecided.Next();
