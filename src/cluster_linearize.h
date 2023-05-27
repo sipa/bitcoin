@@ -333,23 +333,17 @@ public:
             m_ancestorsets[i].Set(i);
         }
 
-        // Compute transitive closure of "merge your ancestors' ancestors into your
-        // ancestor set".
-        bool changed;
-        do {
-            changed = false;
-            for (size_t i = 0; i < cluster.size(); ++i) {
-                for (size_t dep = 0; dep < cluster.size(); ++dep) {
-                    if (i != dep && m_ancestorsets[i][dep]) {
-                        S merged = m_ancestorsets[i] | m_ancestorsets[dep];
-                        if (merged != m_ancestorsets[i]) {
-                            changed = true;
-                            m_ancestorsets[i] = merged;
-                        }
-                    }
+        // Propagate
+        for (unsigned i = 0; i < cluster.size(); ++i) {
+            // At this point, m_ancestorsets[a][b] is true iff b is an ancestor of a and there is
+            // a path from a to b through the subgraph consisting of {a, b} union {0..(i-1)}.
+            S to_merge = m_ancestorsets[i];
+            for (unsigned j = 0; j < cluster.size(); ++j) {
+                if (m_ancestorsets[j][i]) {
+                    m_ancestorsets[j] |= to_merge;
                 }
             }
-        } while(changed);
+        }
     }
 
     AncestorSets() noexcept = default;
