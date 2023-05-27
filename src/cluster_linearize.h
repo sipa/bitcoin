@@ -625,6 +625,10 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         // connected subgraphs can be optimal candidates, if there is no overlap between the
         // parent's included transactions (inc) and the ancestors of the newly added transaction
         // (outside of done), we know it cannot possibly be the new best.
+        // One exception to this is the first addition after an empty inc (inc=done). However,
+        // due to the preseeding with the best ancestor set, we know that anything better must
+        // necessarily consist of the union of at least two ancestor sets, and this is not a
+        // concern.
         auto new_inc = inc | anc[pos];
         auto new_inc_feerate = inc_feerate + ComputeSetFeeRate(cluster, new_inc / inc);
         bool may_be_new_best = ((inc & anc[pos]) / done).Any();
