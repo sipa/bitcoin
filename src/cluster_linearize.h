@@ -613,8 +613,22 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         }
 
         // Decide which transaction to split on (highest undecided individual feerate one left).
+/*        unsigned pos;
+        bool ok_pos = false;
+        for (int iter = inc == done; iter < 2; iter++) {
+            auto undecided{(all / (inc | exc)).Elements()};
+            while (true) {
+                pos = undecided.Next();
+                if (iter == 1 || ((anc[pos] & inc) / done).Any()) {
+                    ok_pos = true;
+                    break;
+                }
+                if (!undecided) break;
+            }
+            if (ok_pos) break;
+        }
+        assert(ok_pos);*/
         auto undecided{(all / (inc | exc)).Elements()};
-        assert(!!undecided);
         unsigned pos = undecided.Next();
 
         // Consider adding a work item corresponding to that transaction excluded. As nothing is

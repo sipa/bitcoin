@@ -424,3 +424,164 @@ FUZZ_TARGET(clustermempool_ancestorset)
         assert(anc[i] == ancs); // Compare against AncestorSets output.
     }
 }
+
+FUZZ_TARGET(clustermempool_efficient_limits)
+{
+    FuzzedDataProvider provider(buffer.data(), buffer.size());
+
+    Cluster<BitSet> cluster = FuzzReadCluster<BitSet>(provider, /*only_complete=*/false, /*no_values=*/false, /*permute=*/false);
+
+    BitSet all;
+    for (unsigned i = 0; i < cluster.size(); ++i) all.Set(i);
+    if (!IsConnectedSubset(cluster, all)) return;
+
+    SortedCluster<BitSet> sorted_cluster(cluster);
+    AncestorSets<BitSet> anc(sorted_cluster.cluster);
+    DescendantSets<BitSet> desc(anc);
+
+    struct Stats
+    {
+        size_t cluster_left;
+        size_t iterations;
+        size_t comparisons;
+        size_t max_queue_size;
+        size_t tot_iterations{0};
+        size_t tot_comparisons{0};
+        Stats(size_t left, size_t iters, size_t comps, size_t qs) : cluster_left{left}, iterations{iters}, comparisons{comps}, max_queue_size{qs} {}
+    };
+    std::vector<Stats> stats;
+    stats.reserve(cluster.size());
+
+    BitSet done;
+    while (done != all) {
+        auto ret = FindBestCandidateSetEfficient(sorted_cluster.cluster, anc, desc, done);
+
+        // Sanity checks
+        // - claimed feerate matches
+        auto feerate = ComputeSetFeeRate(sorted_cluster.cluster, ret.best_candidate_set);
+        assert(feerate == ret.best_candidate_feerate);
+        // - topologically consistent
+        BitSet merged_ancestors = done;
+        auto todo{ret.best_candidate_set.Elements()};
+        while (todo) {
+            merged_ancestors |= anc[todo.Next()];
+        }
+        assert((done | ret.best_candidate_set) == merged_ancestors);
+        // - if small enough, matches exhaustive search feerate
+        unsigned left = (all / done).Count();
+        if (left <= 10) {
+            auto ret_exhaustive = FindBestCandidateSetExhaustive(sorted_cluster.cluster, anc, done);
+            assert(ret_exhaustive.best_candidate_feerate == ret.best_candidate_feerate);
+        }
+
+        // Update statistics.
+        stats.emplace_back(/*left=*/left, /*iters=*/ret.iterations, /*comps=*/ret.comparisons, /*qs=*/ret.max_queue_size);
+
+        // Update done to include added candidate.
+        done |= ret.best_candidate_set;
+    }
+
+    size_t cumul_iterations{0}, cumul_comparisons{0};
+    for (auto it = stats.rbegin(); it != stats.rend(); ++it) {
+        cumul_iterations += it->iterations;
+        it->tot_iterations = cumul_iterations;
+        cumul_comparisons += it->comparisons;
+        it->tot_comparisons = cumul_comparisons;
+    }
+
+    static std::array<std::pair<size_t, long>, BitSet::MAX_SIZE+1> COMPS;
+    static std::array<std::pair<size_t, long>, BitSet::MAX_SIZE+1> ITERS;
+    static std::array<std::pair<size_t, long>, BitSet::MAX_SIZE+1> QUEUE;
+    static std::array<std::pair<size_t, long>, BitSet::MAX_SIZE+1> TOT_COMPS;
+    static std::array<std::pair<size_t, long>, BitSet::MAX_SIZE+1> TOT_ITERS;
+
+    bool comps_updated{false}, iters_updated{false}, queue_updated{false}, tot_comps_updated{false}, tot_iters_updated{false};
+    for (const auto& entry : stats) {
+        std::pair<size_t, long> iters_key{entry.iterations, -cluster.size()};
+        if (iters_key > ITERS[entry.cluster_left]) {
+            ITERS[entry.cluster_left] = iters_key;
+            iters_updated = true;
+        }
+        std::pair<size_t, long> comps_key{entry.comparisons, -cluster.size()};
+        if (comps_key > COMPS[entry.cluster_left]) {
+            COMPS[entry.cluster_left] = comps_key;
+            comps_updated = true;
+        }
+        std::pair<size_t, long> queue_key{entry.max_queue_size, -cluster.size()};
+        if (queue_key > QUEUE[entry.cluster_left]) {
+            QUEUE[entry.cluster_left] = queue_key;
+            queue_updated = true;
+        }
+        std::pair<size_t, long> tot_iters_key{entry.tot_iterations, -cluster.size()};
+        if (tot_iters_key > TOT_ITERS[entry.cluster_left]) {
+            TOT_ITERS[entry.cluster_left] = tot_iters_key;
+            tot_iters_updated = true;
+        }
+        std::pair<size_t, long> tot_comps_key{entry.tot_comparisons, -cluster.size()};
+        if (tot_comps_key > TOT_COMPS[entry.cluster_left]) {
+            TOT_COMPS[entry.cluster_left] = tot_comps_key;
+            tot_comps_updated = true;
+        }
+    }
+
+    bool do_save{false};
+
+    if (iters_updated) {
+        std::cerr << "ITERS:";
+        for (size_t i = 0; i <= BitSet::MAX_SIZE; ++i) {
+            if (ITERS[i].first) {
+                std::cerr << " " << i << ":" << ITERS[i].first;
+            }
+        }
+        std::cerr << std::endl;
+        do_save = true;
+    }
+
+    if (comps_updated) {
+        std::cerr << "COMPS:";
+        for (size_t i = 0; i <= BitSet::MAX_SIZE; ++i) {
+            if (COMPS[i].first) {
+                std::cerr << " " << i << ":" << COMPS[i].first;
+            }
+        }
+        std::cerr << std::endl;
+        do_save = true;
+    }
+
+    if (queue_updated) {
+        std::cerr << "QUEUE:";
+        for (size_t i = 0; i <= BitSet::MAX_SIZE; ++i) {
+            if (QUEUE[i].first) {
+                std::cerr << " " << i << ":" << QUEUE[i].first;
+            }
+        }
+        std::cerr << std::endl;
+        do_save = true;
+    }
+
+    if (tot_iters_updated) {
+        std::cerr << "TOT_ITERS:";
+        for (size_t i = 0; i <= BitSet::MAX_SIZE; ++i) {
+            if (TOT_ITERS[i].first) {
+                std::cerr << " " << i << ":" << TOT_ITERS[i].first;
+            }
+        }
+        std::cerr << std::endl;
+        do_save = true;
+    }
+
+    if (tot_comps_updated) {
+        std::cerr << "TOT_COMPS:";
+        for (size_t i = 0; i <= BitSet::MAX_SIZE; ++i) {
+            if (TOT_COMPS[i].first) {
+                std::cerr << " " << i << ":" << TOT_COMPS[i].first;
+            }
+        }
+        std::cerr << std::endl;
+        do_save = true;
+    }
+
+    if (do_save) {
+        FuzzSave(buffer);
+    }
+}
