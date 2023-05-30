@@ -85,6 +85,13 @@ struct FeeAndSize
         bytes += other.bytes;
     }
 
+    /** Subtrack size and bytes of another FeeAndSize from this one. */
+    void operator-=(const FeeAndSize& other)
+    {
+        sats -= other.sats;
+        bytes -= other.bytes;
+    }
+
     friend FeeAndSize operator+(const FeeAndSize& a, const FeeAndSize& b)
     {
         return FeeAndSize{a.sats + b.sats, a.bytes + b.bytes};
@@ -355,7 +362,6 @@ public:
     const S& operator[](unsigned pos) const noexcept { return m_ancestorsets[pos]; }
     size_t Size() const noexcept { return m_ancestorsets.size(); }
 };
-
 /** Precomputation data structure with all descendant sets of a cluster. */
 template<typename S>
 class DescendantSets
@@ -416,6 +422,35 @@ FeeAndSize ComputeSetFeeRate(const Cluster<S>& cluster, const S& select)
     return ret;
 }
 
+/** Precomputed ancestor feerates. */
+template<typename S>
+class AncestorSetFeerates
+{
+    std::vector<FeeAndSize> m_anc_feerates;
+    S m_done;
+
+public:
+    explicit AncestorSetFeerates(const Cluster<S>& cluster, const AncestorSets<S>& anc, const S& done) noexcept
+    {
+        m_done = done;
+        m_anc_feerates.resize(cluster.size());
+        for (unsigned i = 0; i < cluster.size(); ++i) {
+            m_anc_feerates[i] = ComputeSetFeeRate(cluster, anc[i] / done);
+        }
+    }
+
+    void Done(const Cluster<S>& cluster, const AncestorSets<S>& anc, const S& done) noexcept
+    {
+        S new_done = done / m_done;
+        m_done |= done;
+        for (unsigned i = 0; i < cluster.size(); ++i) {
+            m_anc_feerates[i] -= ComputeSetFeeRate(cluster, anc[i] & new_done);
+        }
+    }
+
+    const FeeAndSize& operator[](unsigned i) const noexcept { return m_anc_feerates[i]; }
+};
+
 /** Precomputation data structure for sorting a cluster based on individual feerate. */
 template<typename S>
 struct SortedCluster
@@ -475,7 +510,7 @@ struct SortedCluster
 
 /** Given a cluster and its ancestor sets, find the one with the highest feerate. */
 template<typename S>
-CandidateSetAnalysis<S> FindBestAncestorSet(const Cluster<S>& cluster, const AncestorSets<S>& anc, const S& done)
+CandidateSetAnalysis<S> FindBestAncestorSet(const Cluster<S>& cluster, const AncestorSets<S>& anc, const AncestorSetFeerates<S>& anc_feerates, const S& done)
 {
     CandidateSetAnalysis<S> ret;
     ret.max_queue_size = 1;
@@ -484,8 +519,7 @@ CandidateSetAnalysis<S> FindBestAncestorSet(const Cluster<S>& cluster, const Anc
         if (done[i]) continue;
         ++ret.iterations;
         ++ret.num_candidate_sets;
-        S candidate_set = anc[i] / done;
-        FeeAndSize feerate = ComputeSetFeeRate(cluster, candidate_set);
+        FeeAndSize feerate = anc_feerates[i];
         assert(!feerate.IsEmpty());
         bool new_best = ret.best_candidate_feerate.IsEmpty();
         if (!new_best) {
@@ -494,7 +528,7 @@ CandidateSetAnalysis<S> FindBestAncestorSet(const Cluster<S>& cluster, const Anc
         }
         if (new_best) {
             ret.best_candidate_feerate = feerate;
-            ret.best_candidate_set = candidate_set;
+            ret.best_candidate_set = anc[i] / done;
             ret.chosen_transaction = i;
         }
     }
@@ -508,7 +542,7 @@ CandidateSetAnalysis<S> FindBestAncestorSet(const Cluster<S>& cluster, const Anc
  * the same indexing as cluster.
  */
 template<typename S>
-CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster, const AncestorSets<S>& anc, const DescendantSets<S>& desc, const S& done)
+CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster, const AncestorSets<S>& anc, const DescendantSets<S>& desc, const AncestorSetFeerates<S>& anc_feerates, const S& done)
 {
     // Queue of work units. Each consists of:
     // - inc: bitset of transactions definitely included (always includes done)
@@ -593,7 +627,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
 
     // Find best ancestor set to seed the search. Add a queue item corresponding to the transaction
     // with the highest ancestor set feerate excluded, and one with it included.
-    auto ret_ancestor = FindBestAncestorSet(cluster, anc, done);
+    auto ret_ancestor = FindBestAncestorSet(cluster, anc, anc_feerates, done);
     add_fn(done, desc[ret_ancestor.chosen_transaction], {}, false);
     add_fn(done | ret_ancestor.best_candidate_set, {}, ret_ancestor.best_candidate_feerate, true);
 
@@ -654,13 +688,18 @@ std::vector<unsigned> LinearizeCluster(const Cluster<S>& cluster)
     SortedCluster<S> scluster(cluster);
     AncestorSets<S> anc(scluster.cluster);
     DescendantSets<S> desc(anc);
+    std::vector<unsigned> anccount(cluster.size(), 0);
+    for (unsigned i = 0; i < cluster.size(); ++i) {
+        anccount[i] = anc[i].Count();
+    }
+    AncestorSetFeerates anc_feerates(scluster.cluster, anc, done);
 
     while (left > 0) {
         CandidateSetAnalysis<S> analysis;
         if (left > 10) {
-            analysis = FindBestAncestorSet(scluster.cluster, anc, done);
+            analysis = FindBestAncestorSet(scluster.cluster, anc, anc_feerates, done);
         } else {
-            analysis = FindBestCandidateSetEfficient(scluster.cluster, anc, desc, done);
+            analysis = FindBestCandidateSetEfficient(scluster.cluster, anc, desc, anc_feerates, done);
         }
         assert(!analysis.best_candidate_set.None());
         assert((analysis.best_candidate_set & done).None());
@@ -670,8 +709,9 @@ std::vector<unsigned> LinearizeCluster(const Cluster<S>& cluster)
             ret.emplace_back(to_set.Next());
         }
         std::sort(ret.begin() + old_size, ret.end(), [&](unsigned a, unsigned b) {
-            return anc[a].Count() < anc[b].Count();
+            return anccount[a] < anccount[b];
         });
+        anc_feerates.Done(scluster.cluster, anc, analysis.best_candidate_set);
         done |= analysis.best_candidate_set;
         left -= analysis.best_candidate_set.Count();
     }

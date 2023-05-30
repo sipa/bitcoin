@@ -311,10 +311,10 @@ void SerializeNumber(uint64_t val, Fn&& putbyte)
     }
 }
 
-template<typename Fn, typename T>
+template<typename Fn, typename S>
 Cluster<S> DeserializeCluster(Fn&& getbyte)
 {
-    Cluster<T> ret;
+    Cluster<S> ret;
     while (true) {
         uint32_t bytes = DeserializeNumber(getbyte) & 0x3fffff; /* Just above 4000000 */
         if (bytes == 0) break;
@@ -325,7 +325,7 @@ Cluster<S> DeserializeCluster(Fn&& getbyte)
             if (b == 0) break;
             parents.Set(ret.size() - b);
         }
-        if (ret.size() < T::MAX_SIZE) {
+        if (ret.size() < S::MAX_SIZE) {
             ret.emplace_back(FeeAndSize{sats, bytes}, std::move(parents));
         }
     }
@@ -438,10 +438,12 @@ FUZZ_TARGET(clustermempool_efficient_equals_exhaustive)
     DescendantSets<BitSet> desc_sorted(anc_sorted);
     // Convert done to sorted ordering.
     BitSet done_sorted = cluster_sorted.OriginalToSorted(done);
+    // Precompute ancestor set feerates in sorted ordering.
+    AncestorSetFeerates<BitSet> anc_sorted_feerate(cluster_sorted.cluster, anc_sorted, done_sorted);
 
     // Run both algorithms.
     auto ret_exhaustive = FindBestCandidateSetExhaustive(cluster, anc, done);
-    auto ret_efficient = FindBestCandidateSetEfficient(cluster_sorted.cluster, anc_sorted, desc_sorted, done_sorted);
+    auto ret_efficient = FindBestCandidateSetEfficient(cluster_sorted.cluster, anc_sorted, desc_sorted, anc_sorted_feerate, done_sorted);
 
     // Compare best found feerates.
     assert(ret_exhaustive.best_candidate_feerate == ret_efficient.best_candidate_feerate);
@@ -545,6 +547,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
     SortedCluster<BitSet> sorted_cluster(cluster);
     AncestorSets<BitSet> anc(sorted_cluster.cluster);
     DescendantSets<BitSet> desc(anc);
+    AncestorSetFeerates<BitSet> anc_feerates(sorted_cluster.cluster, anc, {});
 
     struct Stats
     {
@@ -561,7 +564,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
 
     BitSet done;
     while (done != all) {
-        auto ret = FindBestCandidateSetEfficient(sorted_cluster.cluster, anc, desc, done);
+        auto ret = FindBestCandidateSetEfficient(sorted_cluster.cluster, anc, desc, anc_feerates, done);
 
         // Sanity checks
         // - claimed feerate matches
@@ -586,6 +589,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
 
         // Update done to include added candidate.
         done |= ret.best_candidate_set;
+        anc_feerates.Done(sorted_cluster.cluster, anc, ret.best_candidate_set);
     }
 
     size_t cumul_iterations{0}, cumul_comparisons{0};
