@@ -284,8 +284,101 @@ CandidateSetAnalysis<S> FindBestCandidateSetExhaustive(const Cluster<S>& cluster
     return ret;
 }
 
+template<typename Fn>
+uint64_t DeserializeNumber(Fn&& getbyte)
+{
+    uint64_t ret{0};
+    for (int i = 0; i < 10; ++i) {
+        uint8_t b = getbyte();
+        ret |= ((uint64_t)(b & uint8_t{0x7F})) << (7 * i);
+        if ((b & 0x80) == 0) break;
+    }
+    return ret;
+}
+
+template<typename Fn>
+void SerializeNumber(uint64_t val, Fn&& putbyte)
+{
+    for (int i = 0; i < 10; ++i) {
+        uint8_t b = (val >> (7 * i)) & 0x7F;
+        val &= ~(uint64_t{0x7F} << (7 * i));
+        if (val) {
+            putbyte(b | 0x80);
+        } else {
+            putbyte(b);
+            break;
+        }
+    }
+}
+
+template<typename Fn, typename T>
+Cluster<S> DeserializeCluster(Fn&& getbyte)
+{
+    Cluster<T> ret;
+    while (true) {
+        uint32_t bytes = DeserializeNumber(getbyte) & 0x3fffff; /* Just above 4000000 */
+        if (bytes == 0) break;
+        uint64_t sats = DeserializeNumber(getbyte) & 0x7ffffffffffff; /* Just above 21000000 * 100000000 */
+        S parents;
+        while (true) {
+            uint8_t b = getbyte() % (ret.size() + 1);
+            if (b == 0) break;
+            parents.Set(ret.size() - b);
+        }
+        if (ret.size() < T::MAX_SIZE) {
+            ret.emplace_back(FeeAndSize{sats, bytes}, std::move(parents));
+        }
+    }
+    return ret;
+}
+
+template<typename T, unsigned N>
+class KeepBest
+{
+    static_assert(N >= 1);
+    unsigned m_count{0};
+    T m_vals[N]; /* m_vals[0]=best m_vals[1..m_count-1]=minheap of the rest */
+
+public:
+    KeepBest() = default;
+    bool Any() const { return m_count > 0; }
+    const T& Best() const { return m_vals[0]; }
+
+    bool Add(T&& arg)
+    {
+        if (m_count == 0) {
+            m_vals[0] = std::move(arg);
+            ++m_count;
+            return true;
+        }
+        bool ret = false;
+        if (arg > m_vals[0]) {
+            std::swap(arg, m_vals[0]);
+            ret = true;
+        }
+        if constexpr (N > 1) {
+            if (m_count < N) {
+                m_vals[m_count] = std::move(arg);
+                ++m_count;
+                if (m_count == N) {
+                    std::make_heap(std::begin(m_vals) + 1, std::end(m_vals), std::greater<T>{});
+                }
+                return true;
+            }
+            if (arg > m_vals[1]) {
+                std::pop_heap(std::begin(m_vals) + 1, std::end(m_vals), std::greater<T>{});
+                m_vals[N - 1] = std::move(arg);
+                std::push_heap(std::begin(m_vals) + 1, std::end(m_vals), std::greater<T>{});
+                return true;
+            }
+        }
+        return ret;
+    }
+};
+
 /*using BitSet = MultiIntBitSet<uint64_t, 2>;*/
 using BitSet = IntBitSet<uint64_t>;
+
 
 } // namespace
 
@@ -425,6 +518,20 @@ FUZZ_TARGET(clustermempool_ancestorset)
     }
 }
 
+struct StatEntry
+{
+    uint64_t stat;
+    size_t cluster_size;
+};
+
+bool operator>(const StatEntry& a, const StatEntry& b) {
+    if (a.stat > b.stat) return true;
+    if (a.stat < b.stat) return false;
+    if (a.cluster_size > b.cluster_size) return false;
+    if (a.cluster_size < b.cluster_size) return true;
+    return false;
+}
+
 FUZZ_TARGET(clustermempool_efficient_limits)
 {
     FuzzedDataProvider provider(buffer.data(), buffer.size());
@@ -489,39 +596,23 @@ FUZZ_TARGET(clustermempool_efficient_limits)
         it->tot_comparisons = cumul_comparisons;
     }
 
-    static std::array<std::pair<size_t, long>, BitSet::MAX_SIZE+1> COMPS;
-    static std::array<std::pair<size_t, long>, BitSet::MAX_SIZE+1> ITERS;
-    static std::array<std::pair<size_t, long>, BitSet::MAX_SIZE+1> QUEUE;
-    static std::array<std::pair<size_t, long>, BitSet::MAX_SIZE+1> TOT_COMPS;
-    static std::array<std::pair<size_t, long>, BitSet::MAX_SIZE+1> TOT_ITERS;
+
+    using BestStats = KeepBest<StatEntry, 1>;
+
+    static std::array<BestStats, BitSet::MAX_SIZE+1> COMPS;
+    static std::array<BestStats, BitSet::MAX_SIZE+1> ITERS;
+    static std::array<BestStats, BitSet::MAX_SIZE+1> QUEUE;
+    static std::array<BestStats, BitSet::MAX_SIZE+1> TOT_COMPS;
+    static std::array<BestStats, BitSet::MAX_SIZE+1> TOT_ITERS;
 
     bool comps_updated{false}, iters_updated{false}, queue_updated{false}, tot_comps_updated{false}, tot_iters_updated{false};
+
     for (const auto& entry : stats) {
-        std::pair<size_t, long> iters_key{entry.iterations, -cluster.size()};
-        if (iters_key > ITERS[entry.cluster_left]) {
-            ITERS[entry.cluster_left] = iters_key;
-            iters_updated = true;
-        }
-        std::pair<size_t, long> comps_key{entry.comparisons, -cluster.size()};
-        if (comps_key > COMPS[entry.cluster_left]) {
-            COMPS[entry.cluster_left] = comps_key;
-            comps_updated = true;
-        }
-        std::pair<size_t, long> queue_key{entry.max_queue_size, -cluster.size()};
-        if (queue_key > QUEUE[entry.cluster_left]) {
-            QUEUE[entry.cluster_left] = queue_key;
-            queue_updated = true;
-        }
-        std::pair<size_t, long> tot_iters_key{entry.tot_iterations, -cluster.size()};
-        if (tot_iters_key > TOT_ITERS[entry.cluster_left]) {
-            TOT_ITERS[entry.cluster_left] = tot_iters_key;
-            tot_iters_updated = true;
-        }
-        std::pair<size_t, long> tot_comps_key{entry.tot_comparisons, -cluster.size()};
-        if (tot_comps_key > TOT_COMPS[entry.cluster_left]) {
-            TOT_COMPS[entry.cluster_left] = tot_comps_key;
-            tot_comps_updated = true;
-        }
+        if (COMPS[entry.cluster_left].Add(StatEntry{entry.comparisons, cluster.size()})) comps_updated = true;
+        if (ITERS[entry.cluster_left].Add(StatEntry{entry.iterations, cluster.size()})) iters_updated = true;
+        if (QUEUE[entry.cluster_left].Add(StatEntry{entry.max_queue_size, cluster.size()})) queue_updated = true;
+        if (TOT_COMPS[entry.cluster_left].Add(StatEntry{entry.tot_comparisons, cluster.size()})) tot_comps_updated = true;
+        if (TOT_ITERS[entry.cluster_left].Add(StatEntry{entry.tot_iterations, cluster.size()})) tot_iters_updated = true;
     }
 
     bool do_save{false};
@@ -529,8 +620,8 @@ FUZZ_TARGET(clustermempool_efficient_limits)
     if (iters_updated) {
         std::cerr << "ITERS:";
         for (size_t i = 0; i <= BitSet::MAX_SIZE; ++i) {
-            if (ITERS[i].first) {
-                std::cerr << " " << i << ":" << ITERS[i].first;
+            if (ITERS[i].Any()) {
+                std::cerr << " " << i << ":" << ITERS[i].Best().stat;
             }
         }
         std::cerr << std::endl;
@@ -540,8 +631,8 @@ FUZZ_TARGET(clustermempool_efficient_limits)
     if (comps_updated) {
         std::cerr << "COMPS:";
         for (size_t i = 0; i <= BitSet::MAX_SIZE; ++i) {
-            if (COMPS[i].first) {
-                std::cerr << " " << i << ":" << COMPS[i].first;
+            if (COMPS[i].Any()) {
+                std::cerr << " " << i << ":" << COMPS[i].Best().stat;
             }
         }
         std::cerr << std::endl;
@@ -551,8 +642,8 @@ FUZZ_TARGET(clustermempool_efficient_limits)
     if (queue_updated) {
         std::cerr << "QUEUE:";
         for (size_t i = 0; i <= BitSet::MAX_SIZE; ++i) {
-            if (QUEUE[i].first) {
-                std::cerr << " " << i << ":" << QUEUE[i].first;
+            if (QUEUE[i].Any()) {
+                std::cerr << " " << i << ":" << QUEUE[i].Best().stat;
             }
         }
         std::cerr << std::endl;
@@ -562,8 +653,8 @@ FUZZ_TARGET(clustermempool_efficient_limits)
     if (tot_iters_updated) {
         std::cerr << "TOT_ITERS:";
         for (size_t i = 0; i <= BitSet::MAX_SIZE; ++i) {
-            if (TOT_ITERS[i].first) {
-                std::cerr << " " << i << ":" << TOT_ITERS[i].first;
+            if (TOT_ITERS[i].Any()) {
+                std::cerr << " " << i << ":" << TOT_ITERS[i].Best().stat;
             }
         }
         std::cerr << std::endl;
@@ -573,8 +664,8 @@ FUZZ_TARGET(clustermempool_efficient_limits)
     if (tot_comps_updated) {
         std::cerr << "TOT_COMPS:";
         for (size_t i = 0; i <= BitSet::MAX_SIZE; ++i) {
-            if (TOT_COMPS[i].first) {
-                std::cerr << " " << i << ":" << TOT_COMPS[i].first;
+            if (TOT_COMPS[i].Any()) {
+                std::cerr << " " << i << ":" << TOT_COMPS[i].Best().stat;
             }
         }
         std::cerr << std::endl;
