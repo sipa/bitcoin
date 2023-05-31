@@ -7,6 +7,7 @@
 
 #include <vector>
 
+#include <crypto/siphash.h>
 #include <cluster_linearize.h>
 #include <test/fuzz/fuzz.h>
 #include <test/fuzz/FuzzedDataProvider.h>
@@ -114,45 +115,6 @@ std::ostream& operator<<(std::ostream& o, const Cluster<S>& cluster)
     }
     o << "}";
     return o;
-}
-
-/** Load a Cluster from fuzz provider. */
-template<typename S>
-Cluster<S> FuzzReadCluster(FuzzedDataProvider& provider, bool only_complete, bool no_values, bool permute)
-{
-    std::vector<unsigned> permutation;
-    Cluster<S> ret;
-    while (ret.size() < S::MAX_SIZE && provider.remaining_bytes()) {
-        if (only_complete && provider.remaining_bytes() < (no_values ? 0U : 4U) + (permute && ret.size()) + ret.size()) break;
-        uint64_t sats = no_values ? ret.size() : provider.ConsumeIntegralInRange<uint32_t>(0, 0xFFFF);
-        uint32_t bytes = no_values ? 1U : provider.ConsumeIntegralInRange<uint32_t>(1, 0x10000);
-        S deps;
-        for (size_t i = 0; i < ret.size(); ++i) {
-            if (provider.ConsumeBool()) deps.Set(i);
-        }
-        ret.emplace_back(FeeAndSize{sats, bytes}, std::move(deps));
-        if (permute) {
-            unsigned location = ret.size() > 1 ? provider.ConsumeIntegralInRange<unsigned>(0, ret.size() - 1) : 0;
-            permutation.emplace_back(ret.size() - 1);
-            if (location != ret.size() - 1) {
-                std::swap(permutation[location], permutation.back());
-                std::swap(ret[location], ret.back());
-            }
-        }
-    }
-
-    if (permute) {
-        for (auto& entry : ret) {
-            S parents;
-            for (size_t i = 0; i < permutation.size(); ++i) {
-                if (entry.second[permutation[i]]) {
-                    parents.Set(i);
-                }
-            }
-            entry.second = parents;
-        }
-    }
-    return ret;
 }
 
 /** Determine if select is a connected subset in the given cluster. */
@@ -311,7 +273,7 @@ void SerializeNumber(uint64_t val, Fn&& putbyte)
     }
 }
 
-template<typename Fn, typename S>
+template<typename S, typename Fn>
 Cluster<S> DeserializeCluster(Fn&& getbyte)
 {
     Cluster<S> ret;
@@ -330,6 +292,134 @@ Cluster<S> DeserializeCluster(Fn&& getbyte)
         }
     }
     return ret;
+}
+
+template<typename S>
+Cluster<S> DecodeCluster(Span<const unsigned char>& data)
+{
+    size_t pos = 0;
+    auto getbyte = [&]() -> uint8_t {
+        if (pos < data.size()) {
+            return data[pos++];
+        } else {
+            return 0;
+        }
+    };
+    auto ret = DeserializeCluster<S>(getbyte);
+    data = data.subspan(pos);
+    return ret;
+}
+
+template<typename S>
+S DecodeDone(Span<const unsigned char>& data, const AncestorSets<S>& ancs)
+{
+    S ret;
+    while (!data.empty()) {
+        uint8_t val = data[0] % (ancs.Size() + 1);
+        data = data.subspan(1);
+        if (val == 0) break;
+        ret |= ancs[ancs.Size() - val];
+    }
+    return ret;
+}
+
+template<typename Fn, typename S>
+void SerializeCluster(const Cluster<S>& cluster, Fn&& putbyte)
+{
+    for (unsigned i = 0; i < cluster.size(); ++i) {
+        SerializeNumber(cluster[i].first.bytes, putbyte);
+        SerializeNumber(cluster[i].first.sats, putbyte);
+        for (unsigned j = 0; j < i; ++j) {
+            if (cluster[i].second[i - 1 - j]) {
+                putbyte(j + 1);
+            }
+        }
+        putbyte(uint8_t{0});
+    }
+    putbyte(uint8_t{0});
+}
+
+template<typename S>
+std::vector<unsigned char> EncodeCluster(const Cluster<S>& cluster)
+{
+    std::vector<unsigned char> ret;
+    auto putbyte = [&](uint8_t val) { ret.emplace_back(val); };
+    SerializeCluster(cluster, putbyte);
+    return ret;
+}
+
+/** Minimize the set of parents of every cluster transaction, without changing ancestry. */
+template<typename S>
+void WeedCluster(Cluster<S>& cluster, const AncestorSets<S>& ancs)
+{
+    std::vector<std::pair<unsigned, unsigned>> mapping(cluster.size());
+    for (unsigned i = 0; i < cluster.size(); ++i) {
+        mapping[i] = {ancs[i].Count(), i};
+    }
+    std::sort(mapping.begin(), mapping.end());
+    for (unsigned i = 0; i < cluster.size(); ++i) {
+        const auto& [_anc_count, idx] = mapping[i];
+        S parents;
+        S cover;
+        cover.Set(idx);
+        for (unsigned j = 0; j < i; ++j) {
+            const auto& [_anc_count_j, idx_j] = mapping[i - 1 - j];
+            if (ancs[idx][idx_j] && !cover[idx_j]) {
+                parents.Set(idx_j);
+                cover |= ancs[idx_j];
+            }
+        }
+        assert(cover == ancs[idx]);
+        cluster[idx].second = std::move(parents);
+    }
+}
+
+/** Construct a new cluster with done removed from a given cluster.
+ *
+ * The result is also topologically sorted, first including a highest individual-feerate
+ * transaction among those whose dependencies are satisfied. */
+template<typename S>
+Cluster<S> TruncateCluster(const Cluster<S>& cluster, S done)
+{
+    Cluster<S> ret;
+    std::vector<unsigned> mapping;
+    while (true) {
+        std::optional<std::pair<FeeAndSize, unsigned>> best;
+        for (unsigned i = 0; i < cluster.size(); ++i) {
+            if (done[i]) continue;
+            if ((cluster[i].second / done).Any()) continue;
+            std::pair<FeeAndSize, unsigned> key{cluster[i].first, i};
+            if (!best.has_value() ||
+                FeeRateBetter(key.first, best->first) ||
+                (key.first == best->first && key.second < best->second)) {
+                best = key;
+            }
+        }
+        if (!best.has_value()) break;
+        const unsigned idx = best->second;
+        done.Set(idx);
+        mapping.push_back(idx);
+        S parents;
+        for (unsigned i = 0; i < mapping.size(); ++i) {
+            unsigned idx_i = mapping[i];
+            if (cluster[idx].second[idx_i]) parents.Set(i);
+        }
+        ret.emplace_back(cluster[idx].first, parents);
+    }
+    return ret;
+}
+
+template<typename S>
+bool IsTopologicallyOrdered(const Cluster<S>& cluster)
+{
+    for (unsigned i = 0; i < cluster.size(); ++i) {
+        auto todo{cluster[i].second.Elements()};
+        while (todo) {
+            unsigned pos = todo.Next();
+            if (pos >= i) return false;
+        }
+    }
+    return true;
 }
 
 template<typename T, unsigned N>
@@ -384,19 +474,14 @@ using BitSet = IntBitSet<uint64_t>;
 
 FUZZ_TARGET(clustermempool_exhaustive_equals_naive)
 {
-    FuzzedDataProvider provider(buffer.data(), buffer.size());
-
     // Read cluster from fuzzer.
-    Cluster<BitSet> cluster = FuzzReadCluster<BitSet>(provider, /*only_complete=*/true, /*no_values=*/false, /*permute=*/false);
+    Cluster<BitSet> cluster = DecodeCluster<BitSet>(buffer);
+    if (cluster.size() > 15) return;
+
     // Compute ancestor sets.
     AncestorSets anc(cluster);
     // Find a topologically (but not necessarily connect) subset to set as "done" already.
-    BitSet done;
-    for (size_t i = 0; i < cluster.size(); ++i) {
-        if (provider.ConsumeBool()) {
-            done |= anc[i];
-        }
-    }
+    BitSet done = DecodeDone(buffer, anc);
 
     // Run both algorithms.
     auto ret_naive = FindBestCandidateSetNaive(cluster, done);
@@ -418,17 +503,13 @@ FUZZ_TARGET(clustermempool_efficient_equals_exhaustive)
     FuzzedDataProvider provider(buffer.data(), buffer.size());
 
     // Read cluster from fuzzer.
-    Cluster<BitSet> cluster = FuzzReadCluster<BitSet>(provider, /*only_complete=*/true, /*no_values=*/false, /*permute=*/false);
+    Cluster<BitSet> cluster = DecodeCluster<BitSet>(buffer);
+    if (cluster.size() > 20) return;
     // Compute ancestor sets.
     AncestorSets anc(cluster);
 
     // Find a topologically (but not necessarily connected) subset to set as "done" already.
-    BitSet done;
-    for (size_t i = 0; i < cluster.size(); ++i) {
-        if (provider.ConsumeBool()) {
-            done |= anc[i];
-        }
-    }
+    BitSet done = DecodeDone<BitSet>(buffer, anc);
 
     // Sort the cluster by individual feerate.
     SortedCluster<BitSet> cluster_sorted(cluster);
@@ -457,12 +538,9 @@ FUZZ_TARGET(clustermempool_efficient_equals_exhaustive)
 
 FUZZ_TARGET(clustermempool_linearize)
 {
-    FuzzedDataProvider provider(buffer.data(), buffer.size());
+    Cluster<BitSet> cluster = DecodeCluster<BitSet>(buffer);
 
-    Cluster<BitSet> cluster = FuzzReadCluster<BitSet>(provider, /*only_complete=*/false, /*no_values=*/false, /*permute=*/false);
-
-    BitSet all;
-    for (unsigned i = 0; i < cluster.size(); ++i) all.Set(i);
+    BitSet all = BitSet::Full(cluster.size());
     if (!IsConnectedSubset(cluster, all)) return;
 
     std::vector<std::pair<double, std::vector<unsigned>>> results;
@@ -493,23 +571,22 @@ FUZZ_TARGET(clustermempool_linearize)
 
 FUZZ_TARGET(clustermempool_ancestorset)
 {
-    FuzzedDataProvider provider(buffer.data(), buffer.size());
-
-    Cluster<BitSet> cluster = FuzzReadCluster<BitSet>(provider, /*only_complete=*/true, /*no_values=*/true, /*permute=*/true);
+    Cluster<BitSet> cluster = DecodeCluster<BitSet>(buffer);
+    SortedCluster<BitSet> sorted(cluster);
 
 /*    std::cerr << "CLUSTER " << cluster << std::endl;*/
 
-    AncestorSets<BitSet> anc(cluster);
+    AncestorSets<BitSet> anc(sorted.cluster);
 
     for (unsigned i = 0; i < cluster.size(); ++i) {
-        BitSet ancs{cluster[i].second}; // Start with direct parents.
+        BitSet ancs{sorted.cluster[i].second}; // Start with direct parents.
         assert(!ancs[i]); // Transaction cannot have themself as parent.
         // Add existing ancestors' parents until set no longer changes.
         while (true) {
             BitSet next_ancs = ancs;
             auto todo{ancs.Elements()};
             while (todo) {
-                next_ancs |= cluster[todo.Next()].second;
+                next_ancs |= sorted.cluster[todo.Next()].second;
             }
             if (next_ancs == ancs) break;
             ancs = next_ancs;
@@ -534,30 +611,81 @@ bool operator>(const StatEntry& a, const StatEntry& b) {
     return false;
 }
 
+FUZZ_TARGET(clustermempool_encoding_roundtrip)
+{
+    Cluster<BitSet> cluster = DecodeCluster<BitSet>(buffer);
+    std::vector<unsigned char> encoded = EncodeCluster(cluster);
+    encoded.pop_back();
+    Span<const unsigned char> span(encoded);
+    Cluster<BitSet> cluster2 = DecodeCluster<BitSet>(span);
+    assert(cluster == cluster2);
+}
+
+FUZZ_TARGET(clustermempool_weedcluster)
+{
+    Cluster<BitSet> cluster = DecodeCluster<BitSet>(buffer);
+    AncestorSets<BitSet> anc(cluster);
+    WeedCluster(cluster, anc);
+    AncestorSets<BitSet> anc_weed(cluster);
+    for (unsigned i = 0; i < cluster.size(); ++i) {
+        assert(anc[i] == anc_weed[i]);
+    }
+}
+
+FUZZ_TARGET(clustermempool_truncate)
+{
+    Cluster<BitSet> cluster = DecodeCluster<BitSet>(buffer);
+    if (cluster.size() > 15) return;
+
+    BitSet all = BitSet::Full(cluster.size());
+    if (!IsConnectedSubset(cluster, all)) return;
+
+    SortedCluster<BitSet> sorted(cluster);
+    AncestorSets<BitSet> anc(sorted.cluster);
+
+    BitSet done;
+
+    for (unsigned i = 0; i < cluster.size(); ++i) {
+        if (buffer.empty()) break;
+        if (buffer[0] & 1) {
+            done |= anc[i];
+        }
+        buffer = buffer.subspan(1);
+    }
+
+    auto ret1 = FindBestCandidateSetExhaustive(sorted.cluster, anc, done);
+    WeedCluster(sorted.cluster, anc);
+    Cluster<BitSet> trunc = TruncateCluster(sorted.cluster, done);
+    assert(IsTopologicallyOrdered(trunc));
+    AncestorSets<BitSet> trunc_anc(trunc);
+    auto ret2 = FindBestCandidateSetExhaustive(trunc, trunc_anc, {});
+    assert(ret1.num_candidate_sets == ret2.num_candidate_sets);
+    assert(ret1.best_candidate_feerate == ret2.best_candidate_feerate);
+}
+
 FUZZ_TARGET(clustermempool_efficient_limits)
 {
-    FuzzedDataProvider provider(buffer.data(), buffer.size());
+    Cluster<BitSet> cluster = DecodeCluster<BitSet>(buffer);
+    if (cluster.size() > 20) return;
 
-    Cluster<BitSet> cluster = FuzzReadCluster<BitSet>(provider, /*only_complete=*/false, /*no_values=*/false, /*permute=*/false);
-
-    BitSet all;
-    for (unsigned i = 0; i < cluster.size(); ++i) all.Set(i);
+    BitSet all = BitSet::Full(cluster.size());
     if (!IsConnectedSubset(cluster, all)) return;
 
     SortedCluster<BitSet> sorted_cluster(cluster);
     AncestorSets<BitSet> anc(sorted_cluster.cluster);
     DescendantSets<BitSet> desc(anc);
     AncestorSetFeerates<BitSet> anc_feerates(sorted_cluster.cluster, anc, {});
+    WeedCluster(sorted_cluster.cluster, anc);
 
     struct Stats
     {
+        BitSet done;
         size_t cluster_left;
         size_t iterations;
         size_t comparisons;
         size_t max_queue_size;
         size_t tot_iterations{0};
         size_t tot_comparisons{0};
-        Stats(size_t left, size_t iters, size_t comps, size_t qs) : cluster_left{left}, iterations{iters}, comparisons{comps}, max_queue_size{qs} {}
     };
     std::vector<Stats> stats;
     stats.reserve(cluster.size());
@@ -585,7 +713,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
         }
 
         // Update statistics.
-        stats.emplace_back(/*left=*/left, /*iters=*/ret.iterations, /*comps=*/ret.comparisons, /*qs=*/ret.max_queue_size);
+        stats.push_back({done, left, ret.iterations, ret.comparisons, ret.max_queue_size, 0, 0});
 
         // Update done to include added candidate.
         done |= ret.best_candidate_set;
@@ -612,14 +740,19 @@ FUZZ_TARGET(clustermempool_efficient_limits)
     bool comps_updated{false}, iters_updated{false}, queue_updated{false}, tot_comps_updated{false}, tot_iters_updated{false};
 
     for (const auto& entry : stats) {
-        if (COMPS[entry.cluster_left].Add(StatEntry{entry.comparisons, cluster.size()})) comps_updated = true;
-        if (ITERS[entry.cluster_left].Add(StatEntry{entry.iterations, cluster.size()})) iters_updated = true;
-        if (QUEUE[entry.cluster_left].Add(StatEntry{entry.max_queue_size, cluster.size()})) queue_updated = true;
-        if (TOT_COMPS[entry.cluster_left].Add(StatEntry{entry.tot_comparisons, cluster.size()})) tot_comps_updated = true;
-        if (TOT_ITERS[entry.cluster_left].Add(StatEntry{entry.tot_iterations, cluster.size()})) tot_iters_updated = true;
+        bool do_save = false;
+        if (COMPS[entry.cluster_left].Add(StatEntry{entry.comparisons, cluster.size()})) do_save = comps_updated = true;
+        if (ITERS[entry.cluster_left].Add(StatEntry{entry.iterations, cluster.size()})) do_save = iters_updated = true;
+        if (QUEUE[entry.cluster_left].Add(StatEntry{entry.max_queue_size, cluster.size()})) do_save = queue_updated = true;
+        if (TOT_COMPS[entry.cluster_left].Add(StatEntry{entry.tot_comparisons, cluster.size()})) do_save = tot_comps_updated = true;
+        if (TOT_ITERS[entry.cluster_left].Add(StatEntry{entry.tot_iterations, cluster.size()})) do_save = tot_iters_updated = true;
+        if (do_save) {
+            auto trunc = TruncateCluster(sorted_cluster.cluster, entry.done);
+            auto enc = EncodeCluster(trunc);
+            enc.pop_back();
+            FuzzSave(enc);
+        }
     }
-
-    bool do_save{false};
 
     if (iters_updated) {
         std::cerr << "ITERS:";
@@ -629,7 +762,6 @@ FUZZ_TARGET(clustermempool_efficient_limits)
             }
         }
         std::cerr << std::endl;
-        do_save = true;
     }
 
     if (comps_updated) {
@@ -640,7 +772,6 @@ FUZZ_TARGET(clustermempool_efficient_limits)
             }
         }
         std::cerr << std::endl;
-        do_save = true;
     }
 
     if (queue_updated) {
@@ -651,7 +782,6 @@ FUZZ_TARGET(clustermempool_efficient_limits)
             }
         }
         std::cerr << std::endl;
-        do_save = true;
     }
 
     if (tot_iters_updated) {
@@ -662,7 +792,6 @@ FUZZ_TARGET(clustermempool_efficient_limits)
             }
         }
         std::cerr << std::endl;
-        do_save = true;
     }
 
     if (tot_comps_updated) {
@@ -673,10 +802,5 @@ FUZZ_TARGET(clustermempool_efficient_limits)
             }
         }
         std::cerr << std::endl;
-        do_save = true;
-    }
-
-    if (do_save) {
-        FuzzSave(buffer);
     }
 }

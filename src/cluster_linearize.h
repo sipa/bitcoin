@@ -192,6 +192,12 @@ public:
     IntBitSet(const IntBitSet&) noexcept = default;
     IntBitSet& operator=(const IntBitSet&) noexcept = default;
 
+    static IntBitSet Full(unsigned count) noexcept {
+        IntBitSet ret;
+        for (unsigned i = 0; i < count; ++i) ret.Set(i);
+        return ret;
+    }
+
     unsigned Count() const noexcept { return PopCount(m_val); }
     void Set(unsigned pos) noexcept { m_val |= I{1U} << pos; }
     bool operator[](unsigned pos) const noexcept { return (m_val >> pos) & 1U; }
@@ -250,6 +256,12 @@ public:
 
     void Set(unsigned pos) noexcept { m_val[pos / LIMB_BITS] |= I{1U} << (pos % LIMB_BITS); }
     bool operator[](unsigned pos) const noexcept { return (m_val[pos / LIMB_BITS] >> (pos % LIMB_BITS)) & 1U; }
+
+    static MultiIntBitSet Full(unsigned count) noexcept {
+        MultiIntBitSet ret;
+        for (unsigned i = 0; i < count; ++i) ret.Set(i);
+        return ret;
+    }
 
     unsigned Count() const noexcept
     {
@@ -555,8 +567,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
     CandidateSetAnalysis<S> ret;
 
     // Compute "all" set, with all the cluster's transaction.
-    S all;
-    for (unsigned i = 0; i < cluster.size(); ++i) all.Set(i);
+    S all = S::Full(cluster.size());
     if (done == all) return ret;
 
     S best_candidate;
@@ -681,9 +692,8 @@ std::vector<unsigned> LinearizeCluster(const Cluster<S>& cluster)
     std::vector<unsigned> ret;
     ret.reserve(cluster.size());
 
-    S all, done;
+    S done;
     unsigned left = cluster.size();
-    for (unsigned i = 0; i < cluster.size(); ++i) all.Set(i);
 
     SortedCluster<S> scluster(cluster);
     AncestorSets<S> anc(scluster.cluster);
