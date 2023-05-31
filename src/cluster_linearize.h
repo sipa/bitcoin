@@ -14,6 +14,8 @@
 
 #include <assert.h>
 
+namespace cluster_linearize {
+
 namespace {
 
 /** Wrapper around __builtin_ctz[l][l] for supporting unsigned integer types. */
@@ -756,5 +758,7 @@ std::vector<unsigned> LinearizeCluster(const Cluster<S>& cluster)
 }
 
 } // namespace
+
+} // namespace linearize_cluster
 
 #endif // BITCOIN_CLUSTER_LINEARIZE_H

@@ -17,6 +17,8 @@
 
 #include <iostream>
 
+using namespace cluster_linearize;
+
 namespace {
 
 std::ostream& operator<<(std::ostream& o, const FeeAndSize& data)
@@ -466,9 +468,22 @@ public:
     }
 };
 
+struct StatEntry
+{
+    uint64_t stat;
+    size_t cluster_size;
+};
+
+bool operator>(const StatEntry& a, const StatEntry& b) {
+    if (a.stat > b.stat) return true;
+    if (a.stat < b.stat) return false;
+    if (a.cluster_size > b.cluster_size) return false;
+    if (a.cluster_size < b.cluster_size) return true;
+    return false;
+}
+
 /*using BitSet = MultiIntBitSet<uint64_t, 2>;*/
 using BitSet = IntBitSet<uint64_t>;
-
 
 } // namespace
 
@@ -595,20 +610,6 @@ FUZZ_TARGET(clustermempool_ancestorset)
         ancs.Set(i);
         assert(anc[i] == ancs); // Compare against AncestorSets output.
     }
-}
-
-struct StatEntry
-{
-    uint64_t stat;
-    size_t cluster_size;
-};
-
-bool operator>(const StatEntry& a, const StatEntry& b) {
-    if (a.stat > b.stat) return true;
-    if (a.stat < b.stat) return false;
-    if (a.cluster_size > b.cluster_size) return false;
-    if (a.cluster_size < b.cluster_size) return true;
-    return false;
 }
 
 FUZZ_TARGET(clustermempool_encoding_roundtrip)
