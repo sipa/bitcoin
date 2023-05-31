@@ -439,24 +439,38 @@ template<typename S>
 class AncestorSetFeerates
 {
     std::vector<FeeAndSize> m_anc_feerates;
-    S m_done;
 
 public:
+    /** Construct a precomputed ancestor set feerate object for given cluster/done. */
     explicit AncestorSetFeerates(const Cluster<S>& cluster, const AncestorSets<S>& anc, const S& done) noexcept
     {
-        m_done = done;
         m_anc_feerates.resize(cluster.size());
         for (unsigned i = 0; i < cluster.size(); ++i) {
-            m_anc_feerates[i] = ComputeSetFeeRate(cluster, anc[i] / done);
+            if (!done[i]) {
+                m_anc_feerates[i] = ComputeSetFeeRate(cluster, anc[i] / done);
+            }
         }
     }
 
-    void Done(const Cluster<S>& cluster, const AncestorSets<S>& anc, const S& done) noexcept
+    /** Update the precomputed data structure to reflect that new_done was added to done. */
+    void Done(const Cluster<S>& cluster, const AncestorSets<S>& anc, const S& new_done) noexcept
     {
-        S new_done = done / m_done;
-        m_done |= done;
         for (unsigned i = 0; i < cluster.size(); ++i) {
             m_anc_feerates[i] -= ComputeSetFeeRate(cluster, anc[i] & new_done);
+        }
+    }
+
+    /* Same as Done, but using descendant information (more efficient). */
+    void DoneDesc(const Cluster<S>& cluster, const DescendantSets<S>& desc, const S& new_done) noexcept
+    {
+        auto todo{new_done.Elements()};
+        while (todo) {
+            unsigned pos = todo.Next();
+            FeeAndSize feerate = cluster[pos].first;
+            auto todo_desc{(desc[pos] / new_done).Elements()};
+            while (todo_desc) {
+                m_anc_feerates[todo_desc.Next()] -= feerate;
+            }
         }
     }
 
@@ -721,9 +735,17 @@ std::vector<unsigned> LinearizeCluster(const Cluster<S>& cluster)
         std::sort(ret.begin() + old_size, ret.end(), [&](unsigned a, unsigned b) {
             return anccount[a] < anccount[b];
         });
-        anc_feerates.Done(scluster.cluster, anc, analysis.best_candidate_set);
-        done |= analysis.best_candidate_set;
         left -= analysis.best_candidate_set.Count();
+        if (!left) break;
+        done |= analysis.best_candidate_set;
+        anc_feerates.DoneDesc(scluster.cluster, desc, analysis.best_candidate_set);
+#if 0
+        for (unsigned i = 0; i < cluster.size(); ++i) {
+            if (!done[i]) {
+                assert(anc_feerates[i] == ComputeSetFeeRate(scluster.cluster, anc[i] / done));
+            }
+        }
+#endif
     }
 
     for (unsigned i = 0; i < cluster.size(); ++i) {
