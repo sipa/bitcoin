@@ -494,15 +494,7 @@ FUZZ_TARGET(clustermempool_truncate)
     SortedCluster<BitSet> sorted(cluster);
     AncestorSets<BitSet> anc(sorted.cluster);
 
-    BitSet done;
-
-    for (unsigned i = 0; i < cluster.size(); ++i) {
-        if (buffer.empty()) break;
-        if (buffer[0] & 1) {
-            done |= anc[i];
-        }
-        buffer = buffer.subspan(1);
-    }
+    BitSet done = DecodeDone<BitSet>(buffer, anc);
 
     auto ret1 = FindBestCandidateSetExhaustive(sorted.cluster, anc, done);
     WeedCluster(sorted.cluster, anc);
