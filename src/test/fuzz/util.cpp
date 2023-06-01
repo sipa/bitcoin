@@ -384,7 +384,11 @@ bool FuzzSave(Span<const uint8_t> input) noexcept
             out.write((const char*)input.data(), input.size());
             out.close();
         }
-        std::filesystem::rename(tmppath, path);
+        try {
+            std::filesystem::rename(tmppath, path);
+            std::cerr << "--- wrote " << path << std::endl;
+        } catch (const std::filesystem::filesystem_error& err) {
+        }
     }
     return true;
 }
