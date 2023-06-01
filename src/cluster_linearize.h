@@ -208,6 +208,7 @@ public:
     bool Any() const noexcept { return m_val != 0; }
     BitPopper Elements() const noexcept { return BitPopper(m_val); }
     IntBitSet& operator|=(const IntBitSet& a) noexcept { m_val |= a.m_val; return *this; }
+    IntBitSet& operator&=(const IntBitSet& a) noexcept { m_val &= a.m_val; return *this; }
     friend IntBitSet operator&(const IntBitSet& a, const IntBitSet& b) noexcept { return IntBitSet{a.m_val & b.m_val}; }
     friend IntBitSet operator|(const IntBitSet& a, const IntBitSet& b) noexcept { return IntBitSet{a.m_val | b.m_val}; }
     friend IntBitSet operator/(const IntBitSet& a, const IntBitSet& b) noexcept { return IntBitSet{a.m_val & ~b.m_val}; }
@@ -295,6 +296,14 @@ public:
     {
         for (unsigned i = 0; i < N; ++i) {
             m_val[i] |= a.m_val[i];
+        }
+        return *this;
+    }
+
+    MultiIntBitSet& operator&=(const MultiIntBitSet& a) noexcept
+    {
+        for (unsigned i = 0; i < N; ++i) {
+            m_val[i] &= a.m_val[i];
         }
         return *this;
     }
@@ -456,15 +465,7 @@ public:
     }
 
     /** Update the precomputed data structure to reflect that new_done was added to done. */
-    void Done(const Cluster<S>& cluster, const AncestorSets<S>& anc, const S& new_done) noexcept
-    {
-        for (unsigned i = 0; i < cluster.size(); ++i) {
-            m_anc_feerates[i] -= ComputeSetFeeRate(cluster, anc[i] & new_done);
-        }
-    }
-
-    /* Same as Done, but using descendant information (more efficient). */
-    void DoneDesc(const Cluster<S>& cluster, const DescendantSets<S>& desc, const S& new_done) noexcept
+    void Done(const Cluster<S>& cluster, const DescendantSets<S>& desc, const S& new_done) noexcept
     {
         auto todo{new_done.Elements()};
         while (todo) {
@@ -523,6 +524,9 @@ struct SortedCluster
         // Compute sorted_to_original mapping.
         std::iota(sorted_to_original.begin(), sorted_to_original.end(), 0U);
         std::sort(sorted_to_original.begin(), sorted_to_original.end(), [&](unsigned i, unsigned j) {
+            if (orig_cluster[i].first == orig_cluster[j].first) {
+                return i < j;
+            }
             return FeeRateBetter(orig_cluster[i].first, orig_cluster[j].first);
         });
         // Use sorted_to_original to fill original_to_sorted.
@@ -744,6 +748,7 @@ std::vector<unsigned> LinearizeCluster(const Cluster<S>& cluster)
             ret.emplace_back(to_set.Next());
         }
         std::sort(ret.begin() + old_size, ret.end(), [&](unsigned a, unsigned b) {
+            if (anccount[a] == anccount[b]) return a < b;
             return anccount[a] < anccount[b];
         });
 
@@ -752,7 +757,7 @@ std::vector<unsigned> LinearizeCluster(const Cluster<S>& cluster)
         if (!left) break; // Bail out quickly if nothing left.
         done |= analysis.best_candidate_set;
         // Update precomputed ancestor feerates.
-        anc_feerates.DoneDesc(scluster.cluster, desc, analysis.best_candidate_set);
+        anc_feerates.Done(scluster.cluster, desc, analysis.best_candidate_set);
 #if 0
         // Verify that precomputed ancestor feerates are correct.
         for (unsigned i = 0; i < cluster.size(); ++i) {
@@ -771,83 +776,6 @@ std::vector<unsigned> LinearizeCluster(const Cluster<S>& cluster)
     return ret;
 }
 
-/** Deserialize a number, in little-endian 7 bit format, top bit set = more bytes. */
-template<typename Fn>
-uint64_t DeserializeNumberBase128(Fn&& getbyte)
-{
-    uint64_t ret{0};
-    for (int i = 0; i < 10; ++i) {
-        uint8_t b = getbyte();
-        ret |= ((uint64_t)(b & uint8_t{0x7F})) << (7 * i);
-        if ((b & 0x80) == 0) break;
-    }
-    return ret;
-}
-
-/** Serialize a number, in little-endian 7 bit format, top bit set = more bytes. */
-template<typename Fn>
-void SerializeNumberBase128(uint64_t val, Fn&& putbyte)
-{
-    for (int i = 0; i < 10; ++i) {
-        uint8_t b = (val >> (7 * i)) & 0x7F;
-        val &= ~(uint64_t{0x7F} << (7 * i));
-        if (val) {
-            putbyte(b | 0x80);
-        } else {
-            putbyte(b);
-            break;
-        }
-    }
-}
-
-/** Serialize a topologically ordered cluster in the following format:
- *
- * - For every transaction:
- *   - Base128 encoding of its byte size (at least 1, max 2^22-1).
- *   - Base128 encoding of its fee in sats (max 2^51-1).
- *   - For each of its parents:
- *     - Base128 encoding of child_idx - parent_idx (at least 1).
- *   - A zero byte
- * - A zero byte
- */
-template<typename Fn, typename S>
-void SerializeCluster(const Cluster<S>& cluster, Fn&& putbyte)
-{
-    for (unsigned i = 0; i < cluster.size(); ++i) {
-        SerializeNumberBase128(cluster[i].first.bytes, putbyte);
-        SerializeNumberBase128(cluster[i].first.sats, putbyte);
-        for (unsigned j = 0; j < i; ++j) {
-            if (cluster[i].second[i - 1 - j]) {
-                SerializeNumberBase128(j + 1, putbyte);
-            }
-        }
-        putbyte(uint8_t{0});
-    }
-    putbyte(uint8_t{0});
-}
-
-/** Deserialize a cluster in the same format as SerializeCluster (overflows wrap). */
-template<typename S, typename Fn>
-Cluster<S> DeserializeCluster(Fn&& getbyte)
-{
-    Cluster<S> ret;
-    while (true) {
-        uint32_t bytes = DeserializeNumberBase128(getbyte) & 0x3fffff; /* Just above 4000000 */
-        if (bytes == 0) break;
-        uint64_t sats = DeserializeNumberBase128(getbyte) & 0x7ffffffffffff; /* Just above 21000000 * 100000000 */
-        S parents;
-        while (true) {
-            unsigned b = DeserializeNumberBase128(getbyte) % (ret.size() + 1);
-            if (b == 0) break;
-            parents.Set(ret.size() - b);
-        }
-        if (ret.size() < S::MAX_SIZE) {
-            ret.emplace_back(FeeAndSize{sats, bytes}, std::move(parents));
-        }
-    }
-    return ret;
-}
-
 uint8_t ReadSpanByte(Span<const unsigned char>& data)
 {
     if (data.empty()) return 0;
@@ -856,19 +784,88 @@ uint8_t ReadSpanByte(Span<const unsigned char>& data)
     return val;
 }
 
-/** Deserialize a cluster from a Span of bytes. */
-template<typename S>
-Cluster<S> DecodeCluster(Span<const unsigned char>& data)
+/** Deserialize a number, in little-endian 7 bit format, top bit set = more bytes. */
+uint64_t DeserializeNumberBase128(Span<const unsigned char>& data)
 {
-    return DeserializeCluster<S>([&]() { return ReadSpanByte(data); });
+    uint64_t ret{0};
+    for (int i = 0; i < 10; ++i) {
+        uint8_t b = ReadSpanByte(data);
+        ret |= ((uint64_t)(b & uint8_t{0x7F})) << (7 * i);
+        if ((b & 0x80) == 0) break;
+    }
+    return ret;
 }
 
-/** Encode a cluster to a vector of bytes. */
-template<typename S>
-std::vector<unsigned char> EncodeCluster(const Cluster<S>& cluster)
+/** Serialize a number, in little-endian 7 bit format, top bit set = more bytes. */
+void SerializeNumberBase128(uint64_t val, std::vector<unsigned char>& data)
 {
-    std::vector<unsigned char> ret;
-    SerializeCluster(cluster, [&](uint8_t val) { ret.emplace_back(val); });
+    for (int i = 0; i < 10; ++i) {
+        uint8_t b = (val >> (7 * i)) & 0x7F;
+        val &= ~(uint64_t{0x7F} << (7 * i));
+        if (val) {
+            data.push_back(b | 0x80);
+        } else {
+            data.push_back(b);
+            break;
+        }
+    }
+}
+
+/** Serialize a cluster in the following format:
+ *
+ * - For every transaction:
+ *   - Base128 encoding of its byte size (at least 1, max 2^22-1).
+ *   - Base128 encoding of its fee in sats (max 2^51-1).
+ *   - For each of its direct parents:
+ *     - If parent_idx < child_idx:
+ *       - Base128 encoding of (child_idx - parent_idx)
+ *     - If parent_idx > child_idx:
+ *       - Base128 encoding of (parent_idx)
+ *   - A zero byte
+ * - A zero byte
+ */
+template<typename S>
+void SerializeCluster(const Cluster<S>& cluster, std::vector<unsigned char>& data)
+{
+    for (unsigned i = 0; i < cluster.size(); ++i) {
+        SerializeNumberBase128(cluster[i].first.bytes, data);
+        SerializeNumberBase128(cluster[i].first.sats, data);
+        for (unsigned j = 1; j <= i; ++j) {
+            if (cluster[i].second[i - j]) SerializeNumberBase128(j, data);
+        }
+        for (unsigned j = i + 1; j < cluster.size(); ++j) {
+            if (cluster[i].second[j]) SerializeNumberBase128(j, data);
+        }
+        data.push_back(0);
+    }
+    data.push_back(0);
+}
+
+/** Deserialize a cluster in the same format as SerializeCluster (overflows wrap). */
+template<typename S>
+Cluster<S> DeserializeCluster(Span<const unsigned char>& data)
+{
+    Cluster<S> ret;
+    while (ret.size() < S::MAX_SIZE) {
+        uint32_t bytes = DeserializeNumberBase128(data) & 0x3fffff;
+        if (bytes == 0) break;
+        uint64_t sats = DeserializeNumberBase128(data) & 0x7ffffffffffff;
+        S parents;
+        while (true) {
+            unsigned read = DeserializeNumberBase128(data);
+            if (read == 0) break;
+            if (read <= ret.size()) {
+                parents.Set(ret.size() - read);
+            } else {
+                if (read < S::MAX_SIZE) parents.Set(read);
+            }
+        }
+        ret.emplace_back(FeeAndSize{sats, bytes}, std::move(parents));
+    }
+    S all = S::Full(ret.size());
+    for (unsigned i = 0; i < ret.size(); ++i) {
+        ret[i].second &= all;
+    }
     return ret;
 }
 
@@ -898,48 +895,57 @@ void WeedCluster(Cluster<S>& cluster, const AncestorSets<S>& ancs)
     }
 }
 
-/** Construct a new cluster with done removed from a given cluster.
- *
- * The result is also topologically sorted, first including highest individual-feerate
- * transactions among those whose dependencies are satisfied. */
+/** Construct a new cluster with done removed (leaving the rest in order). */
 template<typename S>
-Cluster<S> TruncateCluster(const Cluster<S>& cluster, S done)
+Cluster<S> TrimCluster(const Cluster<S>& cluster, const S& done)
 {
     Cluster<S> ret;
     std::vector<unsigned> mapping;
-    while (true) {
-        std::optional<std::pair<FeeAndSize, unsigned>> best;
-        for (unsigned i = 0; i < cluster.size(); ++i) {
-            if (done[i]) continue;
-            if ((cluster[i].second / done).Any()) continue;
-            std::pair<FeeAndSize, unsigned> key{cluster[i].first, i};
-            if (!best.has_value() ||
-                FeeRateBetter(key.first, best->first) ||
-                (key.first == best->first && key.second < best->second)) {
-                best = key;
+    mapping.resize(cluster.size());
+    ret.reserve(cluster.size() - done.Count());
+    auto todo{(S::Full(cluster.size()) / done).Elements()};
+    while (todo) {
+        unsigned idx = todo.Next();
+        mapping[idx] = ret.size();
+        ret.push_back(cluster[idx]);
+    }
+    for (unsigned i = 0; i < ret.size(); ++i) {
+        S parents;
+        auto todo{ret[i].second.Elements()};
+        while (todo) {
+            unsigned idx = todo.Next();
+            if (!done[idx]) {
+                parents.Set(mapping[idx]);
             }
         }
-        if (!best.has_value()) break;
-        const unsigned idx = best->second;
-        done.Set(idx);
-        mapping.push_back(idx);
-        S parents;
-        for (unsigned i = 0; i < mapping.size(); ++i) {
-            unsigned idx_i = mapping[i];
-            if (cluster[idx].second[idx_i]) parents.Set(i);
-        }
-        ret.emplace_back(cluster[idx].first, parents);
+        ret[i].second = std::move(parents);
     }
     return ret;
 }
 
-/** Minimize a cluster, sort it topologically, and serialize to byte vector. */
+/** Minimize a cluster, and serialize to byte vector. */
 template<typename S>
 std::vector<unsigned char> DumpCluster(Cluster<S> cluster)
 {
     AncestorSets<S> anc(cluster);
     WeedCluster(cluster, anc);
-    return EncodeCluster(TruncateCluster(cluster, {}));
+    return SerializeCluster(cluster);
+}
+
+/** Test whether an ancestor set was computed from an acyclic cluster. */
+template<typename S>
+bool IsAcyclic(const AncestorSets<S>& anc)
+{
+    for (unsigned i = 0; i < anc.Size(); ++i) {
+        auto todo{anc[i].Elements()};
+        // Determine if there is a j<i which i has as ancestor, and which has i as ancestor.
+        while (todo) {
+            unsigned j = todo.Next();
+            if (j >= i) break;
+            if (anc[j][i]) return false;
+        }
+    }
+    return true;
 }
 
 } // namespace
