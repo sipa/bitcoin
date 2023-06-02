@@ -19,7 +19,7 @@ namespace cluster_linearize {
 
 namespace {
 
-/** Wrapper around __builtin_ctz[l][l] for supporting unsigned integer types. */
+/** Wrapper around __builtin_ctz* for supporting unsigned integer types. */
 template<typename I>
 unsigned inline CountTrailingZeroes(I v)
 {
@@ -38,7 +38,7 @@ unsigned inline CountTrailingZeroes(I v)
     }
 }
 
-/** Wrapper around __builtin_popcount[l][l] for supporting unsigned integer types. */
+/** Wrapper around __builtin_popcount* for supporting unsigned integer types. */
 template<typename I>
 unsigned inline PopCount(I v)
 {
@@ -189,32 +189,49 @@ class IntBitSet
     };
 
 public:
+    /** Number of elements this set type supports. */
     static constexpr unsigned MAX_SIZE = std::numeric_limits<I>::digits;
 
+    /** Construct an empty set. */
     IntBitSet() noexcept : m_val{0} {}
+    /** Copy a set. */
     IntBitSet(const IntBitSet&) noexcept = default;
+    /** Copy-assign a set. */
     IntBitSet& operator=(const IntBitSet&) noexcept = default;
 
+    /** Construct a set with elements 0..count-1. */
     static IntBitSet Full(unsigned count) noexcept {
         IntBitSet ret;
-        for (unsigned i = 0; i < count; ++i) ret.Set(i);
+        if (count) ret.m_val = (~I{0}) >> (MAX_SIZE - count);
         return ret;
     }
 
+    /** Compute the size of a set (number of elements). */
     unsigned Count() const noexcept { return PopCount(m_val); }
-    void Set(unsigned pos) noexcept { m_val |= I{1U} << pos; }
+    /** Add an element to a set. */
+    void Add(unsigned pos) noexcept { m_val |= I{1U} << pos; }
+    /** Find if an element is in the set. */
     bool operator[](unsigned pos) const noexcept { return (m_val >> pos) & 1U; }
-    bool None() const noexcept { return m_val == 0; }
-    bool Any() const noexcept { return m_val != 0; }
+    /** Check if a set is empty. */
+    bool IsEmpty() const noexcept { return m_val == 0; }
+    /** Construct an object that will produce all elements of this set, using Next(). */
     BitPopper Elements() const noexcept { return BitPopper(m_val); }
+    /** Update this to be the union of this and a. */
     IntBitSet& operator|=(const IntBitSet& a) noexcept { m_val |= a.m_val; return *this; }
+    /** Update this to be intersection of this and a. */
     IntBitSet& operator&=(const IntBitSet& a) noexcept { m_val &= a.m_val; return *this; }
+    /** Construct a new set that is the interaction of a and b. */
     friend IntBitSet operator&(const IntBitSet& a, const IntBitSet& b) noexcept { return IntBitSet{a.m_val & b.m_val}; }
+    /** Construct a new set that is the union of a and b. */
     friend IntBitSet operator|(const IntBitSet& a, const IntBitSet& b) noexcept { return IntBitSet{a.m_val | b.m_val}; }
+    /** Construct a new set that is a minus b. */
     friend IntBitSet operator/(const IntBitSet& a, const IntBitSet& b) noexcept { return IntBitSet{a.m_val & ~b.m_val}; }
-    friend bool operator<(const IntBitSet& a, const IntBitSet& b) noexcept { return a.m_val < b.m_val; }
+    /** Check if set a and set b are identical. */
     friend bool operator!=(const IntBitSet& a, const IntBitSet& b) noexcept { return a.m_val != b.m_val; }
+    /** Check if set a and set b are different. */
     friend bool operator==(const IntBitSet& a, const IntBitSet& b) noexcept { return a.m_val == b.m_val; }
+    /** Check if set a is a superset of set b. */
+    friend bool operator>>(const IntBitSet& a, const IntBitSet& b) noexcept { return (b.m_val & ~a.m_val) == 0; }
 };
 
 /** A bitset implementation backed by N integers of type I. */
@@ -258,12 +275,19 @@ public:
     MultiIntBitSet(const MultiIntBitSet&) noexcept = default;
     MultiIntBitSet& operator=(const MultiIntBitSet&) noexcept = default;
 
-    void Set(unsigned pos) noexcept { m_val[pos / LIMB_BITS] |= I{1U} << (pos % LIMB_BITS); }
+    void Add(unsigned pos) noexcept { m_val[pos / LIMB_BITS] |= I{1U} << (pos % LIMB_BITS); }
     bool operator[](unsigned pos) const noexcept { return (m_val[pos / LIMB_BITS] >> (pos % LIMB_BITS)) & 1U; }
 
     static MultiIntBitSet Full(unsigned count) noexcept {
         MultiIntBitSet ret;
-        for (unsigned i = 0; i < count; ++i) ret.Set(i);
+        if (count) {
+            unsigned i = 0;
+            while (count > LIMB_BITS) {
+                ret.m_val[i++] = ~I{0};
+                count -= LIMB_BITS;
+            }
+            ret.m_val[i] = (~I{0}) >> (LIMB_BITS - count);
+        }
         return ret;
     }
 
@@ -274,20 +298,12 @@ public:
         return ret;
     }
 
-    bool None() const noexcept
+    bool IsEmpty() const noexcept
     {
         for (auto v : m_val) {
             if (v != 0) return false;
         }
         return true;
-    }
-
-    bool Any() const noexcept
-    {
-        for (auto v : m_val) {
-            if (v != 0) return true;
-        }
-        return false;
     }
 
     BitPopper Elements() const noexcept { return BitPopper(m_val); }
@@ -335,7 +351,14 @@ public:
         return r;
     }
 
-    friend bool operator<(const MultiIntBitSet& a, const MultiIntBitSet& b) noexcept { return a.m_val < b.m_val; }
+    friend bool operator>>(const MultiIntBitSet& a, const MultiIntBitSet& b) noexcept
+    {
+        for (unsigned i = 0; i < N; ++i) {
+            if (b.m_val[i] & ~a.m_val[i]) return false;
+        }
+        return true;
+    }
+
     friend bool operator!=(const MultiIntBitSet& a, const MultiIntBitSet& b) noexcept { return a.m_val != b.m_val; }
     friend bool operator==(const MultiIntBitSet& a, const MultiIntBitSet& b) noexcept { return a.m_val == b.m_val; }
 };
@@ -361,7 +384,7 @@ public:
         m_ancestorsets.resize(cluster.size());
         for (size_t i = 0; i < cluster.size(); ++i) {
             m_ancestorsets[i] = cluster[i].second;
-            m_ancestorsets[i].Set(i);
+            m_ancestorsets[i].Add(i);
         }
 
         // Propagate
@@ -399,7 +422,7 @@ public:
         for (size_t i = 0; i < anc.Size(); ++i) {
             auto ancestors{anc[i].Elements()};
             while (ancestors) {
-                m_descendantsets[ancestors.Next()].Set(i);
+                m_descendantsets[ancestors.Next()].Add(i);
             }
         }
     }
@@ -498,7 +521,7 @@ struct SortedCluster
         S ret;
         auto todo{val.Elements()};
         while (todo) {
-            ret.Set(original_to_sorted[todo.Next()]);
+            ret.Add(original_to_sorted[todo.Next()]);
         }
         return ret;
     }
@@ -509,7 +532,7 @@ struct SortedCluster
         S ret;
         auto todo{val.Elements()};
         while (todo) {
-            ret.Set(sorted_to_original[todo.Next()]);
+            ret.Add(sorted_to_original[todo.Next()]);
         }
         return ret;
     }
@@ -618,12 +641,12 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
             }
             // Add the transaction to pot/pot_feerate.
             pot_feerate += cluster[pos].first;
-            pot.Set(pos);
+            pot.Add(pos);
             // Update the combined ancestors of pot.
             pot_ancestors |= anc[pos];
             // If at this point pot covers all its own ancestors, it means pot is topologically
             // valid. Perform jump ahead (update inc/inc_feerate to match pot/pot_feerate).
-            if ((pot_ancestors / pot).None()) {
+            if (pot >> pot_ancestors) {
                 inc = pot;
                 inc_feerate = pot_feerate;
                 inc_may_be_best = true;
@@ -651,7 +674,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
 
         // Only if there are undecided transactions left besides inc and exc actually add it to the
         // queue.
-        if ((all / (inc | exc)).Any()) {
+        if (!((inc | exc) >> all)) {
             queue.emplace_back(inc, exc, inc_feerate, pot_feerate);
             ret.max_queue_size = std::max(ret.max_queue_size, queue.size());
         }
@@ -697,7 +720,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         // concern.
         auto new_inc = inc | anc[pos];
         auto new_inc_feerate = inc_feerate + ComputeSetFeeRate(cluster, new_inc / inc);
-        bool may_be_new_best = ((inc & anc[pos]) / done).Any();
+        bool may_be_new_best = !(done >> (inc & anc[pos]));
         add_fn(new_inc, exc, new_inc_feerate, may_be_new_best);
     }
 
@@ -717,29 +740,29 @@ std::vector<unsigned> LinearizeCluster(const Cluster<S>& cluster)
     unsigned left = cluster.size();
 
     // Precompute stuff.
-    SortedCluster<S> scluster(cluster);
-    AncestorSets<S> anc(scluster.cluster);
+    SortedCluster<S> sorted(cluster);
+    AncestorSets<S> anc(sorted.cluster);
     DescendantSets<S> desc(anc);
     // Precompute ancestor set sizes, to help with topological sort.
     std::vector<unsigned> anccount(cluster.size(), 0);
     for (unsigned i = 0; i < cluster.size(); ++i) {
         anccount[i] = anc[i].Count();
     }
-    AncestorSetFeerates anc_feerates(scluster.cluster, anc, done);
+    AncestorSetFeerates anc_feerates(sorted.cluster, anc, done);
 
     // Iterate while there are transactions left.
     while (left > 0) {
         // Invoke function to find a good/best candidate.
         CandidateSetAnalysis<S> analysis;
         if (left > 10) {
-            analysis = FindBestAncestorSet(scluster.cluster, anc, anc_feerates, done);
+            analysis = FindBestAncestorSet(sorted.cluster, anc, anc_feerates, done);
         } else {
-            analysis = FindBestCandidateSetEfficient(scluster.cluster, anc, desc, anc_feerates, done);
+            analysis = FindBestCandidateSetEfficient(sorted.cluster, anc, desc, anc_feerates, done);
         }
 
         // Sanity checks.
-        assert(!analysis.best_candidate_set.None()); // Must be at least one transaction
-        assert((analysis.best_candidate_set & done).None()); // Cannot overlap with processed ones.
+        assert(!analysis.best_candidate_set.IsEmpty()); // Must be at least one transaction
+        assert((analysis.best_candidate_set & done).IsEmpty()); // Cannot overlap with processed ones.
 
         // Append candidate's transactions to linearization, and topologically sort them.
         size_t old_size = ret.size();
@@ -757,12 +780,12 @@ std::vector<unsigned> LinearizeCluster(const Cluster<S>& cluster)
         if (!left) break; // Bail out quickly if nothing left.
         done |= analysis.best_candidate_set;
         // Update precomputed ancestor feerates.
-        anc_feerates.Done(scluster.cluster, desc, analysis.best_candidate_set);
+        anc_feerates.Done(sorted.cluster, desc, analysis.best_candidate_set);
 #if 0
         // Verify that precomputed ancestor feerates are correct.
         for (unsigned i = 0; i < cluster.size(); ++i) {
             if (!done[i]) {
-                assert(anc_feerates[i] == ComputeSetFeeRate(scluster.cluster, anc[i] / done));
+                assert(anc_feerates[i] == ComputeSetFeeRate(sorted.cluster, anc[i] / done));
             }
         }
 #endif
@@ -770,7 +793,7 @@ std::vector<unsigned> LinearizeCluster(const Cluster<S>& cluster)
 
     // Map linearization back from sorted cluster indices to original indices.
     for (unsigned i = 0; i < cluster.size(); ++i) {
-        ret[i] = scluster.sorted_to_original[ret[i]];
+        ret[i] = sorted.sorted_to_original[ret[i]];
     }
 
     return ret;
@@ -855,9 +878,9 @@ Cluster<S> DeserializeCluster(Span<const unsigned char>& data)
             unsigned read = DeserializeNumberBase128(data);
             if (read == 0) break;
             if (read <= ret.size()) {
-                parents.Set(ret.size() - read);
+                parents.Add(ret.size() - read);
             } else {
-                if (read < S::MAX_SIZE) parents.Set(read);
+                if (read < S::MAX_SIZE) parents.Add(read);
             }
         }
         ret.emplace_back(FeeAndSize{sats, bytes}, std::move(parents));
@@ -882,11 +905,11 @@ void WeedCluster(Cluster<S>& cluster, const AncestorSets<S>& ancs)
         const auto& [_anc_count, idx] = mapping[i];
         S parents;
         S cover;
-        cover.Set(idx);
+        cover.Add(idx);
         for (unsigned j = 0; j < i; ++j) {
             const auto& [_anc_count_j, idx_j] = mapping[i - 1 - j];
             if (ancs[idx][idx_j] && !cover[idx_j]) {
-                parents.Set(idx_j);
+                parents.Add(idx_j);
                 cover |= ancs[idx_j];
             }
         }
@@ -915,7 +938,7 @@ Cluster<S> TrimCluster(const Cluster<S>& cluster, const S& done)
         while (todo) {
             unsigned idx = todo.Next();
             if (!done[idx]) {
-                parents.Set(mapping[idx]);
+                parents.Add(mapping[idx]);
             }
         }
         ret[i].second = std::move(parents);

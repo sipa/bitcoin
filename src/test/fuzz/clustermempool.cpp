@@ -124,7 +124,7 @@ template<typename S>
 bool IsConnectedSubset(const Cluster<S>& cluster, const S& select)
 {
     /* Trivial case. */
-    if (select.None()) return true;
+    if (select.IsEmpty()) return true;
 
     /* Build up UF data structure. */
     UnionFind<unsigned, S::MAX_SIZE> uf(cluster.size());
@@ -161,24 +161,23 @@ CandidateSetAnalysis<S> FindBestCandidateSetNaive(const Cluster<S>& cluster, con
         S bitset, req;
         for (unsigned i = 0; i < cluster.size(); ++i) {
             if ((setval >> i) & 1U) {
-                bitset.Set(i);
+                bitset.Add(i);
                 req = req | cluster[i].second;
             }
         }
         // None of the already done transactions may be included again.
-        if ((done & bitset).Any()) continue;
+        if (!(done & bitset).IsEmpty()) continue;
         // We only consider non-empty additions.
-        if (bitset.None()) continue;
+        if (bitset.IsEmpty()) continue;
         // All dependencies have to be satisfied.
-        S unmet = req / (bitset | done);
-        if (unmet.Any()) continue;
+        if (!((bitset | done) >> req)) continue;
         // Only connected subsets are considered.
         if (!IsConnectedSubset(cluster, bitset)) continue;
 
         // Update statistics in ret to account for this new candidate.
         ++ret.num_candidate_sets;
         FeeAndSize feerate = ComputeSetFeeRate(cluster, bitset);
-        if (ret.best_candidate_set.None() || FeeRateBetter(feerate, ret.best_candidate_feerate)) {
+        if (ret.best_candidate_feerate.IsEmpty() || FeeRateBetter(feerate, ret.best_candidate_feerate)) {
             ret.best_candidate_set = bitset;
             ret.best_candidate_feerate = feerate;
         }
@@ -215,16 +214,16 @@ CandidateSetAnalysis<S> FindBestCandidateSetExhaustive(const Cluster<S>& cluster
             // Conditions:
             // - !inc[i]: we can't add anything already included
             // - !exc[i]: we can't add anything already excluded
-            // - (exc & anc[i]).None: ancestry of what we include cannot have excluded transactions
-            // - inc_none || !((inc & anc[i]) / done).None(): either:
+            // - (exc & anc[i]).IsEmpty(): ancestry of what we include cannot have excluded transactions
+            // - inc_none || !(done >> (inc & anc[i])): either:
             //   - we're starting from an empty set (apart from done)
             //   - if not, the ancestry of what we add must overlap with what we already have, in
             //     not yet done transactions (to guarantee (inc / done) is always connected).
-            if (!inc[i] && !exc[i] && (exc & anc[i]).None() && (inc_none || !((inc & anc[i]) / done).None())) {
+            if (!inc[i] && !exc[i] && (exc & anc[i]).IsEmpty() && (inc_none || !(done >> (inc & anc[i])))) {
                 // First, add a queue item with i added to exc. Inc is unchanged, so feerate is
                 // unchanged as well.
                 auto new_exc = exc;
-                new_exc.Set(i);
+                new_exc.Add(i);
                 queue.emplace_back(inc, new_exc, feerate);
 
                 // Then, add a queue item with i (plus ancestry) added to inc. We need to compute
@@ -235,7 +234,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetExhaustive(const Cluster<S>& cluster
 
                 // Update statistics in ret to account for this new candidate (new_inc / done).
                 ++ret.num_candidate_sets;
-                if (ret.best_candidate_set.None() || FeeRateBetter(new_feerate, ret.best_candidate_feerate)) {
+                if (ret.best_candidate_feerate.IsEmpty() || FeeRateBetter(new_feerate, ret.best_candidate_feerate)) {
                     ret.best_candidate_set = new_inc / done;
                     ret.best_candidate_feerate = new_feerate;
                 }
@@ -376,8 +375,8 @@ FUZZ_TARGET(clustermempool_linearize)
     BitSet satisfied;
     assert(linearization.size() == cluster.size());
     for (unsigned idx : linearization) {
-        assert((cluster[idx].second / satisfied).None());
-        satisfied.Set(idx);
+        assert(satisfied >> cluster[idx].second);
+        satisfied.Add(idx);
     }
     assert(satisfied == all);
 
@@ -392,7 +391,7 @@ FUZZ_TARGET(clustermempool_ancestorset)
 
     for (unsigned i = 0; i < cluster.size(); ++i) {
         BitSet ancs;
-        ancs.Set(i); // Start with transaction itself
+        ancs.Add(i); // Start with transaction itself
         // Add existing ancestors' parents until set no longer changes.
         while (true) {
             BitSet next_ancs = ancs;
@@ -472,17 +471,17 @@ FUZZ_TARGET(clustermempool_efficient_limits)
     auto initial_buffer = buffer;
 
     Cluster<BitSet> cluster = DeserializeCluster<BitSet>(buffer);
-    if (cluster.size() > 20) return;
+    if (cluster.size() > 26) return;
 
     BitSet all = BitSet::Full(cluster.size());
     if (!IsConnectedSubset(cluster, all)) return;
 
-    SortedCluster<BitSet> sorted_cluster(cluster);
-    AncestorSets<BitSet> anc(sorted_cluster.cluster);
+    SortedCluster<BitSet> sorted(cluster);
+    AncestorSets<BitSet> anc(sorted.cluster);
     if (!IsAcyclic(anc)) return;
     DescendantSets<BitSet> desc(anc);
-    AncestorSetFeerates<BitSet> anc_feerates(sorted_cluster.cluster, anc, {});
-    WeedCluster(sorted_cluster.cluster, anc);
+    AncestorSetFeerates<BitSet> anc_feerates(sorted.cluster, anc, {});
+    WeedCluster(sorted.cluster, anc);
 
     struct Stats
     {
@@ -499,11 +498,11 @@ FUZZ_TARGET(clustermempool_efficient_limits)
 
     BitSet done;
     while (done != all) {
-        auto ret = FindBestCandidateSetEfficient(sorted_cluster.cluster, anc, desc, anc_feerates, done);
+        auto ret = FindBestCandidateSetEfficient(sorted.cluster, anc, desc, anc_feerates, done);
 
         // Sanity checks
         // - claimed feerate matches
-        auto feerate = ComputeSetFeeRate(sorted_cluster.cluster, ret.best_candidate_set);
+        auto feerate = ComputeSetFeeRate(sorted.cluster, ret.best_candidate_set);
         assert(feerate == ret.best_candidate_feerate);
         // - topologically consistent
         BitSet merged_ancestors = done;
@@ -515,7 +514,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
         // - if small enough, matches exhaustive search feerate
         unsigned left = (all / done).Count();
         if (left <= 10) {
-            auto ret_exhaustive = FindBestCandidateSetExhaustive(sorted_cluster.cluster, anc, done);
+            auto ret_exhaustive = FindBestCandidateSetExhaustive(sorted.cluster, anc, done);
             assert(ret_exhaustive.best_candidate_feerate == ret.best_candidate_feerate);
         }
 
@@ -524,7 +523,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
 
         // Update done to include added candidate.
         done |= ret.best_candidate_set;
-        anc_feerates.Done(sorted_cluster.cluster, desc, ret.best_candidate_set);
+        anc_feerates.Done(sorted.cluster, desc, ret.best_candidate_set);
     }
 
     size_t cumul_iterations{0}, cumul_comparisons{0};
@@ -554,7 +553,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
         if (TOT_COMPS[entry.cluster_left].Set(entry.tot_comparisons)) do_save = tot_comps_updated = true;
         if (TOT_ITERS[entry.cluster_left].Set(entry.tot_iterations)) do_save = tot_iters_updated = true;
         if (do_save) {
-            auto trim = TrimCluster(sorted_cluster.cluster, entry.done);
+            auto trim = TrimCluster(sorted.cluster, entry.done);
             std::vector<unsigned char> enc;
             SerializeCluster(trim, enc);
             enc.pop_back();
