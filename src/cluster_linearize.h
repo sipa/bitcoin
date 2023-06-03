@@ -5,8 +5,9 @@
 #ifndef BITCOIN_CLUSTER_LINEARIZE_H
 #define BITCOIN_CLUSTER_LINEARIZE_H
 
-#include <stdint.h>
+#include <span.h>
 
+#include <stdint.h>
 #include <algorithm>
 #include <limits>
 #include <numeric>

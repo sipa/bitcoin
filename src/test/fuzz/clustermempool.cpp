@@ -7,10 +7,8 @@
 
 #include <vector>
 
-#include <crypto/siphash.h>
 #include <cluster_linearize.h>
 #include <test/fuzz/fuzz.h>
-#include <test/fuzz/FuzzedDataProvider.h>
 #include <test/fuzz/util.h>
 
 #include <assert.h>
@@ -265,11 +263,10 @@ class MaxVal
     std::optional<T> m_val;
 
 public:
-    template<typename V>
-    bool Set(V&& val)
+    bool Set(T&& val)
     {
         if (!m_val.has_value() || val > *m_val) {
-            m_val = std::forward<V>(val);
+            m_val = std::move(val);
             return true;
         }
         return false;
@@ -277,6 +274,21 @@ public:
 
     explicit operator bool() const { return m_val.has_value(); }
     const T& operator*() const { return *m_val; }
+    const T* operator->() const { return &*m_val; }
+};
+
+struct ClusterStat
+{
+    uint64_t stat;
+    size_t cluster_size;
+    size_t buffer_size;
+
+    bool friend operator>(const ClusterStat& a, const ClusterStat& b)
+    {
+        if (a.stat != b.stat) return a.stat > b.stat;
+        if (a.cluster_size != b.cluster_size) return a.cluster_size < b.cluster_size;
+        return a.buffer_size < b.buffer_size;
+    }
 };
 
 /*using BitSet = MultiIntBitSet<uint64_t, 2>;*/
@@ -471,10 +483,10 @@ FUZZ_TARGET(clustermempool_efficient_limits)
     auto initial_buffer = buffer;
 
     Cluster<BitSet> cluster = DeserializeCluster<BitSet>(buffer);
-    if (cluster.size() > 26) return;
+    if (cluster.size() > 20) return;
 
     BitSet all = BitSet::Full(cluster.size());
-    if (!IsConnectedSubset(cluster, all)) return;
+    bool connected = IsConnectedSubset(cluster, all);
 
     SortedCluster<BitSet> sorted(cluster);
     AncestorSets<BitSet> anc(sorted.cluster);
@@ -490,6 +502,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
         size_t iterations;
         size_t comparisons;
         size_t max_queue_size;
+        bool left_connected;
         size_t tot_iterations{0};
         size_t tot_comparisons{0};
     };
@@ -501,6 +514,8 @@ FUZZ_TARGET(clustermempool_efficient_limits)
         auto ret = FindBestCandidateSetEfficient(sorted.cluster, anc, desc, anc_feerates, done);
 
         // Sanity checks
+        // - connectedness of candidate
+        assert(IsConnectedSubset(sorted.cluster, ret.best_candidate_set));
         // - claimed feerate matches
         auto feerate = ComputeSetFeeRate(sorted.cluster, ret.best_candidate_set);
         assert(feerate == ret.best_candidate_feerate);
@@ -519,11 +534,14 @@ FUZZ_TARGET(clustermempool_efficient_limits)
         }
 
         // Update statistics.
-        stats.push_back({done, left, ret.iterations, ret.comparisons, ret.max_queue_size, 0, 0});
+        stats.push_back({done, left, ret.iterations, ret.comparisons, ret.max_queue_size, connected, 0, 0});
 
         // Update done to include added candidate.
         done |= ret.best_candidate_set;
         anc_feerates.Done(sorted.cluster, desc, ret.best_candidate_set);
+        if (connected) {
+            connected = IsConnectedSubset(sorted.cluster, all / done);
+        }
     }
 
     size_t cumul_iterations{0}, cumul_comparisons{0};
@@ -535,25 +553,39 @@ FUZZ_TARGET(clustermempool_efficient_limits)
     }
 
 
-    static std::array<MaxVal<size_t>, BitSet::MAX_SIZE+1> COMPS{};
-    static std::array<MaxVal<size_t>, BitSet::MAX_SIZE+1> ITERS{};
-    static std::array<MaxVal<size_t>, BitSet::MAX_SIZE+1> QUEUE{};
-    static std::array<MaxVal<size_t>, BitSet::MAX_SIZE+1> TOT_COMPS{};
-    static std::array<MaxVal<size_t>, BitSet::MAX_SIZE+1> TOT_ITERS{};
+    static std::array<MaxVal<ClusterStat>, BitSet::MAX_SIZE+1> COMPS{};
+    static std::array<MaxVal<ClusterStat>, BitSet::MAX_SIZE+1> ITERS{};
+    static std::array<MaxVal<ClusterStat>, BitSet::MAX_SIZE+1> QUEUE{};
+    static std::array<MaxVal<ClusterStat>, BitSet::MAX_SIZE+1> TOT_COMPS{};
+    static std::array<MaxVal<ClusterStat>, BitSet::MAX_SIZE+1> TOT_ITERS{};
+    static std::array<MaxVal<ClusterStat>, BitSet::MAX_SIZE+1> DIS_COMPS{};
+    static std::array<MaxVal<ClusterStat>, BitSet::MAX_SIZE+1> DIS_ITERS{};
+    static std::array<MaxVal<ClusterStat>, BitSet::MAX_SIZE+1> DIS_QUEUE{};
+    static std::array<MaxVal<ClusterStat>, BitSet::MAX_SIZE+1> DIS_TOT_COMPS{};
+    static std::array<MaxVal<ClusterStat>, BitSet::MAX_SIZE+1> DIS_TOT_ITERS{};
 
     bool comps_updated{false}, iters_updated{false}, queue_updated{false}, tot_comps_updated{false}, tot_iters_updated{false};
+    bool dis_comps_updated{false}, dis_iters_updated{false}, dis_queue_updated{false}, dis_tot_comps_updated{false}, dis_tot_iters_updated{false};
 
     bool global_do_save = false;
 
     for (const auto& entry : stats) {
         bool do_save = false;
-        if (COMPS[entry.cluster_left].Set(entry.comparisons)) do_save = comps_updated = true;
-        if (ITERS[entry.cluster_left].Set(entry.iterations)) do_save = iters_updated = true;
-        if (QUEUE[entry.cluster_left].Set(entry.max_queue_size)) do_save = queue_updated = true;
-        if (TOT_COMPS[entry.cluster_left].Set(entry.tot_comparisons)) do_save = tot_comps_updated = true;
-        if (TOT_ITERS[entry.cluster_left].Set(entry.tot_iterations)) do_save = tot_iters_updated = true;
+        if (DIS_COMPS[entry.cluster_left].Set({entry.comparisons, cluster.size(), initial_buffer.size()})) do_save = dis_comps_updated = true;
+        if (DIS_ITERS[entry.cluster_left].Set({entry.iterations, cluster.size(), initial_buffer.size()})) do_save = dis_iters_updated = true;
+        if (DIS_QUEUE[entry.cluster_left].Set({entry.max_queue_size, cluster.size(), initial_buffer.size()})) do_save = dis_queue_updated = true;
+        if (DIS_TOT_COMPS[entry.cluster_left].Set({entry.tot_comparisons, cluster.size(), initial_buffer.size()})) do_save = dis_tot_comps_updated = true;
+        if (DIS_TOT_ITERS[entry.cluster_left].Set({entry.tot_iterations, cluster.size(), initial_buffer.size()})) do_save = dis_tot_iters_updated = true;
+        if (entry.left_connected) {
+            if (COMPS[entry.cluster_left].Set({entry.comparisons, cluster.size(), initial_buffer.size()})) do_save = comps_updated = true;
+            if (ITERS[entry.cluster_left].Set({entry.iterations, cluster.size(), initial_buffer.size()})) do_save = iters_updated = true;
+            if (QUEUE[entry.cluster_left].Set({entry.max_queue_size, cluster.size(), initial_buffer.size()})) do_save = queue_updated = true;
+            if (TOT_COMPS[entry.cluster_left].Set({entry.tot_comparisons, cluster.size(), initial_buffer.size()})) do_save = tot_comps_updated = true;
+            if (TOT_ITERS[entry.cluster_left].Set({entry.tot_iterations, cluster.size(), initial_buffer.size()})) do_save = tot_iters_updated = true;
+        }
         if (do_save) {
             auto trim = TrimCluster(sorted.cluster, entry.done);
+            assert(trim.size() == entry.cluster_left);
             std::vector<unsigned char> enc;
             SerializeCluster(trim, enc);
             enc.pop_back();
@@ -567,6 +599,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
             assert(sorted_trim.cluster == trim);
             AncestorSets<BitSet> anc_trim(sorted_trim.cluster);
             assert(IsAcyclic(anc_trim));
+            assert(IsConnectedSubset(trim, BitSet::Full(trim.size())) == entry.connected);
             AncestorSetFeerates<BitSet> anc_feerates_trim(sorted_trim.cluster, anc_trim, {});
             DescendantSets<BitSet> desc_trim(anc_trim);
             WeedCluster(sorted_trim.cluster, anc_trim);
@@ -582,7 +615,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
         std::cerr << "ITERS:";
         for (size_t i = 0; i <= BitSet::MAX_SIZE; ++i) {
             if (ITERS[i]) {
-                std::cerr << " " << i << ":" << *ITERS[i];
+                std::cerr << " " << i << ":" << ITERS[i]->stat;
             }
         }
         std::cerr << std::endl;
@@ -592,7 +625,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
         std::cerr << "COMPS:";
         for (size_t i = 0; i <= BitSet::MAX_SIZE; ++i) {
             if (COMPS[i]) {
-                std::cerr << " " << i << ":" << *COMPS[i];
+                std::cerr << " " << i << ":" << COMPS[i]->stat;
             }
         }
         std::cerr << std::endl;
@@ -602,7 +635,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
         std::cerr << "QUEUE:";
         for (size_t i = 0; i <= BitSet::MAX_SIZE; ++i) {
             if (QUEUE[i]) {
-                std::cerr << " " << i << ":" << *QUEUE[i];
+                std::cerr << " " << i << ":" << QUEUE[i]->stat;
             }
         }
         std::cerr << std::endl;
@@ -612,7 +645,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
         std::cerr << "TOT_ITERS:";
         for (size_t i = 0; i <= BitSet::MAX_SIZE; ++i) {
             if (TOT_ITERS[i]) {
-                std::cerr << " " << i << ":" << *TOT_ITERS[i];
+                std::cerr << " " << i << ":" << TOT_ITERS[i]->stat;
             }
         }
         std::cerr << std::endl;
@@ -622,7 +655,57 @@ FUZZ_TARGET(clustermempool_efficient_limits)
         std::cerr << "TOT_COMPS:";
         for (size_t i = 0; i <= BitSet::MAX_SIZE; ++i) {
             if (TOT_COMPS[i]) {
-                std::cerr << " " << i << ":" << *TOT_COMPS[i];
+                std::cerr << " " << i << ":" << TOT_COMPS[i]->stat;
+            }
+        }
+        std::cerr << std::endl;
+    }
+
+    if (dis_iters_updated) {
+        std::cerr << "DIS_ITERS:";
+        for (size_t i = 0; i <= BitSet::MAX_SIZE; ++i) {
+            if (DIS_ITERS[i]) {
+                std::cerr << " " << i << ":" << DIS_ITERS[i]->stat;
+            }
+        }
+        std::cerr << std::endl;
+    }
+
+    if (comps_updated) {
+        std::cerr << "DIS_COMPS:";
+        for (size_t i = 0; i <= BitSet::MAX_SIZE; ++i) {
+            if (DIS_COMPS[i]) {
+                std::cerr << " " << i << ":" << DIS_COMPS[i]->stat;
+            }
+        }
+        std::cerr << std::endl;
+    }
+
+    if (queue_updated) {
+        std::cerr << "DIS_QUEUE:";
+        for (size_t i = 0; i <= BitSet::MAX_SIZE; ++i) {
+            if (DIS_QUEUE[i]) {
+                std::cerr << " " << i << ":" << DIS_QUEUE[i]->stat;
+            }
+        }
+        std::cerr << std::endl;
+    }
+
+    if (tot_iters_updated) {
+        std::cerr << "DIS_TOT_ITERS:";
+        for (size_t i = 0; i <= BitSet::MAX_SIZE; ++i) {
+            if (DIS_TOT_ITERS[i]) {
+                std::cerr << " " << i << ":" << DIS_TOT_ITERS[i]->stat;
+            }
+        }
+        std::cerr << std::endl;
+    }
+
+    if (tot_comps_updated) {
+        std::cerr << "DIS_TOT_COMPS:";
+        for (size_t i = 0; i <= BitSet::MAX_SIZE; ++i) {
+            if (DIS_TOT_COMPS[i]) {
+                std::cerr << " " << i << ":" << DIS_TOT_COMPS[i]->stat;
             }
         }
         std::cerr << std::endl;
