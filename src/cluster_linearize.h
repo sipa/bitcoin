@@ -630,6 +630,8 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         S pot = inc;
         /** The set of ancestors of everything in pot, combined. */
         S pot_ancestors;
+        /** Whether any undecided transactions with higher feerate than inc_feerate are left. */
+        bool explore_further{false};
         // Loop over all undecided transactions (not yet included or excluded), from high to low feerate.
         auto undecided{(all / (inc | exc)).Elements()};
         while (undecided) {
@@ -651,6 +653,9 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
                 inc = pot;
                 inc_feerate = pot_feerate;
                 inc_may_be_best = true;
+                explore_further = false;
+            } else {
+                explore_further = true;
             }
         }
 
@@ -673,9 +678,9 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
             }
         }
 
-        // Only if there are undecided transactions left besides inc and exc actually add it to the
-        // queue.
-        if (!((inc | exc) >> all)) {
+        // Only if any transactions with feerate higher than inc_feerate exist add this entry to the
+        // queue. If not, it's not worth exploring further.
+        if (explore_further) {
             queue.emplace_back(inc, exc, inc_feerate, pot_feerate);
             ret.max_queue_size = std::max(ret.max_queue_size, queue.size());
         }
@@ -703,6 +708,8 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         }
 
         // Decide which transaction to split on (highest undecided individual feerate one left).
+        // There must be at least one such transaction, because otherwise explore_further would
+        // have been false inside add_fn, and the entry would never have been added to the queue.
         auto undecided{(all / (inc | exc)).Elements()};
         assert(undecided);
         auto pos = undecided.Next();

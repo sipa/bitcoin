@@ -483,7 +483,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
     auto initial_buffer = buffer;
 
     Cluster<BitSet> cluster = DeserializeCluster<BitSet>(buffer);
-    if (cluster.size() > 20) return;
+    if (cluster.size() > 26) return;
 
     BitSet all = BitSet::Full(cluster.size());
     bool connected = IsConnectedSubset(cluster, all);
