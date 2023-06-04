@@ -604,10 +604,11 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
     // Queue of work units. Each consists of:
     // - inc: bitset of transactions definitely included (always includes done)
     // - exc: bitset of transactions definitely excluded
+    // - pot: bitset of the highest-feerate subset of transactions including inc and excluding exc
+    //        (ignoring topology).
     // - inc_feerate: the feerate of (included / done)
-    // - pot_feerate: a conservative upper bound on the feerate for any candidate set that includes
-    //                all of inc and does not include any of exc.
-    std::vector<std::tuple<S, S, FeeAndSize, FeeAndSize>> queue;
+    // - pot_feerate: the feerate of (pot / done)
+    std::vector<std::tuple<S, S, S, FeeAndSize, FeeAndSize>> queue;
 
     CandidateSetAnalysis<S> ret;
 
@@ -618,9 +619,13 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
     S best_candidate;
     FeeAndSize best_feerate;
 
-    // Internal add function: given inc/exc, inc's feerate, and whether inc can possibly be a new
-    // best seen so far, add an item to the work queue and perform other bookkeeping.
-    auto add_fn = [&](S inc, S exc, FeeAndSize inc_feerate, bool inc_may_be_best) {
+    // Internal add function. Arguments:
+    // - inc: new included set of transactions
+    // - exc: new excluded set of transactions
+    // - inc_feerate: feerate of (inc / done)
+    // - inc_may_be_best: whether inc_feerate could be better than best_feerate
+    // - pot_known: pointer to the pot of the new item, if known, nullptr otherwise.
+    auto add_fn = [&](S inc, const S& exc, FeeAndSize inc_feerate, bool inc_may_be_best, const S* pot_known) {
         // In the loop below, we do two things simultaneously:
         // - compute the pot_feerate for the new queue item.
         // - perform "jump ahead", which may add additional transactions to inc
@@ -632,33 +637,52 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         S pot_ancestors;
         /** Whether any undecided transactions with higher feerate than inc_feerate are left. */
         bool explore_further{false};
-        // Loop over all undecided transactions (not yet included or excluded), from high to low feerate.
-        auto undecided{(all / (inc | exc)).Elements()};
-        while (undecided) {
-            unsigned pos = undecided.Next();
-            // Determine if adding transaction pos to pot (ignoring topology) would improve it. If not,
-            // we're done updating pot/pot_feerate (and inc/inc_feerate).
-            if (!pot_feerate.IsEmpty()) {
-                ++ret.comparisons;
-                if (!JustFeeRateBetter(cluster[pos].first, pot_feerate)) break;
+        if (pot_known == nullptr) {
+            // Loop over all undecided transactions (not yet included or excluded), from high to low feerate.
+            auto undecided{(all / (inc | exc)).Elements()};
+            while (undecided) {
+                unsigned pos = undecided.Next();
+                // Determine if adding transaction pos to pot (ignoring topology) would improve it. If not,
+                // we're done updating pot/pot_feerate (and inc/inc_feerate).
+                if (!pot_feerate.IsEmpty()) {
+                    ++ret.comparisons;
+                    if (!JustFeeRateBetter(cluster[pos].first, pot_feerate)) break;
+                }
+                // Add the transaction to pot/pot_feerate.
+                pot_feerate += cluster[pos].first;
+                pot.Add(pos);
+                // Update the combined ancestors of pot.
+                pot_ancestors |= anc[pos];
+                // If at this point pot covers all its own ancestors, it means pot is topologically
+                // valid. Perform jump ahead (update inc/inc_feerate to match pot/pot_feerate).
+                if (pot >> pot_ancestors) {
+                    inc = pot;
+                    inc_feerate = pot_feerate;
+                    inc_may_be_best = true;
+                    explore_further = false;
+                } else {
+                    explore_further = true;
+                }
             }
-            // Add the transaction to pot/pot_feerate.
-            pot_feerate += cluster[pos].first;
-            pot.Add(pos);
-            // Update the combined ancestors of pot.
-            pot_ancestors |= anc[pos];
-            // If at this point pot covers all its own ancestors, it means pot is topologically
-            // valid. Perform jump ahead (update inc/inc_feerate to match pot/pot_feerate).
-            if (pot >> pot_ancestors) {
-                inc = pot;
-                inc_feerate = pot_feerate;
-                inc_may_be_best = true;
-                explore_further = false;
-            } else {
-                explore_further = true;
+        } else {
+            // In case we know the new work item's pot ialready, use a simplified loop which skips
+            // the feerate comparisons, and runs until pot_known is hit.
+            auto todo{(*pot_known / inc).Elements()};
+            while (todo) {
+                unsigned pos = todo.Next();
+                pot_feerate += cluster[pos].first;
+                pot.Add(pos);
+                pot_ancestors |= anc[pos];
+                if (pot >> pot_ancestors) {
+                    inc = pot;
+                    inc_feerate = pot_feerate;
+                    inc_may_be_best = true;
+                    explore_further = false;
+                } else {
+                    explore_further = true;
+                }
             }
         }
-
         // If the potential feerate is nothing, this is certainly uninteresting to work on.
         if (pot_feerate.IsEmpty()) return;
 
@@ -681,7 +705,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         // Only if any transactions with feerate higher than inc_feerate exist add this entry to the
         // queue. If not, it's not worth exploring further.
         if (explore_further) {
-            queue.emplace_back(inc, exc, inc_feerate, pot_feerate);
+            queue.emplace_back(inc, exc, pot, inc_feerate, pot_feerate);
             ret.max_queue_size = std::max(ret.max_queue_size, queue.size());
         }
     };
@@ -689,15 +713,15 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
     // Find best ancestor set to seed the search. Add a queue item corresponding to the transaction
     // with the highest ancestor set feerate excluded, and one with it included.
     auto ret_ancestor = FindBestAncestorSet(cluster, anc, anc_feerates, done);
-    add_fn(done, desc[ret_ancestor.chosen_transaction], {}, false);
-    add_fn(done | ret_ancestor.best_candidate_set, {}, ret_ancestor.best_candidate_feerate, true);
+    add_fn(done, desc[ret_ancestor.chosen_transaction], {}, false, nullptr);
+    add_fn(done | ret_ancestor.best_candidate_set, {}, ret_ancestor.best_candidate_feerate, true, nullptr);
 
     // Work processing loop.
     while (queue.size()) {
         ++ret.iterations;
 
         // Pop the last element of the queue.
-        auto [inc, exc, inc_feerate, pot_feerate] = queue.back();
+        auto [inc, exc, pot, inc_feerate, pot_feerate] = queue.back();
         queue.pop_back();
 
         // If this item's potential feerate is not better than the best seen so far, drop it.
@@ -715,8 +739,10 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         auto pos = undecided.Next();
 
         // Consider adding a work item corresponding to that transaction excluded. As nothing is
-        // being added to inc, this new entry cannot be a new best.
-        add_fn(inc, exc | desc[pos], inc_feerate, false);
+        // being added to inc, this new entry cannot be a new best. As desc[pos] always overlaps
+        // with pot (in pos, at least), the new work item's potential set will definitely be
+        // different from the parent.
+        add_fn(inc, exc | desc[pos], inc_feerate, false, nullptr);
 
         // Consider adding a work item corresponding to that transaction included. Since only
         // connected subgraphs can be optimal candidates, if there is no overlap between the
@@ -726,10 +752,12 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         // due to the preseeding with the best ancestor set, we know that anything better must
         // necessarily consist of the union of at least two ancestor sets, and this is not a
         // concern.
+        // In case anc[pos] is a subset of pot, the child potential will be identical to that of
+        // the parent.
         auto new_inc = inc | anc[pos];
         auto new_inc_feerate = inc_feerate + ComputeSetFeeRate(cluster, new_inc / inc);
         bool may_be_new_best = !(done >> (inc & anc[pos]));
-        add_fn(new_inc, exc, new_inc_feerate, may_be_new_best);
+        add_fn(new_inc, exc, new_inc_feerate, may_be_new_best, pot >> anc[pos] ? &pot : nullptr);
     }
 
     // Return.

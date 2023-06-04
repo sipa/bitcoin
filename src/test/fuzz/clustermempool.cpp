@@ -329,12 +329,12 @@ FUZZ_TARGET(clustermempool_efficient_equals_exhaustive)
 
     // Read cluster from fuzzer.
     Cluster<BitSet> cluster = DeserializeCluster<BitSet>(buffer);
-    if (cluster.size() > 20) return;
     // Compute ancestor sets.
     AncestorSets anc(cluster);
     if (!IsAcyclic(anc)) return;
     // Find a topological subset to set as "done" already.
     BitSet done = DecodeDone<BitSet>(buffer, anc);
+    if (cluster.size() - done.Count() > 20) return;
     // Sort the cluster by individual feerate.
     SortedCluster<BitSet> cluster_sorted(cluster);
     // Compute ancestor sets.
