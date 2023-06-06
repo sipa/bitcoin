@@ -1020,7 +1020,10 @@ std::vector<unsigned char> DumpCluster(Cluster<S> cluster)
 {
     AncestorSets<S> anc(cluster);
     WeedCluster(cluster, anc);
-    return SerializeCluster(cluster);
+    std::vector<unsigned char> data;
+    SerializeCluster(cluster, data);
+    data.pop_back();
+    return data;
 }
 
 /** Test whether an ancestor set was computed from an acyclic cluster. */
