@@ -217,6 +217,8 @@ public:
     bool IsEmpty() const noexcept { return m_val == 0; }
     /** Construct an object that will produce all elements of this set, using Next(). */
     BitPopper Elements() const noexcept { return BitPopper(m_val); }
+    /** Find the first element (requires !IsEMpty()). */
+    unsigned First() const noexcept { return CountTrailingZeroes(m_val); }
     /** Update this to be the union of this and a. */
     IntBitSet& operator|=(const IntBitSet& a) noexcept { m_val |= a.m_val; return *this; }
     /** Update this to be intersection of this and a. */
@@ -308,6 +310,13 @@ public:
     }
 
     BitPopper Elements() const noexcept { return BitPopper(m_val); }
+
+    unsigned First() const noexcept
+    {
+        unsigned p = 0;
+        while (m_val[p] == 0) ++p;
+        return CountTrailingZeroes(m_val[p]) + p * LIMB_BITS;
+    }
 
     MultiIntBitSet& operator|=(const MultiIntBitSet& a) noexcept
     {
@@ -625,7 +634,32 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
     // - inc_feerate: feerate of (inc / done)
     // - inc_may_be_best: whether inc_feerate could be better than best_feerate
     // - pot_known: pointer to the pot of the new item, if known, nullptr otherwise.
-    auto add_fn = [&](S inc, const S& exc, FeeAndSize inc_feerate, bool inc_may_be_best, const S* pot_known) {
+    auto add_fn = [&](S inc, S exc, FeeAndSize inc_feerate, bool inc_may_be_best, const S* pot_known, bool try_shrink) {
+        if (try_shrink) {
+            assert(pot_known == nullptr);
+            S reach;
+            reach.Add((inc / done).First());
+            auto added = reach;
+            while (true) {
+                S new_reach = reach;
+                auto reach_todo{added.Elements()};
+                while (reach_todo) {
+                    unsigned reach_pos = reach_todo.Next();
+                    new_reach |= (anc[reach_pos] | desc[reach_pos]) / (exc | done);
+                }
+                if (reach == new_reach) break;
+                added = new_reach / reach;
+                reach = new_reach;
+            }
+            if ((done | reach) >> inc) {
+                auto new_exc = all / (reach | done);
+                assert(new_exc >> exc);
+                exc = new_exc;
+            } else {
+                return;
+            }
+        }
+
         // In the loop below, we do two things simultaneously:
         // - compute the pot_feerate for the new queue item.
         // - perform "jump ahead", which may add additional transactions to inc
@@ -713,8 +747,8 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
     // Find best ancestor set to seed the search. Add a queue item corresponding to the transaction
     // with the highest ancestor set feerate excluded, and one with it included.
     auto ret_ancestor = FindBestAncestorSet(cluster, anc, anc_feerates, done);
-    add_fn(done, desc[ret_ancestor.chosen_transaction], {}, false, nullptr);
-    add_fn(done | ret_ancestor.best_candidate_set, {}, ret_ancestor.best_candidate_feerate, true, nullptr);
+    add_fn(done, desc[ret_ancestor.chosen_transaction], {}, false, nullptr, false);
+    add_fn(done | ret_ancestor.best_candidate_set, {}, ret_ancestor.best_candidate_feerate, true, nullptr, true);
 
     // Work processing loop.
     while (queue.size()) {
@@ -734,15 +768,13 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         // Decide which transaction to split on (highest undecided individual feerate one left).
         // There must be at least one such transaction, because otherwise explore_further would
         // have been false inside add_fn, and the entry would never have been added to the queue.
-        auto undecided{(all / (inc | exc)).Elements()};
-        assert(undecided);
-        auto pos = undecided.Next();
+        auto pos = (all / (inc | exc)).First();
 
         // Consider adding a work item corresponding to that transaction excluded. As nothing is
         // being added to inc, this new entry cannot be a new best. As desc[pos] always overlaps
         // with pot (in pos, at least), the new work item's potential set will definitely be
         // different from the parent.
-        add_fn(inc, exc | desc[pos], inc_feerate, false, nullptr);
+        add_fn(inc, exc | desc[pos], inc_feerate, false, nullptr, inc != done);
 
         // Consider adding a work item corresponding to that transaction included. Since only
         // connected subgraphs can be optimal candidates, if there is no overlap between the
@@ -757,7 +789,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         auto new_inc = inc | anc[pos];
         auto new_inc_feerate = inc_feerate + ComputeSetFeeRate(cluster, new_inc / inc);
         bool may_be_new_best = !(done >> (inc & anc[pos]));
-        add_fn(new_inc, exc, new_inc_feerate, may_be_new_best, pot >> anc[pos] ? &pot : nullptr);
+        add_fn(new_inc, exc, new_inc_feerate, may_be_new_best, pot >> anc[pos] ? &pot : nullptr, inc == done);
     }
 
     // Return.

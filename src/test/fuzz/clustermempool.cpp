@@ -485,6 +485,8 @@ FUZZ_TARGET(clustermempool_efficient_limits)
     Cluster<BitSet> cluster = DeserializeCluster<BitSet>(buffer);
     if (cluster.size() > 26) return;
 
+//    std::cerr << "CLUSTER " << cluster << std::endl;
+
     BitSet all = BitSet::Full(cluster.size());
     bool connected = IsConnectedSubset(cluster, all);
 
@@ -526,12 +528,14 @@ FUZZ_TARGET(clustermempool_efficient_limits)
             merged_ancestors |= anc[todo.Next()];
         }
         assert((done | ret.best_candidate_set) == merged_ancestors);
-        // - if small enough, matches exhaustive search feerate
         unsigned left = (all / done).Count();
+        // - if small enough, matches exhaustive search feerate
+#if 1
         if (left <= 10) {
             auto ret_exhaustive = FindBestCandidateSetExhaustive(sorted.cluster, anc, done);
             assert(ret_exhaustive.best_candidate_feerate == ret.best_candidate_feerate);
         }
+#endif
 
         // Update statistics.
         stats.push_back({done, left, ret.iterations, ret.comparisons, ret.max_queue_size, connected, 0, 0});
