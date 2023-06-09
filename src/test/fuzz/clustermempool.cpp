@@ -10,6 +10,7 @@
 #include <cluster_linearize.h>
 #include <test/fuzz/fuzz.h>
 #include <test/fuzz/util.h>
+#include <test/util/xoroshiro128plusplus.h>
 
 #include <assert.h>
 
@@ -23,6 +24,22 @@ std::ostream& operator<<(std::ostream& o, const FeeAndSize& data)
 {
     o << "(" << data.sats << "/" << data.bytes << "=" << ((double)data.sats / data.bytes) << ")";
     return o;
+}
+
+template<typename S>
+void DrawCluster(std::ostream& o, const Cluster<S>& cluster)
+{
+    o << "digraph{rankdir=\"BT\";";
+    for (unsigned i = 0; i < cluster.size(); ++i) {
+        o << "t" << i << "[label=\"" << (double(cluster[i].first.sats) / cluster[i].first.bytes) << "\\n" << cluster[i].first.sats << " / " << cluster[i].first.bytes << "\"];";
+    }
+    for (unsigned i = 0; i < cluster.size(); ++i) {
+        auto todo{cluster[i].second.Elements()};
+        while (todo) {
+            o << "t" << i << "->t" << todo.Next() << ";";
+        }
+    }
+    o << "}";
 }
 
 /** Union-Find data structure. */
@@ -348,7 +365,7 @@ FUZZ_TARGET(clustermempool_efficient_equals_exhaustive)
 
     // Run both algorithms.
     auto ret_exhaustive = FindBestCandidateSetExhaustive(cluster, anc, done);
-    auto ret_efficient = FindBestCandidateSetEfficient(cluster_sorted.cluster, anc_sorted, desc_sorted, anc_sorted_feerate, done_sorted);
+    auto ret_efficient = FindBestCandidateSetEfficient<QueueStyle::DFS>(cluster_sorted.cluster, anc_sorted, desc_sorted, anc_sorted_feerate, done_sorted, nullptr);
 
     // Compare best found feerates.
     assert(ret_exhaustive.best_candidate_feerate == ret_efficient.best_candidate_feerate);
@@ -375,7 +392,7 @@ FUZZ_TARGET(clustermempool_linearize)
     for (unsigned i = 0; i < 11; ++i) {
         struct timespec measure_start, measure_stop;
         clock_gettime(CLOCK_THREAD_CPUTIME_ID, &measure_start);
-        auto linearization = LinearizeCluster(cluster);
+        auto linearization = LinearizeCluster(cluster, 15);
         clock_gettime(CLOCK_THREAD_CPUTIME_ID, &measure_stop);
         double duration = (double)((int64_t)measure_stop.tv_sec - (int64_t)measure_start.tv_sec) + 0.000000001*(double)((int64_t)measure_stop.tv_nsec - (int64_t)measure_start.tv_nsec);
         results.emplace_back(duration, linearization);
@@ -457,13 +474,13 @@ FUZZ_TARGET(clustermempool_trim)
 
     DescendantSets<BitSet> desc(anc);
     AncestorSetFeerates<BitSet> anc_feerates(sorted.cluster, anc, done);
-    auto eff1 = FindBestCandidateSetEfficient(sorted.cluster, anc, desc, anc_feerates, done);
+    auto eff1 = FindBestCandidateSetEfficient<QueueStyle::DFS>(sorted.cluster, anc, desc, anc_feerates, done, nullptr);
     WeedCluster(sorted.cluster, anc);
     Cluster<BitSet> trim = TrimCluster(sorted.cluster, done);
     AncestorSets<BitSet> trim_anc(trim);
     DescendantSets<BitSet> trim_desc(trim_anc);
     AncestorSetFeerates<BitSet> trim_anc_feerates(trim, trim_anc, {});
-    auto eff2 = FindBestCandidateSetEfficient(trim, trim_anc, trim_desc, trim_anc_feerates, {});
+    auto eff2 = FindBestCandidateSetEfficient<QueueStyle::DFS>(trim, trim_anc, trim_desc, trim_anc_feerates, {}, nullptr);
     assert(eff1.best_candidate_feerate == eff2.best_candidate_feerate);
     assert(eff1.max_queue_size == eff2.max_queue_size);
     assert(eff1.iterations == eff2.iterations);
@@ -476,6 +493,70 @@ FUZZ_TARGET(clustermempool_trim)
         assert(ret1.best_candidate_feerate == ret2.best_candidate_feerate);
         assert(ret1.best_candidate_feerate == eff1.best_candidate_feerate);
     }
+}
+
+template<QueueStyle QS, typename S>
+void FullStatsProcess(const std::string& name, const Cluster<S>& cluster, const SortedCluster<S>& sorted, const AncestorSets<S>& anc, const DescendantSets<S>& desc, XoRoShiRo128PlusPlus& rng)
+{
+    uint64_t tot_iters{0};
+    uint64_t tot_comps{0};
+    uint64_t max_queue{0};
+    unsigned todo = cluster.size();
+    S done;
+    AncestorSetFeerates<S> anc_feerates(sorted.cluster, anc, {});
+    while (todo) {
+        auto ret = FindBestCandidateSetEfficient<QS>(sorted.cluster, anc, desc, anc_feerates, done, rng);
+        tot_iters += ret.iterations;
+        tot_comps += ret.comparisons;
+        max_queue = std::max<uint64_t>(max_queue, ret.max_queue_size);
+        done |= ret.best_candidate_set;
+        todo -= ret.best_candidate_set.Count();
+        anc_feerates.Done(sorted.cluster, desc, ret.best_candidate_set);
+    }
+    std::cerr << "- " << name << ": iterations=" << tot_iters << " comparisons=" << tot_comps << " max_queue=" << max_queue << std::endl;
+}
+
+FUZZ_TARGET(clustermempool_full_stats)
+{
+    using BS = MultiIntBitSet<uint64_t, 4>;
+    auto cluster = DeserializeCluster<BS>(buffer);
+    XoRoShiRo128PlusPlus rng(0x1337133713371337);
+
+    SortedCluster<BS> sorted(cluster);
+    AncestorSets<BS> anc(sorted.cluster);
+    if (!IsAcyclic(anc)) return;
+    DescendantSets<BS> desc(anc);
+
+    std::cerr << "CLUSTER " << cluster << std::endl;
+    std::cerr << "- GRAPH "; DrawCluster(std::cerr, cluster); std::cerr << std::endl;
+
+    FullStatsProcess<QueueStyle::DFS>("DFS", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::DFS_EXC>("DFS_EXC", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::RANDOM>("RANDOM", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::HIGHEST_ACHIEVED_FEERATE>("HIGHEST_ACHIEVED_FEERATE", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::HIGHEST_ACHIEVED_FEE>("HIGHEST_ACHIEVED_FEE", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::HIGHEST_ACHIEVED_SIZE>("HIGHEST_ACHIEVED_SIZE", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::HIGHEST_POTENTIAL_FEERATE>("HIGHEST_POTENTIAL_FEERATE", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::HIGHEST_POTENTIAL_FEE>("HIGHEST_POTENTIAL_FEE", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::HIGHEST_POTENTIAL_SIZE>("HIGHEST_POTENTIAL_SIZE", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::HIGHEST_GAIN_FEERATE>("HIGHEST_GAIN_FEERATE", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::HIGHEST_GAIN_FEE>("HIGHEST_GAIN_FEE", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::HIGHEST_GAIN_SIZE>("HIGHEST_GAIN_SIZE", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::LOWEST_ACHIEVED_FEERATE>("LOWEST_ACHIEVED_FEERATE", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::LOWEST_ACHIEVED_FEE>("LOWEST_ACHIEVED_FEE", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::LOWEST_ACHIEVED_SIZE>("LOWEST_ACHIEVED_SIZE", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::LOWEST_POTENTIAL_FEERATE>("LOWEST_POTENTIAL_FEERATE", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::LOWEST_POTENTIAL_FEE>("LOWEST_POTENTIAL_FEE", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::LOWEST_POTENTIAL_SIZE>("LOWEST_POTENTIAL_SIZE", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::LOWEST_GAIN_FEERATE>("LOWEST_GAIN_FEERATE", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::LOWEST_GAIN_FEE>("LOWEST_GAIN_FEE", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::LOWEST_GAIN_SIZE>("LOWEST_GAIN_SIZE", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::MOST_ADVANCED_HIGHEST_POTENTIAL_FEERATE>("MOST_ADVANCED_HIGHEST_POTENTIAL_FEERATE", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::LEAST_ADVANCED_HIGHEST_POTENTIAL_FEERATE>("LEAST_ADVANCED_HIGHEST_POTENTIAL_FEERATE", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::MOST_LEFT_HIGHEST_POTENTIAL_FEERATE>("MOST_LEFT_HIGHEST_POTENTIAL_FEERATE", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::LEAST_LEFT_HIGHEST_POTENTIAL_FEERATE>("LEAST_LEFT_HIGHEST_POTENTIAL_FEERATE", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::MOST_INC_HIGHEST_POTENTIAL_FEERATE>("MOST_INC_HIGHEST_POTENTIAL_FEERATE", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::LEAST_INC_HIGHEST_POTENTIAL_FEERATE>("LEAST_INC_HIGHEST_POTENTIAL_FEERATE", cluster, sorted, anc, desc, rng);
 }
 
 FUZZ_TARGET(clustermempool_efficient_limits)
@@ -513,7 +594,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
 
     BitSet done;
     while (done != all) {
-        auto ret = FindBestCandidateSetEfficient(sorted.cluster, anc, desc, anc_feerates, done);
+        auto ret = FindBestCandidateSetEfficient<QueueStyle::DFS>(sorted.cluster, anc, desc, anc_feerates, done, nullptr);
 
         // Sanity checks
         // - connectedness of candidate
@@ -607,7 +688,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
             AncestorSetFeerates<BitSet> anc_feerates_trim(sorted_trim.cluster, anc_trim, {});
             DescendantSets<BitSet> desc_trim(anc_trim);
             WeedCluster(sorted_trim.cluster, anc_trim);
-            auto redo = FindBestCandidateSetEfficient(sorted_trim.cluster, anc_trim, desc_trim, anc_feerates_trim, {});
+            auto redo = FindBestCandidateSetEfficient<QueueStyle::DFS>(sorted_trim.cluster, anc_trim, desc_trim, anc_feerates_trim, {}, nullptr);
             assert(redo.iterations == entry.iterations);
             assert(redo.comparisons == entry.comparisons);
             assert(redo.max_queue_size == entry.max_queue_size);
