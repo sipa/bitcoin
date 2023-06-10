@@ -26,10 +26,10 @@ bool IsMul64Compatible(const Cluster<S>& c)
     uint64_t sum_fee{0};
     uint32_t sum_size{0};
     for (const auto& [fee_and_size, _parents] : c) {
-        sum_fee += fee_and_size.sats;
-        if (sum_fee < fee_and_size.sats) return false;
-        sum_size += fee_and_size.bytes;
-        if (sum_size < fee_and_size.bytes) return false;
+        sum_fee += fee_and_size.fee;
+        if (sum_fee < fee_and_size.fee) return false;
+        sum_size += fee_and_size.size;
+        if (sum_size < fee_and_size.size) return false;
     }
     uint64_t high = (sum_fee >> 32) * sum_size;
     uint64_t low = (sum_fee & 0xFFFFFFFF) * sum_size;
@@ -37,9 +37,9 @@ bool IsMul64Compatible(const Cluster<S>& c)
     return (high >> 32) == 0;
 }
 
-std::ostream& operator<<(std::ostream& o, const FeeAndSize& data)
+std::ostream& operator<<(std::ostream& o, const FeeFrac& data)
 {
-    o << "(" << data.sats << "/" << data.bytes << "=" << ((double)data.sats / data.bytes) << ")";
+    o << "(" << data.fee << "/" << data.size << "=" << ((double)data.fee / data.size) << ")";
     return o;
 }
 
@@ -48,7 +48,7 @@ void DrawCluster(std::ostream& o, const Cluster<S>& cluster)
 {
     o << "digraph{rankdir=\"BT\";";
     for (unsigned i = 0; i < cluster.size(); ++i) {
-        o << "t" << i << "[label=\"" << (double(cluster[i].first.sats) / cluster[i].first.bytes) << "\\n" << cluster[i].first.sats << " / " << cluster[i].first.bytes << "\"];";
+        o << "t" << i << "[label=\"" << (double(cluster[i].first.fee) / cluster[i].first.size) << "\\n" << cluster[i].first.fee << " / " << cluster[i].first.size << "\"];";
     }
     for (unsigned i = 0; i < cluster.size(); ++i) {
         auto todo{cluster[i].second.Elements()};
@@ -208,10 +208,10 @@ CandidateSetAnalysis<S> FindBestCandidateSetNaive(const Cluster<S>& cluster, con
 
         // Update statistics in ret to account for this new candidate.
         ++ret.num_candidate_sets;
-        FeeAndSize feerate = ComputeSetFeeRate(cluster, bitset);
-        if (ret.best_candidate_feerate.IsEmpty() || feerate > ret.best_candidate_feerate) {
+        FeeFrac feefrac = ComputeSetFeeFrac(cluster, bitset);
+        if (ret.best_candidate_feefrac.IsEmpty() || feefrac > ret.best_candidate_feefrac) {
             ret.best_candidate_set = bitset;
-            ret.best_candidate_feerate = feerate;
+            ret.best_candidate_feefrac = feefrac;
         }
     }
 
@@ -226,11 +226,11 @@ template<typename S>
 CandidateSetAnalysis<S> FindBestCandidateSetExhaustive(const Cluster<S>& cluster, const AncestorSets<S>& anc, const S& done)
 {
     // Queue of work units. Each consists of:
-    // - inc: bitset of transactions definitely included (always includes done)
-    // - exc: bitset of transactions definitely excluded
-    // - feerate: the feerate of (included / done)
-    std::vector<std::tuple<S, S, FeeAndSize>> queue;
-    queue.emplace_back(done, S{}, FeeAndSize{});
+    // - inc: set of transactions definitely included (always includes done)
+    // - exc: set of transactions definitely excluded
+    // - feefrac: the FeeFrac of (included / done)
+    std::vector<std::tuple<S, S, FeeFrac>> queue;
+    queue.emplace_back(done, S{}, FeeFrac{});
 
     CandidateSetAnalysis<S> ret;
 
@@ -238,7 +238,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetExhaustive(const Cluster<S>& cluster
     while (!queue.empty()) {
         ++ret.iterations;
         // Pop top element of the queue.
-        auto [inc, exc, feerate] = queue.back();
+        auto [inc, exc, feefrac] = queue.back();
         queue.pop_back();
         bool inc_none = inc == done;
         // Look for a transaction to include.
@@ -252,23 +252,23 @@ CandidateSetAnalysis<S> FindBestCandidateSetExhaustive(const Cluster<S>& cluster
             //   - if not, the ancestry of what we add must overlap with what we already have, in
             //     not yet done transactions (to guarantee (inc / done) is always connected).
             if (!inc[i] && !exc[i] && (exc & anc[i]).IsEmpty() && (inc_none || !(done >> (inc & anc[i])))) {
-                // First, add a queue item with i added to exc. Inc is unchanged, so feerate is
+                // First, add a queue item with i added to exc. Inc is unchanged, so feefrac is
                 // unchanged as well.
                 auto new_exc = exc;
                 new_exc.Add(i);
-                queue.emplace_back(inc, new_exc, feerate);
+                queue.emplace_back(inc, new_exc, feefrac);
 
                 // Then, add a queue item with i (plus ancestry) added to inc. We need to compute
-                // an updated feerate here to account for what was added.
+                // an updated feefrac here to account for what was added.
                 auto new_inc = inc | anc[i];
-                FeeAndSize new_feerate = feerate + ComputeSetFeeRate(cluster, new_inc / inc);
-                queue.emplace_back(new_inc, exc, new_feerate);
+                FeeFrac new_feefrac = feefrac + ComputeSetFeeFrac(cluster, new_inc / inc);
+                queue.emplace_back(new_inc, exc, new_feefrac);
 
                 // Update statistics in ret to account for this new candidate (new_inc / done).
                 ++ret.num_candidate_sets;
-                if (ret.best_candidate_feerate.IsEmpty() || new_feerate > ret.best_candidate_feerate) {
+                if (ret.best_candidate_feefrac.IsEmpty() || new_feefrac > ret.best_candidate_feefrac) {
                     ret.best_candidate_set = new_inc / done;
-                    ret.best_candidate_feerate = new_feerate;
+                    ret.best_candidate_feefrac = new_feefrac;
                 }
                 ret.max_queue_size = std::max(queue.size(), ret.max_queue_size);
                 break;
@@ -347,15 +347,15 @@ FUZZ_TARGET(clustermempool_exhaustive_equals_naive)
     auto ret_naive = FindBestCandidateSetNaive(cluster, done);
     auto ret_exhaustive = FindBestCandidateSetExhaustive(cluster, anc, done);
 
-    // Compute number of candidate sets and best feerate of found result.
+    // Compute number of candidate sets and best feefrac of found result.
     assert(ret_exhaustive.num_candidate_sets == ret_naive.num_candidate_sets);
-    assert(ret_exhaustive.best_candidate_feerate == ret_naive.best_candidate_feerate);
+    assert(ret_exhaustive.best_candidate_feefrac == ret_naive.best_candidate_feefrac);
 
     // We cannot require that the actual candidate returned is identical, because there may be
-    // multiple, and the algorithms iterate in different order. Instead, recompute the feerate of
+    // multiple, and the algorithms iterate in different order. Instead, recompute the FeeFrac of
     // the candidate returned by the exhaustive one and check that it matches the claimed value.
-    auto feerate_exhaustive = ComputeSetFeeRate(cluster, ret_exhaustive.best_candidate_set);
-    assert(feerate_exhaustive == ret_exhaustive.best_candidate_feerate);
+    auto feefrac_exhaustive = ComputeSetFeeFrac(cluster, ret_exhaustive.best_candidate_set);
+    assert(feefrac_exhaustive == ret_exhaustive.best_candidate_feefrac);
 }
 
 FUZZ_TARGET(clustermempool_efficient_equals_exhaustive)
@@ -371,7 +371,7 @@ FUZZ_TARGET(clustermempool_efficient_equals_exhaustive)
     // Find a topological subset to set as "done" already.
     BitSet done = DecodeDone<BitSet>(buffer, anc);
     if (cluster.size() - done.Count() > 20) return;
-    // Sort the cluster by individual feerate.
+    // Sort the cluster by individual FeeFrac.
     SortedCluster<BitSet> cluster_sorted(cluster);
     // Compute ancestor sets.
     AncestorSets<BitSet> anc_sorted(cluster_sorted.cluster);
@@ -379,21 +379,21 @@ FUZZ_TARGET(clustermempool_efficient_equals_exhaustive)
     DescendantSets<BitSet> desc_sorted(anc_sorted);
     // Convert done to sorted ordering.
     BitSet done_sorted = cluster_sorted.OriginalToSorted(done);
-    // Precompute ancestor set feerates in sorted ordering.
-    AncestorSetFeerates<BitSet> anc_sorted_feerate(cluster_sorted.cluster, anc_sorted, done_sorted);
+    // Precompute ancestor set FreeFracs in sorted ordering.
+    AncestorSetFeeFracs<BitSet> anc_sorted_feefrac(cluster_sorted.cluster, anc_sorted, done_sorted);
 
     // Run both algorithms.
     auto ret_exhaustive = FindBestCandidateSetExhaustive(cluster, anc, done);
-    auto ret_efficient = FindBestCandidateSetEfficient<QueueStyle::DFS>(cluster_sorted.cluster, anc_sorted, desc_sorted, anc_sorted_feerate, done_sorted, nullptr);
+    auto ret_efficient = FindBestCandidateSetEfficient<QueueStyle::DFS>(cluster_sorted.cluster, anc_sorted, desc_sorted, anc_sorted_feefrac, done_sorted, nullptr);
 
-    // Compare best found feerates.
-    assert(ret_exhaustive.best_candidate_feerate == ret_efficient.best_candidate_feerate);
+    // Compare best found FeeFracs.
+    assert(ret_exhaustive.best_candidate_feefrac == ret_efficient.best_candidate_feefrac);
 
     // We cannot require that the actual candidate returned is identical, because there may be
-    // multiple, and the algorithms iterate in different order. Instead, recompute the feerate of
+    // multiple, and the algorithms iterate in different order. Instead, recompute the FeeFrac of
     // the candidate returned by the efficient one and check that it matches the claimed value.
-    auto feerate_efficient = ComputeSetFeeRate(cluster_sorted.cluster, ret_efficient.best_candidate_set);
-    assert(feerate_efficient == ret_exhaustive.best_candidate_feerate);
+    auto feefrac_efficient = ComputeSetFeeFrac(cluster_sorted.cluster, ret_efficient.best_candidate_set);
+    assert(feefrac_efficient == ret_exhaustive.best_candidate_feefrac);
 }
 
 FUZZ_TARGET(clustermempool_linearize)
@@ -494,15 +494,15 @@ FUZZ_TARGET(clustermempool_trim)
     BitSet done = DecodeDone<BitSet>(buffer, anc);
 
     DescendantSets<BitSet> desc(anc);
-    AncestorSetFeerates<BitSet> anc_feerates(sorted.cluster, anc, done);
-    auto eff1 = FindBestCandidateSetEfficient<QueueStyle::DFS>(sorted.cluster, anc, desc, anc_feerates, done, nullptr);
+    AncestorSetFeeFracs<BitSet> anc_feefracs(sorted.cluster, anc, done);
+    auto eff1 = FindBestCandidateSetEfficient<QueueStyle::DFS>(sorted.cluster, anc, desc, anc_feefracs, done, nullptr);
     WeedCluster(sorted.cluster, anc);
     Cluster<BitSet> trim = TrimCluster(sorted.cluster, done);
     AncestorSets<BitSet> trim_anc(trim);
     DescendantSets<BitSet> trim_desc(trim_anc);
-    AncestorSetFeerates<BitSet> trim_anc_feerates(trim, trim_anc, {});
-    auto eff2 = FindBestCandidateSetEfficient<QueueStyle::DFS>(trim, trim_anc, trim_desc, trim_anc_feerates, {}, nullptr);
-    assert(eff1.best_candidate_feerate == eff2.best_candidate_feerate);
+    AncestorSetFeeFracs<BitSet> trim_anc_feefracs(trim, trim_anc, {});
+    auto eff2 = FindBestCandidateSetEfficient<QueueStyle::DFS>(trim, trim_anc, trim_desc, trim_anc_feefracs, {}, nullptr);
+    assert(eff1.best_candidate_feefrac == eff2.best_candidate_feefrac);
     assert(eff1.max_queue_size == eff2.max_queue_size);
     assert(eff1.iterations == eff2.iterations);
     assert(eff1.comparisons == eff2.comparisons);
@@ -511,8 +511,8 @@ FUZZ_TARGET(clustermempool_trim)
         auto ret1 = FindBestCandidateSetExhaustive(sorted.cluster, anc, done);
         auto ret2 = FindBestCandidateSetExhaustive(trim, trim_anc, {});
         assert(ret1.num_candidate_sets == ret2.num_candidate_sets);
-        assert(ret1.best_candidate_feerate == ret2.best_candidate_feerate);
-        assert(ret1.best_candidate_feerate == eff1.best_candidate_feerate);
+        assert(ret1.best_candidate_feefrac == ret2.best_candidate_feefrac);
+        assert(ret1.best_candidate_feefrac == eff1.best_candidate_feefrac);
     }
 }
 
@@ -524,15 +524,15 @@ void FullStatsProcess(const std::string& name, const Cluster<S>& cluster, const 
     uint64_t max_queue{0};
     unsigned todo = cluster.size();
     S done;
-    AncestorSetFeerates<S> anc_feerates(sorted.cluster, anc, {});
+    AncestorSetFeeFracs<S> anc_feefracs(sorted.cluster, anc, {});
     while (todo) {
-        auto ret = FindBestCandidateSetEfficient<QS>(sorted.cluster, anc, desc, anc_feerates, done, rng);
+        auto ret = FindBestCandidateSetEfficient<QS>(sorted.cluster, anc, desc, anc_feefracs, done, rng);
         tot_iters += ret.iterations;
         tot_comps += ret.comparisons;
         max_queue = std::max<uint64_t>(max_queue, ret.max_queue_size);
         done |= ret.best_candidate_set;
         todo -= ret.best_candidate_set.Count();
-        anc_feerates.Done(sorted.cluster, desc, ret.best_candidate_set);
+        anc_feefracs.Done(sorted.cluster, desc, ret.best_candidate_set);
     }
     std::cerr << "- " << name << ": iterations=" << tot_iters << " comparisons=" << tot_comps << " max_queue=" << max_queue << std::endl;
 }
@@ -555,30 +555,30 @@ FUZZ_TARGET(clustermempool_full_stats)
     FullStatsProcess<QueueStyle::DFS>("DFS", cluster, sorted, anc, desc, rng);
     FullStatsProcess<QueueStyle::DFS_EXC>("DFS_EXC", cluster, sorted, anc, desc, rng);
     FullStatsProcess<QueueStyle::RANDOM>("RANDOM", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::HIGHEST_ACHIEVED_FEERATE>("HIGHEST_ACHIEVED_FEERATE", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::BEST_ACHIEVED_FEEFRAC>("BEST_ACHIEVED_FEEFRAC", cluster, sorted, anc, desc, rng);
     FullStatsProcess<QueueStyle::HIGHEST_ACHIEVED_FEE>("HIGHEST_ACHIEVED_FEE", cluster, sorted, anc, desc, rng);
     FullStatsProcess<QueueStyle::HIGHEST_ACHIEVED_SIZE>("HIGHEST_ACHIEVED_SIZE", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::HIGHEST_POTENTIAL_FEERATE>("HIGHEST_POTENTIAL_FEERATE", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::BEST_POTENTIAL_FEEFRAC>("BEST_POTENTIAL_FEEFRAC", cluster, sorted, anc, desc, rng);
     FullStatsProcess<QueueStyle::HIGHEST_POTENTIAL_FEE>("HIGHEST_POTENTIAL_FEE", cluster, sorted, anc, desc, rng);
     FullStatsProcess<QueueStyle::HIGHEST_POTENTIAL_SIZE>("HIGHEST_POTENTIAL_SIZE", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::HIGHEST_GAIN_FEERATE>("HIGHEST_GAIN_FEERATE", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::BEST_GAIN_FEEFRAC>("BEST_GAIN_FEEFRAC", cluster, sorted, anc, desc, rng);
     FullStatsProcess<QueueStyle::HIGHEST_GAIN_FEE>("HIGHEST_GAIN_FEE", cluster, sorted, anc, desc, rng);
     FullStatsProcess<QueueStyle::HIGHEST_GAIN_SIZE>("HIGHEST_GAIN_SIZE", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::LOWEST_ACHIEVED_FEERATE>("LOWEST_ACHIEVED_FEERATE", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::WORST_ACHIEVED_FEEFRAC>("WORST_ACHIEVED_FEEFRAC", cluster, sorted, anc, desc, rng);
     FullStatsProcess<QueueStyle::LOWEST_ACHIEVED_FEE>("LOWEST_ACHIEVED_FEE", cluster, sorted, anc, desc, rng);
     FullStatsProcess<QueueStyle::LOWEST_ACHIEVED_SIZE>("LOWEST_ACHIEVED_SIZE", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::LOWEST_POTENTIAL_FEERATE>("LOWEST_POTENTIAL_FEERATE", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::WORST_POTENTIAL_FEEFRAC>("WORST_POTENTIAL_FEEFRAC", cluster, sorted, anc, desc, rng);
     FullStatsProcess<QueueStyle::LOWEST_POTENTIAL_FEE>("LOWEST_POTENTIAL_FEE", cluster, sorted, anc, desc, rng);
     FullStatsProcess<QueueStyle::LOWEST_POTENTIAL_SIZE>("LOWEST_POTENTIAL_SIZE", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::LOWEST_GAIN_FEERATE>("LOWEST_GAIN_FEERATE", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::WORST_GAIN_FEEFRAC>("WORST_GAIN_FEEFRAC", cluster, sorted, anc, desc, rng);
     FullStatsProcess<QueueStyle::LOWEST_GAIN_FEE>("LOWEST_GAIN_FEE", cluster, sorted, anc, desc, rng);
     FullStatsProcess<QueueStyle::LOWEST_GAIN_SIZE>("LOWEST_GAIN_SIZE", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::MOST_ADVANCED_HIGHEST_POTENTIAL_FEERATE>("MOST_ADVANCED_HIGHEST_POTENTIAL_FEERATE", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::LEAST_ADVANCED_HIGHEST_POTENTIAL_FEERATE>("LEAST_ADVANCED_HIGHEST_POTENTIAL_FEERATE", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::MOST_LEFT_HIGHEST_POTENTIAL_FEERATE>("MOST_LEFT_HIGHEST_POTENTIAL_FEERATE", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::LEAST_LEFT_HIGHEST_POTENTIAL_FEERATE>("LEAST_LEFT_HIGHEST_POTENTIAL_FEERATE", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::MOST_INC_HIGHEST_POTENTIAL_FEERATE>("MOST_INC_HIGHEST_POTENTIAL_FEERATE", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::LEAST_INC_HIGHEST_POTENTIAL_FEERATE>("LEAST_INC_HIGHEST_POTENTIAL_FEERATE", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::MOST_ADVANCED_BEST_POTENTIAL_FEEFRAC>("MOST_ADVANCED_BEST_POTENTIAL_FEEFRAC", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::LEAST_ADVANCED_BEST_POTENTIAL_FEEFRAC>("LEAST_ADVANCED_BEST_POTENTIAL_FEEFRAC", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::MOST_LEFT_BEST_POTENTIAL_FEEFRAC>("MOST_LEFT_BEST_POTENTIAL_FEEFRAC", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::LEAST_LEFT_BEST_POTENTIAL_FEEFRAC>("LEAST_LEFT_BEST_POTENTIAL_FEEFRAC", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::MOST_INC_BEST_POTENTIAL_FEEFRAC>("MOST_INC_BEST_POTENTIAL_FEEFRAC", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::LEAST_INC_BEST_POTENTIAL_FEEFRAC>("LEAST_INC_BEST_POTENTIAL_FEEFRAC", cluster, sorted, anc, desc, rng);
 }
 
 FUZZ_TARGET(clustermempool_efficient_limits)
@@ -598,7 +598,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
     AncestorSets<BitSet> anc(sorted.cluster);
     if (!IsAcyclic(anc)) return;
     DescendantSets<BitSet> desc(anc);
-    AncestorSetFeerates<BitSet> anc_feerates(sorted.cluster, anc, {});
+    AncestorSetFeeFracs<BitSet> anc_feefracs(sorted.cluster, anc, {});
     WeedCluster(sorted.cluster, anc);
 
     struct Stats
@@ -617,14 +617,14 @@ FUZZ_TARGET(clustermempool_efficient_limits)
 
     BitSet done;
     while (done != all) {
-        auto ret = FindBestCandidateSetEfficient<QueueStyle::DFS>(sorted.cluster, anc, desc, anc_feerates, done, nullptr);
+        auto ret = FindBestCandidateSetEfficient<QueueStyle::DFS>(sorted.cluster, anc, desc, anc_feefracs, done, nullptr);
 
         // Sanity checks
         // - connectedness of candidate
         assert(IsConnectedSubset(sorted.cluster, ret.best_candidate_set));
-        // - claimed feerate matches
-        auto feerate = ComputeSetFeeRate(sorted.cluster, ret.best_candidate_set);
-        assert(feerate == ret.best_candidate_feerate);
+        // - claimed FeeFrac matches
+        auto feefrac = ComputeSetFeeFrac(sorted.cluster, ret.best_candidate_set);
+        assert(feefrac == ret.best_candidate_feefrac);
         // - topologically consistent
         BitSet merged_ancestors = done;
         auto todo{ret.best_candidate_set.Elements()};
@@ -633,11 +633,11 @@ FUZZ_TARGET(clustermempool_efficient_limits)
         }
         assert((done | ret.best_candidate_set) == merged_ancestors);
         unsigned left = (all / done).Count();
-        // - if small enough, matches exhaustive search feerate
+        // - if small enough, matches exhaustive search FeeFrac
 #if 1
         if (left <= 10) {
             auto ret_exhaustive = FindBestCandidateSetExhaustive(sorted.cluster, anc, done);
-            assert(ret_exhaustive.best_candidate_feerate == ret.best_candidate_feerate);
+            assert(ret_exhaustive.best_candidate_feefrac == ret.best_candidate_feefrac);
         }
 #endif
 
@@ -646,7 +646,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
 
         // Update done to include added candidate.
         done |= ret.best_candidate_set;
-        anc_feerates.Done(sorted.cluster, desc, ret.best_candidate_set);
+        anc_feefracs.Done(sorted.cluster, desc, ret.best_candidate_set);
         if (connected) {
             connected = IsConnectedSubset(sorted.cluster, all / done);
         }
@@ -708,10 +708,10 @@ FUZZ_TARGET(clustermempool_efficient_limits)
             AncestorSets<BitSet> anc_trim(sorted_trim.cluster);
             assert(IsAcyclic(anc_trim));
             assert(IsConnectedSubset(trim, BitSet::Full(trim.size())) == entry.connected);
-            AncestorSetFeerates<BitSet> anc_feerates_trim(sorted_trim.cluster, anc_trim, {});
+            AncestorSetFeeFracs<BitSet> anc_feefracs_trim(sorted_trim.cluster, anc_trim, {});
             DescendantSets<BitSet> desc_trim(anc_trim);
             WeedCluster(sorted_trim.cluster, anc_trim);
-            auto redo = FindBestCandidateSetEfficient<QueueStyle::DFS>(sorted_trim.cluster, anc_trim, desc_trim, anc_feerates_trim, {}, nullptr);
+            auto redo = FindBestCandidateSetEfficient<QueueStyle::DFS>(sorted_trim.cluster, anc_trim, desc_trim, anc_feefracs_trim, {}, nullptr);
             assert(redo.iterations == entry.iterations);
             assert(redo.comparisons == entry.comparisons);
             assert(redo.max_queue_size == entry.max_queue_size);
