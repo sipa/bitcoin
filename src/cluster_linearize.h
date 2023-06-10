@@ -58,69 +58,83 @@ unsigned inline PopCount(I v)
     }
 }
 
-/** Data structure storing a fee (in sats) and a size (in vbytes or weight units). */
+/** Data structure storing a fee (in sats) and a size (in vbytes or weight units).
+ *
+ * The size of a FeeFrac cannot be zero unless the fee is also zero.
+ *
+ * FeeFracs have a total ordering, which first sorts by increasing feerate (fee/size), and then
+ * uses decreasing size as tie-breaker. All standard comparison operators (==, !=, >, <, >=, <=)
+ * respect this ordering. The >> and << operators only compare feerate and treat equal feerate but
+ * different size as equivalent. These comparisons are only guaranteed to be correct when the
+ * product of the highest fee and highest size does not exceed 2^64-1 (which allows up to 46116.86
+ * BTC at size 4000000).
+ */
 struct FeeFrac
 {
+    /** Fee (in sats). */
     uint64_t fee;
+    /** Size (in vbytes or weight units). */
     uint32_t size;
 
     /** Construct an IsEmpty() FeeFrac. */
-    FeeFrac() noexcept : fee{0}, size{0} {}
+    inline FeeFrac() noexcept : fee{0}, size{0} {}
 
     /** Construct a FeeFrac with specified fee and size. */
-    FeeFrac(uint64_t s, uint32_t b) noexcept : fee{s}, size{b}
+    inline FeeFrac(uint64_t s, uint32_t b) noexcept : fee{s}, size{b}
     {
         // If size==0, fee must be 0 as well.
         assert(size != 0 || fee == 0);
     }
 
-    FeeFrac(const FeeFrac&) noexcept = default;
-    FeeFrac& operator=(const FeeFrac&) noexcept = default;
+    inline FeeFrac(const FeeFrac&) noexcept = default;
+    inline FeeFrac& operator=(const FeeFrac&) noexcept = default;
 
     /** Check if this is empty (size, and implicitly fee, 0). */
-    bool IsEmpty() const noexcept {
+    bool inline IsEmpty() const noexcept {
         return size == 0;
     }
 
     /** Add size and size of another FeeFrac to this one. */
-    void operator+=(const FeeFrac& other) noexcept
+    void inline operator+=(const FeeFrac& other) noexcept
     {
         fee += other.fee;
         size += other.size;
     }
 
     /** Subtrack size and size of another FeeFrac from this one. */
-    void operator-=(const FeeFrac& other) noexcept
+    void inline operator-=(const FeeFrac& other) noexcept
     {
         fee -= other.fee;
         size -= other.size;
         assert(size != 0 || fee == 0);
     }
 
-    friend FeeFrac operator+(const FeeFrac& a, const FeeFrac& b) noexcept
+    /** Sum fee and size. */
+    friend inline FeeFrac operator+(const FeeFrac& a, const FeeFrac& b) noexcept
     {
-        return FeeFrac{a.fee + b.fee, a.size + b.size};
+        return {a.fee + b.fee, a.size + b.size};
     }
 
-    friend FeeFrac operator-(const FeeFrac& a, const FeeFrac& b) noexcept
+    /** Subtract both fee and size. */
+    friend inline FeeFrac operator-(const FeeFrac& a, const FeeFrac& b) noexcept
     {
-        return FeeFrac{a.fee - b.fee, a.size - b.size};
+        return {a.fee - b.fee, a.size - b.size};
     }
 
     /** Check if two FeeFrac objects are equal (both same fee and same size). */
-    friend bool operator==(const FeeFrac& a, const FeeFrac& b) noexcept
+    friend inline bool operator==(const FeeFrac& a, const FeeFrac& b) noexcept
     {
         return a.fee == b.fee && a.size == b.size;
     }
 
     /** Check if two FeeFrac objects are different (not both same and same size). */
-    friend bool operator!=(const FeeFrac& a, const FeeFrac& b) noexcept
+    friend inline bool operator!=(const FeeFrac& a, const FeeFrac& b) noexcept
     {
         return a.fee == b.fee && a.size == b.size;
     }
 
-    /** Check if a FeeFrac object is worse than another (lower feerate, or same feerate but larger). */
-    friend bool operator<(const FeeFrac& a, const FeeFrac& b) noexcept
+    /** Check if a FeeFrac object is worse than another. */
+    friend inline bool operator<(const FeeFrac& a, const FeeFrac& b) noexcept
     {
         uint64_t a_val = a.fee * b.size;
         uint64_t b_val = b.fee * a.size;
@@ -128,8 +142,8 @@ struct FeeFrac
         return a.size > b.size;
     }
 
-    /** Check if a FeeFrac object is worse or equal than another (lower feerate, or same feerate but larger or equal size). */
-    friend bool operator<=(const FeeFrac& a, const FeeFrac& b) noexcept
+    /** Check if a FeeFrac object is worse or equal than another. */
+    friend inline bool operator<=(const FeeFrac& a, const FeeFrac& b) noexcept
     {
         uint64_t a_val = a.fee * b.size;
         uint64_t b_val = b.fee * a.size;
@@ -137,8 +151,8 @@ struct FeeFrac
         return a.size >= b.size;
     }
 
-    /** Check if a FeeFrac object is better than another (higher feerate, or same feerate but smaller). */
-    friend bool operator>(const FeeFrac& a, const FeeFrac& b) noexcept
+    /** Check if a FeeFrac object is better than another. */
+    friend inline bool operator>(const FeeFrac& a, const FeeFrac& b) noexcept
     {
         uint64_t a_val = a.fee * b.size;
         uint64_t b_val = b.fee * a.size;
@@ -146,8 +160,8 @@ struct FeeFrac
         return a.size < b.size;
     }
 
-    /** Check if a FeeFrac object is better or equal than another (higher feerate, or same feerate but smaller or equal size). */
-    friend bool operator>=(const FeeFrac& a, const FeeFrac& b) noexcept
+    /** Check if a FeeFrac object is better or equal than another. */
+    friend inline bool operator>=(const FeeFrac& a, const FeeFrac& b) noexcept
     {
         uint64_t a_val = a.fee * b.size;
         uint64_t b_val = b.fee * a.size;
@@ -156,13 +170,13 @@ struct FeeFrac
     }
 
     /** Check if a FeeFrac object has strictly lower feerate than another. */
-    friend bool operator<<(const FeeFrac& a, const FeeFrac& b) noexcept
+    friend inline bool operator<<(const FeeFrac& a, const FeeFrac& b) noexcept
     {
         return a.fee * b.size < b.fee * a.size;
     }
 
     /** Check if a FeeFrac object has strictly higher feerate than another. */
-    friend bool operator>>(const FeeFrac& a, const FeeFrac& b) noexcept
+    friend inline bool operator>>(const FeeFrac& a, const FeeFrac& b) noexcept
     {
         return a.fee * b.size > b.fee * a.size;
     }
@@ -891,7 +905,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         assert(pot_feefrac.size > 0);
         if (!best_feefrac.IsEmpty()) {
             ++ret.comparisons;
-            if (best_feefrac >= pot_feefrac) continue;
+            if (pot_feefrac <= best_feefrac) continue;
         }
 
         // Decide which transaction to split on (highest undecided individual feefrac one left).
@@ -903,7 +917,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         // being added to inc, this new entry cannot be a new best. As desc[pos] always overlaps
         // with pot (in pos, at least), the new work item's potential set will definitely be
         // different from the parent.
-        bool added_inc = add_fn(inc, exc | desc[pos], inc_feefrac, false, nullptr, inc != done);
+        bool added_exc = add_fn(inc, exc | desc[pos], inc_feefrac, false, nullptr, inc != done);
 
         // Consider adding a work item corresponding to that transaction included. Since only
         // connected subgraphs can be optimal candidates, if there is no overlap between the
@@ -918,7 +932,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         auto new_inc = inc | anc[pos];
         auto new_inc_feefrac = inc_feefrac + ComputeSetFeeFrac(cluster, new_inc / inc);
         bool may_be_new_best = !(done >> (inc & anc[pos]));
-        bool added_exc = add_fn(new_inc, exc, new_inc_feefrac, may_be_new_best, pot >> anc[pos] ? &pot : nullptr, inc == done);
+        bool added_inc = add_fn(new_inc, exc, new_inc_feefrac, may_be_new_best, pot >> anc[pos] ? &pot : nullptr, inc == done);
 
         if constexpr (QS == QueueStyle::DFS_EXC) {
             if (added_inc && added_exc) {
