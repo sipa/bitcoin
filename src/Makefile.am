@@ -301,6 +301,7 @@ BITCOIN_CORE_H = \
   util/error.h \
   util/exception.h \
   util/fastrange.h \
+  util/feefrac.h \
   util/fees.h \
   util/fs.h \
   util/fs_helpers.h \

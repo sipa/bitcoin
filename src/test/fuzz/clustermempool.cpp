@@ -11,6 +11,7 @@
 #include <test/fuzz/fuzz.h>
 #include <test/fuzz/util.h>
 #include <test/util/xoroshiro128plusplus.h>
+#include <util/feefrac.h>
 
 #include <assert.h>
 
