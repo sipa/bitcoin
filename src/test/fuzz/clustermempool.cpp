@@ -20,6 +20,23 @@ using namespace cluster_linearize;
 
 namespace {
 
+template<typename S>
+bool IsMul64Compatible(const Cluster<S>& c)
+{
+    uint64_t sum_fee{0};
+    uint32_t sum_size{0};
+    for (const auto& [fee_and_size, _parents] : c) {
+        sum_fee += fee_and_size.sats;
+        if (sum_fee < fee_and_size.sats) return false;
+        sum_size += fee_and_size.bytes;
+        if (sum_size < fee_and_size.bytes) return false;
+    }
+    uint64_t high = (sum_fee >> 32) * sum_size;
+    uint64_t low = (sum_fee & 0xFFFFFFFF) * sum_size;
+    high += low >> 32;
+    return (high >> 32) == 0;
+}
+
 std::ostream& operator<<(std::ostream& o, const FeeAndSize& data)
 {
     o << "(" << data.sats << "/" << data.bytes << "=" << ((double)data.sats / data.bytes) << ")";
@@ -192,7 +209,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetNaive(const Cluster<S>& cluster, con
         // Update statistics in ret to account for this new candidate.
         ++ret.num_candidate_sets;
         FeeAndSize feerate = ComputeSetFeeRate(cluster, bitset);
-        if (ret.best_candidate_feerate.IsEmpty() || FeeRateBetter(feerate, ret.best_candidate_feerate)) {
+        if (ret.best_candidate_feerate.IsEmpty() || feerate > ret.best_candidate_feerate) {
             ret.best_candidate_set = bitset;
             ret.best_candidate_feerate = feerate;
         }
@@ -249,7 +266,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetExhaustive(const Cluster<S>& cluster
 
                 // Update statistics in ret to account for this new candidate (new_inc / done).
                 ++ret.num_candidate_sets;
-                if (ret.best_candidate_feerate.IsEmpty() || FeeRateBetter(new_feerate, ret.best_candidate_feerate)) {
+                if (ret.best_candidate_feerate.IsEmpty() || new_feerate > ret.best_candidate_feerate) {
                     ret.best_candidate_set = new_inc / done;
                     ret.best_candidate_feerate = new_feerate;
                 }
@@ -318,6 +335,7 @@ FUZZ_TARGET(clustermempool_exhaustive_equals_naive)
     // Read cluster from fuzzer.
     Cluster<BitSet> cluster = DeserializeCluster<BitSet>(buffer);
     if (cluster.size() > 15) return;
+    if (!IsMul64Compatible(cluster)) return;
 
     // Compute ancestor sets.
     AncestorSets anc(cluster);
@@ -346,6 +364,7 @@ FUZZ_TARGET(clustermempool_efficient_equals_exhaustive)
 
     // Read cluster from fuzzer.
     Cluster<BitSet> cluster = DeserializeCluster<BitSet>(buffer);
+    if (!IsMul64Compatible(cluster)) return;
     // Compute ancestor sets.
     AncestorSets anc(cluster);
     if (!IsAcyclic(anc)) return;
@@ -380,6 +399,7 @@ FUZZ_TARGET(clustermempool_efficient_equals_exhaustive)
 FUZZ_TARGET(clustermempool_linearize)
 {
     Cluster<BitSet> cluster = DeserializeCluster<BitSet>(buffer);
+    if (!IsMul64Compatible(cluster)) return;
 
     BitSet all = BitSet::Full(cluster.size());
     if (!IsConnectedSubset(cluster, all)) return;
@@ -461,6 +481,7 @@ FUZZ_TARGET(clustermempool_weedcluster)
 FUZZ_TARGET(clustermempool_trim)
 {
     Cluster<BitSet> cluster = DeserializeCluster<BitSet>(buffer);
+    if (!IsMul64Compatible(cluster)) return;
     if (cluster.size() > 20) return;
 
     BitSet all = BitSet::Full(cluster.size());
@@ -520,6 +541,7 @@ FUZZ_TARGET(clustermempool_full_stats)
 {
     using BS = MultiIntBitSet<uint64_t, 4>;
     auto cluster = DeserializeCluster<BS>(buffer);
+    if (!IsMul64Compatible(cluster)) return;
     XoRoShiRo128PlusPlus rng(0x1337133713371337);
 
     SortedCluster<BS> sorted(cluster);
@@ -565,6 +587,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
 
     Cluster<BitSet> cluster = DeserializeCluster<BitSet>(buffer);
     if (cluster.size() > 26) return;
+    if (!IsMul64Compatible(cluster)) return;
 
 //    std::cerr << "CLUSTER " << cluster << std::endl;
 

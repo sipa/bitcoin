@@ -65,105 +65,108 @@ struct FeeAndSize
     uint32_t bytes;
 
     /** Construct an IsEmpty() FeeAndSize. */
-    FeeAndSize() : sats{0}, bytes{0} {}
+    FeeAndSize() noexcept : sats{0}, bytes{0} {}
 
     /** Construct a FeeAndSize with specified fee and size. */
-    FeeAndSize(uint64_t s, uint32_t b) : sats{s}, bytes{b}
+    FeeAndSize(uint64_t s, uint32_t b) noexcept : sats{s}, bytes{b}
     {
         // If bytes==0, sats must be 0 as well.
         assert(bytes != 0 || sats == 0);
     }
 
-    FeeAndSize(const FeeAndSize&) = default;
-    FeeAndSize& operator=(const FeeAndSize&) = default;
+    FeeAndSize(const FeeAndSize&) noexcept = default;
+    FeeAndSize& operator=(const FeeAndSize&) noexcept = default;
 
     /** Check if this is empty (size, and implicitly fee, 0). */
-    bool IsEmpty() const {
+    bool IsEmpty() const noexcept {
         return bytes == 0;
     }
 
     /** Add size and bytes of another FeeAndSize to this one. */
-    void operator+=(const FeeAndSize& other)
+    void operator+=(const FeeAndSize& other) noexcept
     {
         sats += other.sats;
         bytes += other.bytes;
     }
 
     /** Subtrack size and bytes of another FeeAndSize from this one. */
-    void operator-=(const FeeAndSize& other)
+    void operator-=(const FeeAndSize& other) noexcept
     {
         sats -= other.sats;
         bytes -= other.bytes;
+        assert(bytes != 0 || sats == 0);
     }
 
-    friend FeeAndSize operator+(const FeeAndSize& a, const FeeAndSize& b)
+    friend FeeAndSize operator+(const FeeAndSize& a, const FeeAndSize& b) noexcept
     {
         return FeeAndSize{a.sats + b.sats, a.bytes + b.bytes};
     }
 
-    friend FeeAndSize operator-(const FeeAndSize& a, const FeeAndSize& b)
+    friend FeeAndSize operator-(const FeeAndSize& a, const FeeAndSize& b) noexcept
     {
         return FeeAndSize{a.sats - b.sats, a.bytes - b.bytes};
     }
 
-    /** Compare two FeeAndSize objects (both same fee and size). */
-    friend bool operator==(const FeeAndSize& a, const FeeAndSize& b)
+    /** Check if two FeeAndSize objects are equal (both same fee and same size). */
+    friend bool operator==(const FeeAndSize& a, const FeeAndSize& b) noexcept
     {
         return a.sats == b.sats && a.bytes == b.bytes;
     }
-};
 
-enum class EqualFeeRate
-{
-    NOT_ALLOWED,
-    IF_SIZE_SMALLER,
-    IF_SIZE_NOT_LARGER
-};
-
-/** Function for accurately comparing the feerates of two non-empty FeeAndSize objects. */
-template<EqualFeeRate EQ>
-bool FeeRateHigher(const FeeAndSize& a, const FeeAndSize& b)
-{
-    if (__builtin_expect(((a.sats | b.sats) >> 32) != 0, false)) {
-        unsigned __int128 v1 = (unsigned __int128)(a.sats) * b.bytes;
-        unsigned __int128 v2 = (unsigned __int128)(b.sats) * a.bytes;
-        if (v1 != v2) {
-            return v1 > v2;
-        }
-    } else {
-        uint64_t v1 = uint64_t{(uint32_t)a.sats} * b.bytes;
-        uint64_t v2 = uint64_t{(uint32_t)b.sats} * a.bytes;
-        if (v1 != v2) {
-            return v1 > v2;
-        }
+    /** Check if two FeeAndSize objects are different (not both same and same size). */
+    friend bool operator!=(const FeeAndSize& a, const FeeAndSize& b) noexcept
+    {
+        return a.sats == b.sats && a.bytes == b.bytes;
     }
-    if constexpr (EQ == EqualFeeRate::NOT_ALLOWED) {
-        return false;
-    } else if constexpr (EQ == EqualFeeRate::IF_SIZE_SMALLER) {
+
+    /** Check if a FeeAndSize object is worse than another (lower feerate, or same feerate but larger). */
+    friend bool operator<(const FeeAndSize& a, const FeeAndSize& b) noexcept
+    {
+        uint64_t a_val = a.sats * b.bytes;
+        uint64_t b_val = b.sats * a.bytes;
+        if (a_val != b_val) return a_val < b_val;
+        return a.bytes > b.bytes;
+    }
+
+    /** Check if a FeeAndSize object is worse or equal than another (lower feerate, or same feerate but larger or equal size). */
+    friend bool operator<=(const FeeAndSize& a, const FeeAndSize& b) noexcept
+    {
+        uint64_t a_val = a.sats * b.bytes;
+        uint64_t b_val = b.sats * a.bytes;
+        if (a_val != b_val) return a_val < b_val;
+        return a.bytes >= b.bytes;
+    }
+
+    /** Check if a FeeAndSize object is better than another (higher feerate, or same feerate but smaller). */
+    friend bool operator>(const FeeAndSize& a, const FeeAndSize& b) noexcept
+    {
+        uint64_t a_val = a.sats * b.bytes;
+        uint64_t b_val = b.sats * a.bytes;
+        if (a_val != b_val) return a_val > b_val;
         return a.bytes < b.bytes;
-    } else {
-        static_assert(EQ == EqualFeeRate::IF_SIZE_NOT_LARGER);
+    }
+
+    /** Check if a FeeAndSize object is better or equal than another (higher feerate, or same feerate but smaller or equal size). */
+    friend bool operator>=(const FeeAndSize& a, const FeeAndSize& b) noexcept
+    {
+        uint64_t a_val = a.sats * b.bytes;
+        uint64_t b_val = b.sats * a.bytes;
+        if (a_val != b_val) return a_val > b_val;
         return a.bytes <= b.bytes;
     }
-}
 
-/** Determine whether a has higher feerate than b, or has the same feerate but smaller size. */
-bool FeeRateBetter(const FeeAndSize& a, const FeeAndSize& b)
-{
-    return FeeRateHigher<EqualFeeRate::IF_SIZE_SMALLER>(a, b);
-}
+    /** Check if a FeeAndSize object has strictly lower feerate than another. */
+    friend bool operator<<(const FeeAndSize& a, const FeeAndSize& b) noexcept
+    {
+        return a.sats * b.bytes < b.sats * a.bytes;
+    }
 
-/** Determine whether a has higher feerate then b. */
-bool JustFeeRateBetter(const FeeAndSize& a, const FeeAndSize& b)
-{
-    return FeeRateHigher<EqualFeeRate::NOT_ALLOWED>(a, b);
-}
-
-/** Determine whether a has higher feerate, or has the same feerate but the same or smaller size. */
-bool FeeRateBetterOrEqual(const FeeAndSize& a, const FeeAndSize& b)
-{
-    return FeeRateHigher<EqualFeeRate::IF_SIZE_NOT_LARGER>(a, b);
-}
+    /** Check if a FeeAndSize object has strictly higher feerate than another. */
+    friend bool operator>>(const FeeAndSize& a, const FeeAndSize& b) noexcept
+    {
+        return a.sats * b.bytes > b.sats * a.bytes;
+    }
+};
 
 /** A bitset implementation backed by a single integer of type I. */
 template<typename I>
@@ -386,6 +389,23 @@ public:
 template<typename S>
 using Cluster = std::vector<std::pair<FeeAndSize, S>>;
 
+template<typename S>
+bool IsMul64Compatible(const Cluster<S>& c)
+{
+    uint64_t sum_fee{0};
+    uint32_t sum_size{0};
+    for (const auto& [fee_and_size, _parents] : c) {
+        sum_fee += fee_and_size.sats;
+        if (sum_fee < fee_and_size.sats) return false;
+        sum_size += fee_and_size.bytes;
+        if (sum_size < fee_and_size.bytes) return false;
+    }
+    uint64_t high = (sum_fee >> 32) * sum_size;
+    uint64_t low = (sum_fee & 0xFFFFFFFF) * sum_size;
+    high += low >> 32;
+    return (high >> 32) == 0;
+}
+
 /** Precomputation data structure with all ancestor sets of a cluster. */
 template<typename S>
 class AncestorSets
@@ -565,7 +585,7 @@ struct SortedCluster
             if (orig_cluster[i].first == orig_cluster[j].first) {
                 return i < j;
             }
-            return FeeRateBetter(orig_cluster[i].first, orig_cluster[j].first);
+            return orig_cluster[i].first > orig_cluster[j].first;
         });
         // Use sorted_to_original to fill original_to_sorted.
         for (size_t i = 0; i < orig_cluster.size(); ++i) {
@@ -590,12 +610,12 @@ CandidateSetAnalysis<S> FindBestAncestorSet(const Cluster<S>& cluster, const Anc
         if (done[i]) continue;
         ++ret.iterations;
         ++ret.num_candidate_sets;
-        FeeAndSize feerate = anc_feerates[i];
+        const FeeAndSize& feerate = anc_feerates[i];
         assert(!feerate.IsEmpty());
         bool new_best = ret.best_candidate_feerate.IsEmpty();
         if (!new_best) {
             ++ret.comparisons;
-            new_best = FeeRateBetter(feerate, ret.best_candidate_feerate);
+            new_best = feerate > ret.best_candidate_feerate;
         }
         if (new_best) {
             ret.best_candidate_feerate = feerate;
@@ -663,13 +683,13 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
 
     auto queue_cmp_fn = [&](const QueueElem& a, const QueueElem& b) {
         if constexpr (QS == QueueStyle::HIGHEST_ACHIEVED_FEERATE) {
-            return FeeRateBetter(std::get<3>(b), std::get<3>(a));
+            return std::get<3>(b) > std::get<3>(a);
         } else if constexpr (QS == QueueStyle::HIGHEST_ACHIEVED_FEE) {
             return std::get<3>(b).sats > std::get<3>(a).sats;
         } else if constexpr (QS == QueueStyle::HIGHEST_ACHIEVED_SIZE) {
             return std::get<3>(b).bytes > std::get<3>(a).bytes;
         } else if constexpr (QS == QueueStyle::HIGHEST_POTENTIAL_FEERATE) {
-            return FeeRateBetter(std::get<4>(b), std::get<4>(a));
+            return std::get<4>(b) > std::get<4>(a);
         } else if constexpr (QS == QueueStyle::HIGHEST_POTENTIAL_FEE) {
             return std::get<4>(b).sats > std::get<4>(a).sats;
         } else if constexpr (QS == QueueStyle::HIGHEST_POTENTIAL_SIZE) {
@@ -677,19 +697,19 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         } else if constexpr (QS == QueueStyle::HIGHEST_GAIN_FEERATE) {
             auto gain_a = std::get<4>(a) - std::get<3>(a);
             auto gain_b = std::get<4>(b) - std::get<3>(b);
-            return FeeRateBetter(gain_b, gain_a);
+            return gain_b > gain_a;
         } else if constexpr (QS == QueueStyle::HIGHEST_GAIN_FEE) {
             return std::get<4>(b).sats + std::get<3>(a).sats > std::get<4>(a).sats + std::get<3>(b).sats;
         } else if constexpr (QS == QueueStyle::HIGHEST_GAIN_SIZE) {
             return std::get<4>(b).bytes + std::get<3>(a).bytes > std::get<4>(a).bytes + std::get<3>(b).bytes;
         } else if constexpr (QS == QueueStyle::LOWEST_ACHIEVED_FEERATE) {
-            return FeeRateBetter(std::get<3>(a), std::get<3>(b));
+            return std::get<3>(a) > std::get<3>(b);
         } else if constexpr (QS == QueueStyle::LOWEST_ACHIEVED_FEE) {
             return std::get<3>(a).sats > std::get<3>(b).sats;
         } else if constexpr (QS == QueueStyle::LOWEST_ACHIEVED_SIZE) {
             return std::get<3>(a).bytes > std::get<3>(b).bytes;
         } else if constexpr (QS == QueueStyle::LOWEST_POTENTIAL_FEERATE) {
-            return FeeRateBetter(std::get<4>(a), std::get<4>(b));
+            return std::get<4>(a) > std::get<4>(b);
         } else if constexpr (QS == QueueStyle::LOWEST_POTENTIAL_FEE) {
             return std::get<4>(a).sats > std::get<4>(b).sats;
         } else if constexpr (QS == QueueStyle::LOWEST_POTENTIAL_SIZE) {
@@ -697,7 +717,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         } else if constexpr (QS == QueueStyle::LOWEST_GAIN_FEERATE) {
             auto gain_a = std::get<4>(a) - std::get<3>(a);
             auto gain_b = std::get<4>(b) - std::get<3>(b);
-            return FeeRateBetter(gain_a, gain_b);
+            return gain_a > gain_b;
         } else if constexpr (QS == QueueStyle::LOWEST_GAIN_FEE) {
             return std::get<4>(a).sats + std::get<3>(b).sats > std::get<4>(b).sats + std::get<3>(a).sats;
         } else if constexpr (QS == QueueStyle::LOWEST_GAIN_SIZE) {
@@ -706,32 +726,32 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
             unsigned adv_a = (all / (std::get<0>(a) | std::get<1>(a))).First();
             unsigned adv_b = (all / (std::get<0>(b) | std::get<1>(b))).First();
             if (adv_a != adv_b) return adv_a < adv_b;
-            return FeeRateBetter(std::get<4>(b), std::get<4>(a));
+            return std::get<4>(b) > std::get<4>(a);
         } else if constexpr (QS == QueueStyle::LEAST_ADVANCED_HIGHEST_POTENTIAL_FEERATE) {
             unsigned adv_a = (all / (std::get<0>(a) | std::get<1>(a))).First();
             unsigned adv_b = (all / (std::get<0>(b) | std::get<1>(b))).First();
             if (adv_a != adv_b) return adv_a > adv_b;
-            return FeeRateBetter(std::get<4>(b), std::get<4>(a));
+            return std::get<4>(b) > std::get<4>(a);
         } else if constexpr (QS == QueueStyle::MOST_LEFT_HIGHEST_POTENTIAL_FEERATE) {
             unsigned left_a = (all / (std::get<0>(a) | std::get<1>(a))).Count();
             unsigned left_b = (all / (std::get<0>(b) | std::get<1>(b))).Count();
             if (left_a != left_b) return left_a < left_b;
-            return FeeRateBetter(std::get<4>(b), std::get<4>(a));
+            return std::get<4>(b) > std::get<4>(a);
         } else if constexpr (QS == QueueStyle::LEAST_LEFT_HIGHEST_POTENTIAL_FEERATE) {
             unsigned left_a = (all / (std::get<0>(a) | std::get<1>(a))).Count();
             unsigned left_b = (all / (std::get<0>(b) | std::get<1>(b))).Count();
             if (left_a != left_b) return left_a > left_b;
-            return FeeRateBetter(std::get<4>(b), std::get<4>(a));
+            return std::get<4>(b) > std::get<4>(a);
         } else if constexpr (QS == QueueStyle::MOST_INC_HIGHEST_POTENTIAL_FEERATE) {
             unsigned inc_a = std::get<0>(a).Count();
             unsigned inc_b = std::get<0>(b).Count();
             if (inc_a != inc_b) return inc_a < inc_b;
-            return FeeRateBetter(std::get<4>(b), std::get<4>(a));
+            return std::get<4>(b) > std::get<4>(a);
         } else if constexpr (QS == QueueStyle::LEAST_INC_HIGHEST_POTENTIAL_FEERATE) {
             unsigned inc_a = std::get<0>(a).Count();
             unsigned inc_b = std::get<0>(b).Count();
             if (inc_a != inc_b) return inc_a > inc_b;
-            return FeeRateBetter(std::get<4>(b), std::get<4>(a));
+            return std::get<4>(b) > std::get<4>(a);
         } else {
             return false;
         }
@@ -792,7 +812,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
                 // we're done updating pot/pot_feerate (and inc/inc_feerate).
                 if (!pot_feerate.IsEmpty()) {
                     ++ret.comparisons;
-                    if (!JustFeeRateBetter(cluster[pos].first, pot_feerate)) break;
+                    if (!(cluster[pos].first >> pot_feerate)) break;
                 }
                 // Add the transaction to pot/pot_feerate.
                 pot_feerate += cluster[pos].first;
@@ -840,7 +860,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
             bool new_best = best_feerate.IsEmpty();
             if (!new_best) {
                 ++ret.comparisons;
-                new_best = FeeRateBetter(inc_feerate, best_feerate);
+                new_best = inc_feerate > best_feerate;
             }
             if (new_best) {
                 best_feerate = inc_feerate;
@@ -887,7 +907,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         assert(pot_feerate.bytes > 0);
         if (!best_feerate.IsEmpty()) {
             ++ret.comparisons;
-            if (FeeRateBetterOrEqual(best_feerate, pot_feerate)) continue;
+            if (best_feerate >= pot_feerate) continue;
         }
 
         // Decide which transaction to split on (highest undecided individual feerate one left).
