@@ -80,9 +80,8 @@ public:
     {
         m_descendantsets.resize(anc.Size());
         for (size_t i = 0; i < anc.Size(); ++i) {
-            auto ancestors{anc[i].Elements()};
-            while (ancestors) {
-                m_descendantsets[ancestors.Next()].Add(i);
+            for (unsigned j : anc[i]) {
+                m_descendantsets[j].Add(i);
             }
         }
     }
@@ -293,6 +292,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
     // Compute "all" set, with all the cluster's transaction.
     S all = S::Full(cluster.size());
     if (done == all) return ret;
+    assert(all.Count() == cluster.size());
 
     auto queue_cmp_fn = [&](const QueueElem& a, const QueueElem& b) {
         if constexpr (QS == QueueStyle::BEST_ACHIEVED_FEEFRAC) {
@@ -385,14 +385,15 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
             assert(pot_known == nullptr);
             S reach;
             reach.Add((inc / done).First());
+            auto prev = exc | done;
             auto added = reach;
             while (true) {
                 S new_reach = reach;
-                auto reach_todo{added.Elements()};
-                while (reach_todo) {
-                    unsigned reach_pos = reach_todo.Next();
-                    new_reach |= (anc[reach_pos] | desc[reach_pos]) / (exc | done);
+                for (unsigned added_pos : added) {
+                    new_reach |= anc[added_pos];
+                    new_reach |= desc[added_pos];
                 }
+                new_reach = new_reach / prev;
                 if (reach == new_reach) break;
                 added = new_reach / reach;
                 reach = new_reach;
@@ -419,9 +420,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         bool explore_further{false};
         if (pot_known == nullptr) {
             // Loop over all undecided transactions (not yet included or excluded), from good to bad feefrac.
-            auto undecided{(all / (inc | exc)).Elements()};
-            while (undecided) {
-                unsigned pos = undecided.Next();
+            for (unsigned pos : all / (inc | exc)) {
                 // Determine if adding transaction pos to pot (ignoring topology) would improve it. If not,
                 // we're done updating pot+pot_feefrac (and inc+inc_feefrac).
                 if (!pot_feefrac.IsEmpty()) {
@@ -447,9 +446,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         } else {
             // In case we know the new work item's pot ialready, use a simplified loop which skips
             // the feefrac comparisons, and runs until pot_known is hit.
-            auto todo{(*pot_known / inc).Elements()};
-            while (todo) {
-                unsigned pos = todo.Next();
+            for (unsigned pos : *pot_known / inc) {
                 pot_feefrac += cluster[pos].first;
                 pot.Add(pos);
                 pot_ancestors |= anc[pos];
@@ -600,9 +597,8 @@ std::vector<unsigned> LinearizeCluster(const Cluster<S>& cluster, unsigned optim
 
         // Append candidate's transactions to linearization, and topologically sort them.
         size_t old_size = ret.size();
-        auto to_set{analysis.best_candidate_set.Elements()};
-        while (to_set) {
-            ret.emplace_back(to_set.Next());
+        for (unsigned selected : analysis.best_candidate_set) {
+            ret.emplace_back(selected);
         }
         std::sort(ret.begin() + old_size, ret.end(), [&](unsigned a, unsigned b) {
             if (anccount[a] == anccount[b]) return a < b;
@@ -760,20 +756,14 @@ Cluster<S> TrimCluster(const Cluster<S>& cluster, const S& done)
     std::vector<unsigned> mapping;
     mapping.resize(cluster.size());
     ret.reserve(cluster.size() - done.Count());
-    auto todo{(S::Full(cluster.size()) / done).Elements()};
-    while (todo) {
-        unsigned idx = todo.Next();
+    for (unsigned idx : S::Full(cluster.size()) / done) {
         mapping[idx] = ret.size();
         ret.push_back(cluster[idx]);
     }
     for (unsigned i = 0; i < ret.size(); ++i) {
         S parents;
-        auto todo{ret[i].second.Elements()};
-        while (todo) {
-            unsigned idx = todo.Next();
-            if (!done[idx]) {
-                parents.Add(mapping[idx]);
-            }
+        for (unsigned idx : ret[i].second / done) {
+            parents.Add(mapping[idx]);
         }
         ret[i].second = std::move(parents);
     }
@@ -797,10 +787,8 @@ template<typename S>
 bool IsAcyclic(const AncestorSets<S>& anc)
 {
     for (unsigned i = 0; i < anc.Size(); ++i) {
-        auto todo{anc[i].Elements()};
         // Determine if there is a j<i which i has as ancestor, and which has i as ancestor.
-        while (todo) {
-            unsigned j = todo.Next();
+        for (unsigned j : anc[i]) {
             if (j >= i) break;
             if (anc[j][i]) return false;
         }

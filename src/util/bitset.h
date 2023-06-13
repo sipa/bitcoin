@@ -5,6 +5,8 @@
 #ifndef BITCOIN_UTIL_BITSET_H
 #define BITCOIN_UTIL_BITSET_H
 
+#include <config/bitcoin-config.h>
+
 #include <array>
 #include <cstdint>
 #include <limits>
@@ -13,6 +15,15 @@
 #ifdef _MSC_VER
 #  include <intrin.h>
 #endif
+
+/* This file provides data types similar to std::bitset, but adds the following functionality:
+ *
+ * - Efficient iteration over all set bits (compatible with range-based for loops).
+ * - Efficient search for the first set bit (First()).
+ * - Efficient set subtraction: (a / b) equals (a & ~b).
+ * - Efficient subset/superset testing: (a >> b) and (a << b).
+ * - Efficient construction of set containing 0..N-1 (S::Full).
+ */
 
 namespace bitset_detail {
 
@@ -61,14 +72,10 @@ unsigned inline CountTrailingZeroes(I v) noexcept
     } else {
         static_assert(BITS <= 64);
         static constexpr uint8_t DEBRUIJN[64] = {
-            0x00, 0x01, 0x02, 0x53, 0x03, 0x07, 0x54, 0x27,
-            0x04, 0x38, 0x41, 0x08, 0x34, 0x55, 0x48, 0x28,
-            0x62, 0x05, 0x39, 0x46, 0x44, 0x42, 0x22, 0x09,
-            0x24, 0x35, 0x59, 0x56, 0x49, 0x18, 0x29, 0x11,
-            0x63, 0x52, 0x06, 0x26, 0x37, 0x40, 0x33, 0x47,
-            0x61, 0x45, 0x43, 0x21, 0x23, 0x58, 0x17, 0x10,
-            0x51, 0x25, 0x36, 0x32, 0x60, 0x20, 0x57, 0x16,
-            0x50, 0x31, 0x19, 0x15, 0x30, 0x14, 0x13, 0x12
+            0, 1, 2, 53, 3, 7, 54, 27, 4, 38, 41, 8, 34, 55, 48, 28,
+            62, 5, 39, 46, 44, 42, 22, 9, 24, 35, 59, 56, 49, 18, 29, 11,
+            63, 52, 6, 26, 37, 40, 33, 47, 61, 45, 43, 21, 23, 58, 17, 10,
+            51, 25, 36, 32, 60, 20, 57, 16, 50, 31, 19, 15, 30, 14, 13, 12
         };
         return DEBRUIJN[(uint64_t)((v & uint64_t(-v)) * uint64_t{0x022FDD63CC95386D}) >> 58];
     }
