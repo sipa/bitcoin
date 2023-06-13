@@ -14,6 +14,7 @@
 #include <optional>
 #include <vector>
 
+#include <util/bitset.h>
 #include <util/feefrac.h>
 
 #include <assert.h>
@@ -21,257 +22,6 @@
 namespace cluster_linearize {
 
 namespace {
-
-/** Wrapper around __builtin_ctz* for supporting unsigned integer types. */
-template<typename I>
-unsigned inline CountTrailingZeroes(I v)
-{
-    static_assert(std::is_integral_v<I> && std::is_unsigned_v<I> && std::numeric_limits<I>::radix == 2);
-    constexpr auto digits = std::numeric_limits<I>::digits;
-    constexpr auto digits_u = std::numeric_limits<unsigned>::digits;
-    constexpr auto digits_ul = std::numeric_limits<unsigned long>::digits;
-    constexpr auto digits_ull = std::numeric_limits<unsigned long long>::digits;
-    if constexpr (digits <= digits_u) {
-        return __builtin_ctz(v);
-    } else if constexpr (digits <= digits_ul) {
-        return __builtin_ctzl(v);
-    } else {
-        static_assert(digits <= digits_ull);
-        return __builtin_ctzll(v);
-    }
-}
-
-/** Wrapper around __builtin_popcount* for supporting unsigned integer types. */
-template<typename I>
-unsigned inline PopCount(I v)
-{
-    static_assert(std::is_integral_v<I> && std::is_unsigned_v<I> && std::numeric_limits<I>::radix == 2);
-    constexpr auto digits = std::numeric_limits<I>::digits;
-    constexpr auto digits_u = std::numeric_limits<unsigned>::digits;
-    constexpr auto digits_ul = std::numeric_limits<unsigned long>::digits;
-    constexpr auto digits_ull = std::numeric_limits<unsigned long long>::digits;
-    if constexpr (digits <= digits_u) {
-        return __builtin_popcount(v);
-    } else if constexpr (digits <= digits_ul) {
-        return __builtin_popcountl(v);
-    } else {
-        static_assert(digits <= digits_ull);
-        return __builtin_popcountll(v);
-    }
-}
-
-/** A bitset implementation backed by a single integer of type I. */
-template<typename I>
-class IntBitSet
-{
-    // Only binary, unsigned, integer, types allowed.
-    static_assert(std::is_integral_v<I> && std::is_unsigned_v<I> && std::numeric_limits<I>::radix == 2);
-
-    /** Integer whose bits represent this bitset. */
-    I m_val;
-
-    IntBitSet(I val) noexcept : m_val{val} {}
-
-    /** Class of objects returned by Elements(). */
-    class BitPopper
-    {
-        I m_val;
-        friend class IntBitSet;
-        BitPopper(I val) noexcept : m_val(val) {}
-    public:
-        explicit operator bool() const noexcept { return m_val != 0; }
-
-        unsigned Next() noexcept
-        {
-            int ret = CountTrailingZeroes(m_val);
-            m_val &= m_val - I{1U};
-            return ret;
-        }
-    };
-
-public:
-    /** Number of elements this set type supports. */
-    static constexpr unsigned MAX_SIZE = std::numeric_limits<I>::digits;
-
-    /** Construct an empty set. */
-    IntBitSet() noexcept : m_val{0} {}
-    /** Copy a set. */
-    IntBitSet(const IntBitSet&) noexcept = default;
-    /** Copy-assign a set. */
-    IntBitSet& operator=(const IntBitSet&) noexcept = default;
-
-    /** Construct a set with elements 0..count-1. */
-    static IntBitSet Full(unsigned count) noexcept {
-        IntBitSet ret;
-        if (count) ret.m_val = (~I{0}) >> (MAX_SIZE - count);
-        return ret;
-    }
-
-    /** Compute the size of a set (number of elements). */
-    unsigned Count() const noexcept { return PopCount(m_val); }
-    /** Add an element to a set. */
-    void Add(unsigned pos) noexcept { m_val |= I{1U} << pos; }
-    /** Find if an element is in the set. */
-    bool operator[](unsigned pos) const noexcept { return (m_val >> pos) & 1U; }
-    /** Check if a set is empty. */
-    bool IsEmpty() const noexcept { return m_val == 0; }
-    /** Construct an object that will produce all elements of this set, using Next(). */
-    BitPopper Elements() const noexcept { return BitPopper(m_val); }
-    /** Find the first element (requires !IsEMpty()). */
-    unsigned First() const noexcept { return CountTrailingZeroes(m_val); }
-    /** Update this to be the union of this and a. */
-    IntBitSet& operator|=(const IntBitSet& a) noexcept { m_val |= a.m_val; return *this; }
-    /** Update this to be intersection of this and a. */
-    IntBitSet& operator&=(const IntBitSet& a) noexcept { m_val &= a.m_val; return *this; }
-    /** Construct a new set that is the interaction of a and b. */
-    friend IntBitSet operator&(const IntBitSet& a, const IntBitSet& b) noexcept { return IntBitSet{a.m_val & b.m_val}; }
-    /** Construct a new set that is the union of a and b. */
-    friend IntBitSet operator|(const IntBitSet& a, const IntBitSet& b) noexcept { return IntBitSet{a.m_val | b.m_val}; }
-    /** Construct a new set that is a minus b. */
-    friend IntBitSet operator/(const IntBitSet& a, const IntBitSet& b) noexcept { return IntBitSet{a.m_val & ~b.m_val}; }
-    /** Check if set a and set b are identical. */
-    friend bool operator!=(const IntBitSet& a, const IntBitSet& b) noexcept { return a.m_val != b.m_val; }
-    /** Check if set a and set b are different. */
-    friend bool operator==(const IntBitSet& a, const IntBitSet& b) noexcept { return a.m_val == b.m_val; }
-    /** Check if set a is a superset of set b. */
-    friend bool operator>>(const IntBitSet& a, const IntBitSet& b) noexcept { return (b.m_val & ~a.m_val) == 0; }
-};
-
-/** A bitset implementation backed by N integers of type I. */
-template<typename I, unsigned N>
-class MultiIntBitSet
-{
-    // Only binary, unsigned, integer, types allowed.
-    static_assert(std::is_integral_v<I> && std::is_unsigned_v<I> && std::numeric_limits<I>::radix == 2);
-    static constexpr unsigned LIMB_BITS = std::numeric_limits<I>::digits;
-
-    std::array<I, N> m_val;
-
-    class BitPopper
-    {
-        std::array<I, N> m_val;
-        mutable unsigned m_idx;
-        friend class MultiIntBitSet;
-        BitPopper(const std::array<I, N>& val) : m_val(val), m_idx{0} {}
-
-    public:
-        explicit operator bool() const noexcept
-        {
-            while (m_idx < N && m_val[m_idx] == 0) ++m_idx;
-            return m_idx < N;
-        }
-
-        unsigned Next() noexcept
-        {
-            while (m_val[m_idx] == 0) ++m_idx;
-            assert(m_idx < N);
-            int ret = CountTrailingZeroes(m_val[m_idx]);
-            m_val[m_idx] &= m_val[m_idx] - I{1U};
-            return ret + m_idx * LIMB_BITS;
-        }
-    };
-
-public:
-    static constexpr unsigned MAX_SIZE = LIMB_BITS * N;
-
-    MultiIntBitSet() noexcept : m_val{} {}
-    MultiIntBitSet(const MultiIntBitSet&) noexcept = default;
-    MultiIntBitSet& operator=(const MultiIntBitSet&) noexcept = default;
-
-    void Add(unsigned pos) noexcept { m_val[pos / LIMB_BITS] |= I{1U} << (pos % LIMB_BITS); }
-    bool operator[](unsigned pos) const noexcept { return (m_val[pos / LIMB_BITS] >> (pos % LIMB_BITS)) & 1U; }
-
-    static MultiIntBitSet Full(unsigned count) noexcept {
-        MultiIntBitSet ret;
-        if (count) {
-            unsigned i = 0;
-            while (count > LIMB_BITS) {
-                ret.m_val[i++] = ~I{0};
-                count -= LIMB_BITS;
-            }
-            ret.m_val[i] = (~I{0}) >> (LIMB_BITS - count);
-        }
-        return ret;
-    }
-
-    unsigned Count() const noexcept
-    {
-        unsigned ret{0};
-        for (I v : m_val) ret += PopCount(v);
-        return ret;
-    }
-
-    bool IsEmpty() const noexcept
-    {
-        for (auto v : m_val) {
-            if (v != 0) return false;
-        }
-        return true;
-    }
-
-    BitPopper Elements() const noexcept { return BitPopper(m_val); }
-
-    unsigned First() const noexcept
-    {
-        unsigned p = 0;
-        while (m_val[p] == 0) ++p;
-        return CountTrailingZeroes(m_val[p]) + p * LIMB_BITS;
-    }
-
-    MultiIntBitSet& operator|=(const MultiIntBitSet& a) noexcept
-    {
-        for (unsigned i = 0; i < N; ++i) {
-            m_val[i] |= a.m_val[i];
-        }
-        return *this;
-    }
-
-    MultiIntBitSet& operator&=(const MultiIntBitSet& a) noexcept
-    {
-        for (unsigned i = 0; i < N; ++i) {
-            m_val[i] &= a.m_val[i];
-        }
-        return *this;
-    }
-
-    friend MultiIntBitSet operator&(const MultiIntBitSet& a, const MultiIntBitSet& b) noexcept
-    {
-        MultiIntBitSet r;
-        for (unsigned i = 0; i < N; ++i) {
-            r.m_val[i] = a.m_val[i] & b.m_val[i];
-        }
-        return r;
-    }
-
-    friend MultiIntBitSet operator|(const MultiIntBitSet& a, const MultiIntBitSet& b) noexcept
-    {
-        MultiIntBitSet r;
-        for (unsigned i = 0; i < N; ++i) {
-            r.m_val[i] = a.m_val[i] | b.m_val[i];
-        }
-        return r;
-    }
-
-    friend MultiIntBitSet operator/(const MultiIntBitSet& a, const MultiIntBitSet& b) noexcept
-    {
-        MultiIntBitSet r;
-        for (unsigned i = 0; i < N; ++i) {
-            r.m_val[i] = a.m_val[i] & ~b.m_val[i];
-        }
-        return r;
-    }
-
-    friend bool operator>>(const MultiIntBitSet& a, const MultiIntBitSet& b) noexcept
-    {
-        for (unsigned i = 0; i < N; ++i) {
-            if (b.m_val[i] & ~a.m_val[i]) return false;
-        }
-        return true;
-    }
-
-    friend bool operator!=(const MultiIntBitSet& a, const MultiIntBitSet& b) noexcept { return a.m_val != b.m_val; }
-    friend bool operator==(const MultiIntBitSet& a, const MultiIntBitSet& b) noexcept { return a.m_val == b.m_val; }
-};
 
 /** Data type to represent cluster input.
  *
@@ -372,10 +122,7 @@ template<typename S>
 FeeFrac ComputeSetFeeFrac(const Cluster<S>& cluster, const S& select)
 {
     FeeFrac ret;
-    auto todo{select.Elements()};
-    while (todo) {
-        ret += cluster[todo.Next()].first;
-    }
+    for (unsigned i : select) ret += cluster[i].first;
     return ret;
 }
 
@@ -400,13 +147,10 @@ public:
     /** Update the precomputed data structure to reflect that new_done was added to done. */
     void Done(const Cluster<S>& cluster, const DescendantSets<S>& desc, const S& new_done) noexcept
     {
-        auto todo{new_done.Elements()};
-        while (todo) {
-            unsigned pos = todo.Next();
+        for (unsigned pos : new_done) {
             FeeFrac feefrac = cluster[pos].first;
-            auto todo_desc{(desc[pos] / new_done).Elements()};
-            while (todo_desc) {
-                m_anc_feefracs[todo_desc.Next()] -= feefrac;
+            for (unsigned i : desc[pos] / new_done) {
+                m_anc_feefracs[i] -= feefrac;
             }
         }
     }
@@ -429,10 +173,7 @@ struct SortedCluster
     S OriginalToSorted(const S& val) const noexcept
     {
         S ret;
-        auto todo{val.Elements()};
-        while (todo) {
-            ret.Add(original_to_sorted[todo.Next()]);
-        }
+        for (unsigned i : val) ret.Add(original_to_sorted[i]);
         return ret;
     }
 
@@ -440,10 +181,7 @@ struct SortedCluster
     S SortedToOriginal(const S& val) const noexcept
     {
         S ret;
-        auto todo{val.Elements()};
-        while (todo) {
-            ret.Add(sorted_to_original[todo.Next()]);
-        }
+        for (unsigned i : val) ret.Add(sorted_to_original[i]);
         return ret;
     }
 

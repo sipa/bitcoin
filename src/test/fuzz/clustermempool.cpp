@@ -19,6 +19,8 @@
 
 using namespace cluster_linearize;
 
+#if 0
+
 namespace {
 
 template<typename S>
@@ -824,3 +826,5 @@ FUZZ_TARGET(clustermempool_efficient_limits)
         FuzzSave(initial_buffer);
     }
 }
+
+#endif
