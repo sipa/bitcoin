@@ -212,7 +212,7 @@ void TestType(Span<const uint8_t> buffer)
 
 FUZZ_TARGET(bitset)
 {
-    unsigned typdat = ReadByte(buffer) % 16;
+    unsigned typdat = ReadByte(buffer) % 8;
     if (typdat == 0) {
         /* 16 bits */
         TestType<bitset_detail::IntBitSet<uint16_t>>(buffer);
