@@ -35,7 +35,7 @@ std::ostream& operator<<(std::ostream& s, const bitset_detail::IntBitSet<I>& bs)
 {
     s << "[";
     size_t cnt = 0;
-    for (size_t i = 0; i < bs.MAX_SIZE; ++i) {
+    for (size_t i = 0; i < bs.Size(); ++i) {
         if (bs[i]) {
             if (cnt) s << ",";
             ++cnt;
@@ -51,7 +51,7 @@ std::ostream& operator<<(std::ostream& s, const bitset_detail::MultiIntBitSet<I,
 {
     s << "[";
     size_t cnt = 0;
-    for (size_t i = 0; i < bs.MAX_SIZE; ++i) {
+    for (size_t i = 0; i < bs.Size(); ++i) {
         if (bs[i]) {
             if (cnt) s << ",";
             ++cnt;
@@ -160,10 +160,10 @@ template<typename S>
 bool IsConnectedSubset(const Cluster<S>& cluster, const S& select)
 {
     /* Trivial case. */
-    if (select.IsEmpty()) return true;
+    if (select.None()) return true;
 
     /* Build up UF data structure. */
-    UnionFind<unsigned, S::MAX_SIZE> uf(cluster.size());
+    UnionFind<unsigned, S::Size()> uf(cluster.size());
     for (unsigned pos : select) {
         for (unsigned dep : cluster[pos].second & select) {
             uf.Union(pos, dep);
@@ -198,14 +198,14 @@ CandidateSetAnalysis<S> FindBestCandidateSetNaive(const Cluster<S>& cluster, con
         S bitset, req;
         for (unsigned i = 0; i < cluster.size(); ++i) {
             if ((setval >> i) & 1U) {
-                bitset.Add(i);
+                bitset.Set(i);
                 req = req | cluster[i].second;
             }
         }
         // None of the already done transactions may be included again.
-        if (!(done & bitset).IsEmpty()) continue;
+        if ((done & bitset).Any()) continue;
         // We only consider non-empty additions.
-        if (bitset.IsEmpty()) continue;
+        if (bitset.None()) continue;
         // All dependencies have to be satisfied.
         if (!((bitset | done) >> req)) continue;
         // Only connected subsets are considered.
@@ -256,11 +256,11 @@ CandidateSetAnalysis<S> FindBestCandidateSetExhaustive(const Cluster<S>& cluster
             //   - we're starting from an empty set (apart from done)
             //   - if not, the ancestry of what we add must overlap with what we already have, in
             //     not yet done transactions (to guarantee (inc / done) is always connected).
-            if (!inc[i] && !exc[i] && (exc & anc[i]).IsEmpty() && (inc_none || !(done >> (inc & anc[i])))) {
+            if (!inc[i] && !exc[i] && (exc & anc[i]).None() && (inc_none || !(done >> (inc & anc[i])))) {
                 // First, add a queue item with i added to exc. Inc is unchanged, so feefrac is
                 // unchanged as well.
                 auto new_exc = exc;
-                new_exc.Add(i);
+                new_exc.Set(i);
                 queue.emplace_back(inc, new_exc, feefrac);
 
                 // Then, add a queue item with i (plus ancestry) added to inc. We need to compute
@@ -406,7 +406,7 @@ FUZZ_TARGET(clustermempool_linearize)
     Cluster<FuzzBitSet> cluster = DeserializeCluster<FuzzBitSet>(buffer);
     if (!IsMul64Compatible(cluster)) return;
 
-    FuzzBitSet all = FuzzBitSet::Full(cluster.size());
+    FuzzBitSet all = FuzzBitSet::Fill(cluster.size());
     if (!IsConnectedSubset(cluster, all)) return;
     AncestorSets<FuzzBitSet> anc(cluster);
     if (!IsAcyclic(anc)) return;
@@ -430,7 +430,7 @@ FUZZ_TARGET(clustermempool_linearize)
     assert(linearization.size() == cluster.size());
     for (unsigned idx : linearization) {
         assert(satisfied >> cluster[idx].second);
-        satisfied.Add(idx);
+        satisfied.Set(idx);
     }
     assert(satisfied == all);
 
@@ -445,7 +445,7 @@ FUZZ_TARGET(clustermempool_ancestorset)
 
     for (unsigned i = 0; i < cluster.size(); ++i) {
         FuzzBitSet ancs;
-        ancs.Add(i); // Start with transaction itself
+        ancs.Set(i); // Start with transaction itself
         // Add existing ancestors' parents until set no longer changes.
         while (true) {
             FuzzBitSet next_ancs = ancs;
@@ -488,7 +488,7 @@ FUZZ_TARGET(clustermempool_trim)
     if (!IsMul64Compatible(cluster)) return;
     if (cluster.size() > 20) return;
 
-    FuzzBitSet all = FuzzBitSet::Full(cluster.size());
+    FuzzBitSet all = FuzzBitSet::Fill(cluster.size());
     if (!IsConnectedSubset(cluster, all)) return;
 
     SortedCluster<FuzzBitSet> sorted(cluster);
@@ -595,7 +595,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
 
 //    std::cerr << "CLUSTER " << cluster << std::endl;
 
-    FuzzBitSet all = FuzzBitSet::Full(cluster.size());
+    FuzzBitSet all = FuzzBitSet::Fill(cluster.size());
     bool connected = IsConnectedSubset(cluster, all);
 
     SortedCluster<FuzzBitSet> sorted(cluster);
@@ -664,16 +664,16 @@ FUZZ_TARGET(clustermempool_efficient_limits)
     }
 
 
-    static std::array<MaxVal<ClusterStat>, FuzzBitSet::MAX_SIZE+1> COMPS{};
-    static std::array<MaxVal<ClusterStat>, FuzzBitSet::MAX_SIZE+1> ITERS{};
-    static std::array<MaxVal<ClusterStat>, FuzzBitSet::MAX_SIZE+1> QUEUE{};
-    static std::array<MaxVal<ClusterStat>, FuzzBitSet::MAX_SIZE+1> TOT_COMPS{};
-    static std::array<MaxVal<ClusterStat>, FuzzBitSet::MAX_SIZE+1> TOT_ITERS{};
-    static std::array<MaxVal<ClusterStat>, FuzzBitSet::MAX_SIZE+1> DIS_COMPS{};
-    static std::array<MaxVal<ClusterStat>, FuzzBitSet::MAX_SIZE+1> DIS_ITERS{};
-    static std::array<MaxVal<ClusterStat>, FuzzBitSet::MAX_SIZE+1> DIS_QUEUE{};
-    static std::array<MaxVal<ClusterStat>, FuzzBitSet::MAX_SIZE+1> DIS_TOT_COMPS{};
-    static std::array<MaxVal<ClusterStat>, FuzzBitSet::MAX_SIZE+1> DIS_TOT_ITERS{};
+    static std::array<MaxVal<ClusterStat>, FuzzBitSet::Size()+1> COMPS{};
+    static std::array<MaxVal<ClusterStat>, FuzzBitSet::Size()+1> ITERS{};
+    static std::array<MaxVal<ClusterStat>, FuzzBitSet::Size()+1> QUEUE{};
+    static std::array<MaxVal<ClusterStat>, FuzzBitSet::Size()+1> TOT_COMPS{};
+    static std::array<MaxVal<ClusterStat>, FuzzBitSet::Size()+1> TOT_ITERS{};
+    static std::array<MaxVal<ClusterStat>, FuzzBitSet::Size()+1> DIS_COMPS{};
+    static std::array<MaxVal<ClusterStat>, FuzzBitSet::Size()+1> DIS_ITERS{};
+    static std::array<MaxVal<ClusterStat>, FuzzBitSet::Size()+1> DIS_QUEUE{};
+    static std::array<MaxVal<ClusterStat>, FuzzBitSet::Size()+1> DIS_TOT_COMPS{};
+    static std::array<MaxVal<ClusterStat>, FuzzBitSet::Size()+1> DIS_TOT_ITERS{};
 
     bool comps_updated{false}, iters_updated{false}, queue_updated{false}, tot_comps_updated{false}, tot_iters_updated{false};
     bool dis_comps_updated{false}, dis_iters_updated{false}, dis_queue_updated{false}, dis_tot_comps_updated{false}, dis_tot_iters_updated{false};
@@ -710,7 +710,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
             assert(sorted_trim.cluster == trim);
             AncestorSets<FuzzBitSet> anc_trim(sorted_trim.cluster);
             assert(IsAcyclic(anc_trim));
-            assert(IsConnectedSubset(trim, FuzzBitSet::Full(trim.size())) == entry.connected);
+            assert(IsConnectedSubset(trim, FuzzBitSet::Fill(trim.size())) == entry.connected);
             AncestorSetFeeFracs<FuzzBitSet> anc_feefracs_trim(sorted_trim.cluster, anc_trim, {});
             DescendantSets<FuzzBitSet> desc_trim(anc_trim);
             WeedCluster(sorted_trim.cluster, anc_trim);
@@ -724,7 +724,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
 
     if (iters_updated) {
         std::cerr << "ITERS:";
-        for (size_t i = 0; i <= FuzzBitSet::MAX_SIZE; ++i) {
+        for (size_t i = 0; i <= FuzzBitSet::Size(); ++i) {
             if (ITERS[i]) {
                 std::cerr << " " << i << ":" << ITERS[i]->stat;
             }
@@ -734,7 +734,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
 
     if (comps_updated) {
         std::cerr << "COMPS:";
-        for (size_t i = 0; i <= FuzzBitSet::MAX_SIZE; ++i) {
+        for (size_t i = 0; i <= FuzzBitSet::Size(); ++i) {
             if (COMPS[i]) {
                 std::cerr << " " << i << ":" << COMPS[i]->stat;
             }
@@ -744,7 +744,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
 
     if (queue_updated) {
         std::cerr << "QUEUE:";
-        for (size_t i = 0; i <= FuzzBitSet::MAX_SIZE; ++i) {
+        for (size_t i = 0; i <= FuzzBitSet::Size(); ++i) {
             if (QUEUE[i]) {
                 std::cerr << " " << i << ":" << QUEUE[i]->stat;
             }
@@ -754,7 +754,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
 
     if (tot_iters_updated) {
         std::cerr << "TOT_ITERS:";
-        for (size_t i = 0; i <= FuzzBitSet::MAX_SIZE; ++i) {
+        for (size_t i = 0; i <= FuzzBitSet::Size(); ++i) {
             if (TOT_ITERS[i]) {
                 std::cerr << " " << i << ":" << TOT_ITERS[i]->stat;
             }
@@ -764,7 +764,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
 
     if (tot_comps_updated) {
         std::cerr << "TOT_COMPS:";
-        for (size_t i = 0; i <= FuzzBitSet::MAX_SIZE; ++i) {
+        for (size_t i = 0; i <= FuzzBitSet::Size(); ++i) {
             if (TOT_COMPS[i]) {
                 std::cerr << " " << i << ":" << TOT_COMPS[i]->stat;
             }
@@ -774,7 +774,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
 
     if (dis_iters_updated) {
         std::cerr << "DIS_ITERS:";
-        for (size_t i = 0; i <= FuzzBitSet::MAX_SIZE; ++i) {
+        for (size_t i = 0; i <= FuzzBitSet::Size(); ++i) {
             if (DIS_ITERS[i]) {
                 std::cerr << " " << i << ":" << DIS_ITERS[i]->stat;
             }
@@ -784,7 +784,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
 
     if (comps_updated) {
         std::cerr << "DIS_COMPS:";
-        for (size_t i = 0; i <= FuzzBitSet::MAX_SIZE; ++i) {
+        for (size_t i = 0; i <= FuzzBitSet::Size(); ++i) {
             if (DIS_COMPS[i]) {
                 std::cerr << " " << i << ":" << DIS_COMPS[i]->stat;
             }
@@ -794,7 +794,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
 
     if (queue_updated) {
         std::cerr << "DIS_QUEUE:";
-        for (size_t i = 0; i <= FuzzBitSet::MAX_SIZE; ++i) {
+        for (size_t i = 0; i <= FuzzBitSet::Size(); ++i) {
             if (DIS_QUEUE[i]) {
                 std::cerr << " " << i << ":" << DIS_QUEUE[i]->stat;
             }
@@ -804,7 +804,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
 
     if (tot_iters_updated) {
         std::cerr << "DIS_TOT_ITERS:";
-        for (size_t i = 0; i <= FuzzBitSet::MAX_SIZE; ++i) {
+        for (size_t i = 0; i <= FuzzBitSet::Size(); ++i) {
             if (DIS_TOT_ITERS[i]) {
                 std::cerr << " " << i << ":" << DIS_TOT_ITERS[i]->stat;
             }
@@ -814,7 +814,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
 
     if (tot_comps_updated) {
         std::cerr << "DIS_TOT_COMPS:";
-        for (size_t i = 0; i <= FuzzBitSet::MAX_SIZE; ++i) {
+        for (size_t i = 0; i <= FuzzBitSet::Size(); ++i) {
             if (DIS_TOT_COMPS[i]) {
                 std::cerr << " " << i << ":" << DIS_TOT_COMPS[i]->stat;
             }

@@ -20,9 +20,15 @@
  *
  * - Efficient iteration over all set bits (compatible with range-based for loops).
  * - Efficient search for the first set bit (First()).
- * - Efficient set subtraction: (a / b) equals (a & ~b).
+ * - Efficient set subtraction: (a / b) implements "a and not b".
  * - Efficient subset/superset testing: (a >> b) and (a << b).
- * - Efficient construction of set containing 0..N-1 (S::Full).
+ * - Efficient construction of set containing 0..N-1 (S::Fill).
+ *
+ * Other differences:
+ * - BitSet<N> is a bitset that supports at least N elements, but may support more (Size() reports
+ *   the actual number). Because the actual number is unpredictable, there are no operations that
+ *   affect all positions (like std::bitset's operator~, flip(), or all()).
+ * - Various other unimplemented features.
  */
 
 namespace bitset_detail {
@@ -112,6 +118,9 @@ class IntBitSet
     // Only binary, unsigned, integer, types allowed.
     static_assert(std::is_integral_v<I> && std::is_unsigned_v<I> && std::numeric_limits<I>::radix == 2);
 
+    /** Number of elements this set type supports. */
+    static constexpr unsigned MAX_SIZE = std::numeric_limits<I>::digits;
+
     /** Integer whose bits represent this bitset. */
     I m_val;
 
@@ -127,45 +136,45 @@ class IntBitSet
         IteratorEnd(const IteratorEnd&) = default;
     };
 
-    /** Iterator type returned by begin(), which efficiently iterates all set values. */
+    /** Iterator type returned by begin(), which efficiently iterates all 1 positions. */
     class Iterator
     {
         friend class IntBitSet;
-        I m_val;
-        unsigned m_pos;
+        I m_val; /**< Holds a copy of the original integer's remaining bits. */
+        unsigned m_pos; /** Last reported 1 position (if m_pos != 0). */
 
         Iterator(I val) noexcept : m_val(val), m_pos(0)
         {
             if (m_val != 0) m_pos = CountTrailingZeroes(m_val);
         }
     public:
+        /** Do not allow external code to construct an Iterator. */
         Iterator() = delete;
+        // Copying is allowed.
         Iterator(const Iterator&) noexcept = default;
         Iterator& operator=(const Iterator&) noexcept = default;
-
+        /** Test whether we are not yet done (can only compare with IteratorEnd). */
         friend bool operator!=(const Iterator& a, const IteratorEnd&) noexcept
         {
             return a.m_val != 0;
         }
-
+        /** Test whether we are done (can only compare with IteratorEnd). */
         friend bool operator==(const Iterator& a, const IteratorEnd&) noexcept
         {
             return a.m_val == 0;
         }
-
+        /** Progress to the next 1 bit (only if != IteratorEnd). */
         Iterator& operator++() noexcept
         {
             m_val &= m_val - I{1U};
             if (m_val != 0) m_pos = CountTrailingZeroes(m_val);
             return *this;
         }
-
+        /** Get the current bit position (only if != IteratorEnd). */
         const unsigned& operator*() const noexcept { return m_pos; }
     };
 
 public:
-    /** Number of elements this set type supports. */
-    static constexpr unsigned MAX_SIZE = std::numeric_limits<I>::digits;
 
     /** Construct an empty set. */
     IntBitSet() noexcept : m_val{0} {}
@@ -173,34 +182,40 @@ public:
     IntBitSet(const IntBitSet&) noexcept = default;
     /** Copy-assign a set. */
     IntBitSet& operator=(const IntBitSet&) noexcept = default;
-
     /** Construct a set with elements 0..count-1. */
-    static IntBitSet Full(unsigned count) noexcept {
+    static IntBitSet Fill(unsigned count) noexcept {
         IntBitSet ret;
         if (count) ret.m_val = I(~I{0}) >> (MAX_SIZE - count);
         return ret;
     }
-
     /** Compute the size of a set (number of elements). */
     unsigned Count() const noexcept { return PopCount(m_val); }
+    /** Return the number of bits that this object holds. */
+    static constexpr unsigned Size() noexcept { return MAX_SIZE; }
     /** Add an element to a set. */
-    void Add(unsigned pos) noexcept { m_val |= I{1U} << pos; }
+    void Set(unsigned pos) noexcept { m_val |= I{1U} << pos; }
+    /** Add or remove an element to/from a set. */
+    void Set(unsigned pos, bool val) noexcept { m_val = (m_val & ~I(I{1U} << pos)) | (I(val) << pos); }
     /** Remove an element from a set. */
-    void Remove(unsigned pos) noexcept { m_val &= ~I(I{1U} << pos); }
+    void Reset(unsigned pos) noexcept { m_val &= ~I(I{1U} << pos); }
     /** Find if an element is in the set. */
     bool operator[](unsigned pos) const noexcept { return (m_val >> pos) & 1U; }
     /** Check if a set is empty. */
-    bool IsEmpty() const noexcept { return m_val == 0; }
-
+    bool None() const noexcept { return m_val == 0; }
+    /** Check if a set is non-empty. */
+    bool Any() const noexcept { return m_val != 0; }
+    /** Return an object that iterates over all 1 bits (++ and * only allowed when != end()). */
     Iterator begin() const noexcept { return Iterator(m_val); }
+    /** Return a dummy object to compare begin() with. */
     IteratorEnd end() const noexcept { return IteratorEnd(); }
-
     /** Find the first element (requires !IsEMpty()). */
     unsigned First() const noexcept { return CountTrailingZeroes(m_val); }
     /** Update this to be the union of this and a. */
     IntBitSet& operator|=(const IntBitSet& a) noexcept { m_val |= a.m_val; return *this; }
-    /** Update this to be intersection of this and a. */
+    /** Update this to be the intersection of this and a. */
     IntBitSet& operator&=(const IntBitSet& a) noexcept { m_val &= a.m_val; return *this; }
+    /** Remove the elements of a from this. */
+    IntBitSet& operator/=(const IntBitSet& a) noexcept { m_val &= ~a.m_val; return *this; }
     /** Construct a new set that is the interaction of a and b. */
     friend IntBitSet operator&(const IntBitSet& a, const IntBitSet& b) noexcept { return {I(a.m_val & b.m_val)}; }
     /** Construct a new set that is the union of a and b. */
@@ -223,13 +238,14 @@ class MultiIntBitSet
 {
     // Only binary, unsigned, integer, types allowed.
     static_assert(std::is_integral_v<I> && std::is_unsigned_v<I> && std::numeric_limits<I>::radix == 2);
-
     /** The number of bits per integer. */
     static constexpr unsigned LIMB_BITS = std::numeric_limits<I>::digits;
-
+    /** Number of elements this set type supports. */
+    static constexpr unsigned MAX_SIZE = LIMB_BITS * N;
     /** Array whose member integers store the bits of the set. */
     std::array<I, N> m_val;
 
+    /** Dummy type to return using end(). Only used for comparing with Iterator. */
     class IteratorEnd
     {
         friend class MultiIntBitSet;
@@ -238,6 +254,7 @@ class MultiIntBitSet
         IteratorEnd(const IteratorEnd&) = default;
     };
 
+    /** Iterator type returned by begin(), which efficiently iterates all set values. */
     class Iterator
     {
         friend class MultiIntBitSet;
@@ -296,17 +313,17 @@ class MultiIntBitSet
     };
 
 public:
-    static constexpr unsigned MAX_SIZE = LIMB_BITS * N;
 
     MultiIntBitSet() noexcept : m_val{} {}
     MultiIntBitSet(const MultiIntBitSet&) noexcept = default;
     MultiIntBitSet& operator=(const MultiIntBitSet&) noexcept = default;
 
-    void Add(unsigned pos) noexcept { m_val[pos / LIMB_BITS] |= I{1U} << (pos % LIMB_BITS); }
-    void Remove(unsigned pos) noexcept { m_val[pos / LIMB_BITS] &= ~I(I{1U} << (pos % LIMB_BITS)); }
+    void Set(unsigned pos) noexcept { m_val[pos / LIMB_BITS] |= I{1U} << (pos % LIMB_BITS); }
+    void Set(unsigned pos, bool val) noexcept { m_val[pos / LIMB_BITS] = (m_val[pos / LIMB_BITS] & ~I(I{1U} << (pos % LIMB_BITS))) | (I{val} << (pos % LIMB_BITS)); }
+    void Reset(unsigned pos) noexcept { m_val[pos / LIMB_BITS] &= ~I(I{1U} << (pos % LIMB_BITS)); }
     bool operator[](unsigned pos) const noexcept { return (m_val[pos / LIMB_BITS] >> (pos % LIMB_BITS)) & 1U; }
 
-    static MultiIntBitSet Full(unsigned count) noexcept {
+    static MultiIntBitSet Fill(unsigned count) noexcept {
         MultiIntBitSet ret;
         if (count) {
             unsigned i = 0;
@@ -319,6 +336,9 @@ public:
         return ret;
     }
 
+    /** Return the number of bits that this object holds. */
+    static constexpr unsigned Size() noexcept { return MAX_SIZE; }
+
     unsigned Count() const noexcept
     {
         unsigned ret{0};
@@ -326,12 +346,20 @@ public:
         return ret;
     }
 
-    bool IsEmpty() const noexcept
+    bool None() const noexcept
     {
         for (auto v : m_val) {
             if (v != 0) return false;
         }
         return true;
+    }
+
+    bool Any() const noexcept
+    {
+        for (auto v : m_val) {
+            if (v != 0) return true;
+        }
+        return false;
     }
 
     Iterator begin() const noexcept { return Iterator(&m_val); }
@@ -356,6 +384,14 @@ public:
     {
         for (unsigned i = 0; i < N; ++i) {
             m_val[i] &= a.m_val[i];
+        }
+        return *this;
+    }
+
+    MultiIntBitSet& operator/=(const MultiIntBitSet& a) noexcept
+    {
+        for (unsigned i = 0; i < N; ++i) {
+            m_val[i] &= ~a.m_val[i];
         }
         return *this;
     }

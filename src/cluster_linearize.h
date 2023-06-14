@@ -44,7 +44,7 @@ public:
         m_ancestorsets.resize(cluster.size());
         for (size_t i = 0; i < cluster.size(); ++i) {
             m_ancestorsets[i] = cluster[i].second;
-            m_ancestorsets[i].Add(i);
+            m_ancestorsets[i].Set(i);
         }
 
         // Propagate
@@ -81,7 +81,7 @@ public:
         m_descendantsets.resize(anc.Size());
         for (size_t i = 0; i < anc.Size(); ++i) {
             for (unsigned j : anc[i]) {
-                m_descendantsets[j].Add(i);
+                m_descendantsets[j].Set(i);
             }
         }
     }
@@ -172,7 +172,7 @@ struct SortedCluster
     S OriginalToSorted(const S& val) const noexcept
     {
         S ret;
-        for (unsigned i : val) ret.Add(original_to_sorted[i]);
+        for (unsigned i : val) ret.Set(original_to_sorted[i]);
         return ret;
     }
 
@@ -180,7 +180,7 @@ struct SortedCluster
     S SortedToOriginal(const S& val) const noexcept
     {
         S ret;
-        for (unsigned i : val) ret.Add(sorted_to_original[i]);
+        for (unsigned i : val) ret.Set(sorted_to_original[i]);
         return ret;
     }
 
@@ -290,7 +290,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
     CandidateSetAnalysis<S> ret;
 
     // Compute "all" set, with all the cluster's transaction.
-    S all = S::Full(cluster.size());
+    S all = S::Fill(cluster.size());
     if (done == all) return ret;
     assert(all.Count() == cluster.size());
 
@@ -384,7 +384,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         if (try_shrink) {
             assert(pot_known == nullptr);
             S reach;
-            reach.Add((inc / done).First());
+            reach.Set((inc / done).First());
             auto prev = exc | done;
             auto added = reach;
             while (true) {
@@ -393,7 +393,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
                     new_reach |= anc[added_pos];
                     new_reach |= desc[added_pos];
                 }
-                new_reach = new_reach / prev;
+                new_reach /= prev;
                 if (reach == new_reach) break;
                 added = new_reach / reach;
                 reach = new_reach;
@@ -429,7 +429,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
                 }
                 // Add the transaction to pot+pot_feefrac.
                 pot_feefrac += cluster[pos].first;
-                pot.Add(pos);
+                pot.Set(pos);
                 // Update the combined ancestors of pot.
                 pot_ancestors |= anc[pos];
                 // If at this point pot covers all its own ancestors, it means pot is topologically
@@ -448,7 +448,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
             // the feefrac comparisons, and runs until pot_known is hit.
             for (unsigned pos : *pot_known / inc) {
                 pot_feefrac += cluster[pos].first;
-                pot.Add(pos);
+                pot.Set(pos);
                 pot_ancestors |= anc[pos];
                 if (pot >> pot_ancestors) {
                     inc = pot;
@@ -592,8 +592,8 @@ std::vector<unsigned> LinearizeCluster(const Cluster<S>& cluster, unsigned optim
         }
 
         // Sanity checks.
-        assert(!analysis.best_candidate_set.IsEmpty()); // Must be at least one transaction
-        assert((analysis.best_candidate_set & done).IsEmpty()); // Cannot overlap with processed ones.
+        assert(analysis.best_candidate_set.Any()); // Must be at least one transaction
+        assert((analysis.best_candidate_set & done).None()); // Cannot overlap with processed ones.
 
         // Append candidate's transactions to linearization, and topologically sort them.
         size_t old_size = ret.size();
@@ -699,7 +699,7 @@ template<typename S>
 Cluster<S> DeserializeCluster(Span<const unsigned char>& data)
 {
     Cluster<S> ret;
-    while (ret.size() < S::MAX_SIZE) {
+    while (ret.size() < S::Size()) {
         uint32_t size = DeserializeNumberBase128(data) & 0x3fffff;
         if (size == 0) break;
         uint64_t fee = DeserializeNumberBase128(data) & 0x7ffffffffffff;
@@ -708,14 +708,14 @@ Cluster<S> DeserializeCluster(Span<const unsigned char>& data)
             unsigned read = DeserializeNumberBase128(data);
             if (read == 0) break;
             if (read <= ret.size()) {
-                parents.Add(ret.size() - read);
+                parents.Set(ret.size() - read);
             } else {
-                if (read < S::MAX_SIZE) parents.Add(read);
+                if (read < S::Size()) parents.Set(read);
             }
         }
         ret.emplace_back(FeeFrac{fee, size}, std::move(parents));
     }
-    S all = S::Full(ret.size());
+    S all = S::Fill(ret.size());
     for (unsigned i = 0; i < ret.size(); ++i) {
         ret[i].second &= all;
     }
@@ -735,11 +735,11 @@ void WeedCluster(Cluster<S>& cluster, const AncestorSets<S>& ancs)
         const auto& [_anc_count, idx] = mapping[i];
         S parents;
         S cover;
-        cover.Add(idx);
+        cover.Set(idx);
         for (unsigned j = 0; j < i; ++j) {
             const auto& [_anc_count_j, idx_j] = mapping[i - 1 - j];
             if (ancs[idx][idx_j] && !cover[idx_j]) {
-                parents.Add(idx_j);
+                parents.Set(idx_j);
                 cover |= ancs[idx_j];
             }
         }
@@ -756,14 +756,14 @@ Cluster<S> TrimCluster(const Cluster<S>& cluster, const S& done)
     std::vector<unsigned> mapping;
     mapping.resize(cluster.size());
     ret.reserve(cluster.size() - done.Count());
-    for (unsigned idx : S::Full(cluster.size()) / done) {
+    for (unsigned idx : S::Fill(cluster.size()) / done) {
         mapping[idx] = ret.size();
         ret.push_back(cluster[idx]);
     }
     for (unsigned i = 0; i < ret.size(); ++i) {
         S parents;
         for (unsigned idx : ret[i].second / done) {
-            parents.Add(mapping[idx]);
+            parents.Set(mapping[idx]);
         }
         ret[i].second = std::move(parents);
     }
