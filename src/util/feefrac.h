@@ -8,22 +8,38 @@
 #include <assert.h>
 #include <stdint.h>
 
-/** Data structure storing a fee (in sats) and a size (in vbytes or weight units).
+/** Data structure storing a fee and size, ordered by increasing fee/size.
  *
  * The size of a FeeFrac cannot be zero unless the fee is also zero.
  *
- * FeeFracs have a total ordering, which first sorts by increasing feerate (fee/size), and then
- * uses decreasing size as tie-breaker. All standard comparison operators (==, !=, >, <, >=, <=)
- * respect this ordering. The >> and << operators only compare feerate and treat equal feerate but
- * different size as equivalent. These comparisons are only guaranteed to be correct when the
- * product of the highest fee and highest size does not exceed 2^64-1 (which allows up to 46116.86
- * BTC at size 4000000).
+ * FeeFracs have a total ordering, first by increasing feerate (ratio of fee over size), and then
+ * by decreasing size. The empty FeeFrac (fee and size both 0) sorts last. So for example, the
+ * following FeeFracs are in sorted order:
+ *
+ * - fee=0 size=1 (feerate 0)
+ * - fee=1 size=2 (feerate 0.5)
+ * - fee=2 size=3 (feerate 0.667...)
+ * - fee=2 size=2 (feerate 1)
+ * - fee=1 size=1 (feerate 1)
+ * - fee=3 size=2 (feerate 1.5)
+ * - fee=2 size=1 (feerate 2)
+ * - fee=0 size=0 (undefined feerate)
+ *
+ * A FeeFrac is considered "better" if it sorts after another, by this ordering. All standard
+ * comparison operators (==, !=, >, <, >=, <=) respect this ordering.
+ *
+ * The >> and << operators only compare feerate and treat equal feerate but different size as
+ * equivalent. The empty FeeFrac is neither lower or higher in feerate than any other.
+ *
+ * These comparisons are only guaranteed to be correct when the product of the highest fee and
+ * highest size does not exceed 2^64-1. If the fee is a number in sats, and size in bytes, then
+ * this allows up to 46116.86 BTC at size 4M, and 1844674.4 BTC at size 100k).
  */
 struct FeeFrac
 {
-    /** Fee (in sats). */
+    /** Fee. */
     uint64_t fee;
-    /** Size (in vbytes or weight units). */
+    /** Size. */
     uint32_t size;
 
     /** Construct an IsEmpty() FeeFrac. */
@@ -80,7 +96,7 @@ struct FeeFrac
     /** Check if two FeeFrac objects are different (not both same and same size). */
     friend inline bool operator!=(const FeeFrac& a, const FeeFrac& b) noexcept
     {
-        return a.fee == b.fee && a.size == b.size;
+        return a.fee != b.fee || a.size != b.size;
     }
 
     /** Check if a FeeFrac object is worse than another. */

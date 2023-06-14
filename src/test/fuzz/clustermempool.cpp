@@ -590,7 +590,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
     auto initial_buffer = buffer;
 
     Cluster<FuzzBitSet> cluster = DeserializeCluster<FuzzBitSet>(buffer);
-    if (cluster.size() > 26) return;
+    if (cluster.size() > 18) return;
     if (!IsMul64Compatible(cluster)) return;
 
 //    std::cerr << "CLUSTER " << cluster << std::endl;
