@@ -114,6 +114,8 @@ struct CandidateSetAnalysis
     size_t iterations{0};
     /** Number of feefrac comparisons performed. */
     size_t comparisons{0};
+
+    std::vector<std::tuple<size_t, size_t, FeeFrac>> intermediate;
 };
 
 /** Compute the combined fee and size of a subset of a cluster. */
@@ -212,7 +214,7 @@ struct SortedCluster
 };
 
 /** Given a cluster and its ancestor sets, find the one with the best FeeFrac. */
-template<typename S>
+template<typename S, bool OutputIntermediate = false>
 CandidateSetAnalysis<S> FindBestAncestorSet(const Cluster<S>& cluster, const AncestorSets<S>& anc, const AncestorSetFeeFracs<S>& anc_feefracs, const S& done)
 {
     CandidateSetAnalysis<S> ret;
@@ -249,6 +251,7 @@ enum class QueueStyle {
     LEAST_LEFT_BEST_POTENTIAL_FEEFRAC,
     MOST_INC_BEST_POTENTIAL_FEEFRAC,
     LEAST_INC_BEST_POTENTIAL_FEEFRAC,
+    LEAST_COVER,
     BEST_ACHIEVED_FEEFRAC,
     HIGHEST_ACHIEVED_FEE,
     HIGHEST_ACHIEVED_SIZE,
@@ -274,7 +277,7 @@ enum class QueueStyle {
  * cluster must be sorted (see SortedCluster) by individual feerate, and anc/desc/done must use
  * the same indexing as cluster.
  */
-template<QueueStyle QS, typename S, typename RNG>
+template<QueueStyle QS, bool Intermediate = false, typename S = void, typename RNG = void>
 CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster, const AncestorSets<S>& anc, const DescendantSets<S>& desc, const AncestorSetFeeFracs<S>& anc_feefracs, const S& done, RNG&& rng)
 {
     // Queue of work units. Each consists of:
@@ -365,6 +368,15 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
             unsigned inc_b = std::get<0>(b).Count();
             if (inc_a != inc_b) return inc_a > inc_b;
             return std::get<4>(b) > std::get<4>(a);
+        } else if constexpr (QS == QueueStyle::LEAST_COVER) {
+            auto cover_fn = [&](const S& s) -> unsigned {
+                S parents;
+                for (unsigned i : s) parents |= cluster[i].second;
+                return (s / parents).Count();
+            };
+            unsigned cov_a = cover_fn(std::get<0>(a) / done);
+            unsigned cov_b = cover_fn(std::get<0>(b) / done);
+            return cov_a > cov_b;
         } else {
             return false;
         }
@@ -476,6 +488,9 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
             if (new_best) {
                 best_feefrac = inc_feefrac;
                 best_candidate = inc;
+                if constexpr (Intermediate) {
+                    ret.intermediate.emplace_back(ret.iterations, ret.comparisons, best_feefrac);
+                }
             }
         }
 

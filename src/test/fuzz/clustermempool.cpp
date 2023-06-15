@@ -10,6 +10,7 @@
 
 #include <util/bitset.h>
 #include <util/feefrac.h>
+#include <util/strencodings.h>
 
 #include <cluster_linearize.h>
 #include <test/fuzz/fuzz.h>
@@ -521,12 +522,12 @@ FUZZ_TARGET(clustermempool_trim)
 }
 
 template<QueueStyle QS, typename S>
-void FullStatsProcess(const std::string& name, const Cluster<S>& cluster, const SortedCluster<S>& sorted, const AncestorSets<S>& anc, const DescendantSets<S>& desc, XoRoShiRo128PlusPlus& rng)
+void FullStatsProcess(const std::string& name, const SortedCluster<S>& sorted, const AncestorSets<S>& anc, const DescendantSets<S>& desc, XoRoShiRo128PlusPlus& rng)
 {
     uint64_t tot_iters{0};
     uint64_t tot_comps{0};
     uint64_t max_queue{0};
-    unsigned todo = cluster.size();
+    unsigned todo = sorted.cluster.size();
     S done;
     AncestorSetFeeFracs<S> anc_feefracs(sorted.cluster, anc, {});
     while (todo) {
@@ -538,7 +539,44 @@ void FullStatsProcess(const std::string& name, const Cluster<S>& cluster, const 
         todo -= ret.best_candidate_set.Count();
         anc_feefracs.Done(sorted.cluster, desc, ret.best_candidate_set);
     }
-    std::cerr << "- " << name << ": iterations=" << tot_iters << " comparisons=" << tot_comps << " max_queue=" << max_queue << std::endl;
+    std::cerr << "- " << name << ": iterations " << tot_iters << ", comparisons " << tot_comps << ", max_queue " << max_queue << std::endl;
+}
+
+template<QueueStyle QS, typename S>
+void SplitStatsProcess(const std::string& name, const SortedCluster<S>& sorted, const AncestorSets<S>& anc, const DescendantSets<S>& desc, XoRoShiRo128PlusPlus& rng)
+{
+    unsigned todo = sorted.cluster.size();
+    S done;
+    AncestorSetFeeFracs<S> anc_feefracs(sorted.cluster, anc, {});
+    while (todo) {
+        auto ret = FindBestCandidateSetEfficient<QS, true>(sorted.cluster, anc, desc, anc_feefracs, done, rng);
+        std::cerr << "# strategy " << name << ", clustersize " << todo << ", iterations " << ret.iterations << ", comparisons " << ret.comparisons << std::endl;
+        std::vector<unsigned char> data;
+        auto trim_cluster = TrimCluster(sorted.cluster, done);
+        SerializeCluster(trim_cluster, data);
+        data.pop_back();
+        std::cerr << "# cluster " << HexStr(data) << std::endl;
+        std::cerr << "set terminal pngcairo size 800,600 enhanced font 'Verdana,12'" << std::endl;
+        std::cerr << "set output 'output_graph.png'" << std::endl;
+        std::cerr << "set xlabel \"Comparisons\"" << std::endl;
+        std::cerr << "set ylabel \"Feerate\"" << std::endl;
+        std::cerr << "set grid" << std::endl;
+        std::cerr << "plot '-' using 1:2 with linespoints lt" << std::endl;
+        std::optional<double> prev;
+        for (const auto& [iter, comp, feefrac] : ret.intermediate) {
+            if (prev) std::cerr << comp << " " << *prev << std::endl;
+            double rate = double(feefrac.fee) / feefrac.size;
+            std::cerr << comp << " " << rate << " # " << feefrac.fee << "/" << feefrac.size << std::endl;
+            prev = rate;
+        }
+        std::cerr << ret.comparisons << " " << (double(ret.best_candidate_feefrac.fee) / ret.best_candidate_feefrac.size) << std::endl;
+        std::cerr << "e" << std::endl;
+        std::cerr << std::endl;
+
+        done |= ret.best_candidate_set;
+        todo -= ret.best_candidate_set.Count();
+        anc_feefracs.Done(sorted.cluster, desc, ret.best_candidate_set);
+    }
 }
 
 FUZZ_TARGET(clustermempool_full_stats)
@@ -553,37 +591,81 @@ FUZZ_TARGET(clustermempool_full_stats)
     if (!IsAcyclic(anc)) return;
     DescendantSets<BS> desc(anc);
 
-    std::cerr << "CLUSTER " << cluster << std::endl;
-    std::cerr << "- GRAPH "; DrawCluster(std::cerr, cluster); std::cerr << std::endl;
+    std::cerr << "CLUSTER " << sorted.cluster << std::endl;
+    std::cerr << "- GRAPH "; DrawCluster(std::cerr, sorted.cluster); std::cerr << std::endl;
 
-    FullStatsProcess<QueueStyle::DFS>("DFS", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::DFS_EXC>("DFS_EXC", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::RANDOM>("RANDOM", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::BEST_ACHIEVED_FEEFRAC>("BEST_ACHIEVED_FEEFRAC", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::HIGHEST_ACHIEVED_FEE>("HIGHEST_ACHIEVED_FEE", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::HIGHEST_ACHIEVED_SIZE>("HIGHEST_ACHIEVED_SIZE", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::BEST_POTENTIAL_FEEFRAC>("BEST_POTENTIAL_FEEFRAC", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::HIGHEST_POTENTIAL_FEE>("HIGHEST_POTENTIAL_FEE", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::HIGHEST_POTENTIAL_SIZE>("HIGHEST_POTENTIAL_SIZE", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::BEST_GAIN_FEEFRAC>("BEST_GAIN_FEEFRAC", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::HIGHEST_GAIN_FEE>("HIGHEST_GAIN_FEE", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::HIGHEST_GAIN_SIZE>("HIGHEST_GAIN_SIZE", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::WORST_ACHIEVED_FEEFRAC>("WORST_ACHIEVED_FEEFRAC", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::LOWEST_ACHIEVED_FEE>("LOWEST_ACHIEVED_FEE", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::LOWEST_ACHIEVED_SIZE>("LOWEST_ACHIEVED_SIZE", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::WORST_POTENTIAL_FEEFRAC>("WORST_POTENTIAL_FEEFRAC", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::LOWEST_POTENTIAL_FEE>("LOWEST_POTENTIAL_FEE", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::LOWEST_POTENTIAL_SIZE>("LOWEST_POTENTIAL_SIZE", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::WORST_GAIN_FEEFRAC>("WORST_GAIN_FEEFRAC", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::LOWEST_GAIN_FEE>("LOWEST_GAIN_FEE", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::LOWEST_GAIN_SIZE>("LOWEST_GAIN_SIZE", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::MOST_ADVANCED_BEST_POTENTIAL_FEEFRAC>("MOST_ADVANCED_BEST_POTENTIAL_FEEFRAC", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::LEAST_ADVANCED_BEST_POTENTIAL_FEEFRAC>("LEAST_ADVANCED_BEST_POTENTIAL_FEEFRAC", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::MOST_LEFT_BEST_POTENTIAL_FEEFRAC>("MOST_LEFT_BEST_POTENTIAL_FEEFRAC", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::LEAST_LEFT_BEST_POTENTIAL_FEEFRAC>("LEAST_LEFT_BEST_POTENTIAL_FEEFRAC", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::MOST_INC_BEST_POTENTIAL_FEEFRAC>("MOST_INC_BEST_POTENTIAL_FEEFRAC", cluster, sorted, anc, desc, rng);
-    FullStatsProcess<QueueStyle::LEAST_INC_BEST_POTENTIAL_FEEFRAC>("LEAST_INC_BEST_POTENTIAL_FEEFRAC", cluster, sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::DFS>("DFS", sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::DFS_EXC>("DFS_EXC", sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::RANDOM>("RANDOM", sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::BEST_ACHIEVED_FEEFRAC>("BEST_ACHIEVED_FEEFRAC", sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::HIGHEST_ACHIEVED_FEE>("HIGHEST_ACHIEVED_FEE", sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::HIGHEST_ACHIEVED_SIZE>("HIGHEST_ACHIEVED_SIZE", sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::BEST_POTENTIAL_FEEFRAC>("BEST_POTENTIAL_FEEFRAC", sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::HIGHEST_POTENTIAL_FEE>("HIGHEST_POTENTIAL_FEE", sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::HIGHEST_POTENTIAL_SIZE>("HIGHEST_POTENTIAL_SIZE", sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::BEST_GAIN_FEEFRAC>("BEST_GAIN_FEEFRAC", sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::HIGHEST_GAIN_FEE>("HIGHEST_GAIN_FEE", sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::HIGHEST_GAIN_SIZE>("HIGHEST_GAIN_SIZE", sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::WORST_ACHIEVED_FEEFRAC>("WORST_ACHIEVED_FEEFRAC", sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::LOWEST_ACHIEVED_FEE>("LOWEST_ACHIEVED_FEE", sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::LOWEST_ACHIEVED_SIZE>("LOWEST_ACHIEVED_SIZE", sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::WORST_POTENTIAL_FEEFRAC>("WORST_POTENTIAL_FEEFRAC", sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::LOWEST_POTENTIAL_FEE>("LOWEST_POTENTIAL_FEE", sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::LOWEST_POTENTIAL_SIZE>("LOWEST_POTENTIAL_SIZE", sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::WORST_GAIN_FEEFRAC>("WORST_GAIN_FEEFRAC", sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::LOWEST_GAIN_FEE>("LOWEST_GAIN_FEE", sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::LOWEST_GAIN_SIZE>("LOWEST_GAIN_SIZE", sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::MOST_ADVANCED_BEST_POTENTIAL_FEEFRAC>("MOST_ADVANCED_BEST_POTENTIAL_FEEFRAC", sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::LEAST_ADVANCED_BEST_POTENTIAL_FEEFRAC>("LEAST_ADVANCED_BEST_POTENTIAL_FEEFRAC", sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::MOST_LEFT_BEST_POTENTIAL_FEEFRAC>("MOST_LEFT_BEST_POTENTIAL_FEEFRAC", sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::LEAST_LEFT_BEST_POTENTIAL_FEEFRAC>("LEAST_LEFT_BEST_POTENTIAL_FEEFRAC", sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::MOST_INC_BEST_POTENTIAL_FEEFRAC>("MOST_INC_BEST_POTENTIAL_FEEFRAC", sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::LEAST_INC_BEST_POTENTIAL_FEEFRAC>("LEAST_INC_BEST_POTENTIAL_FEEFRAC", sorted, anc, desc, rng);
+    FullStatsProcess<QueueStyle::LEAST_COVER>("LEAST_COVER", sorted, anc, desc, rng);
 }
+
+FUZZ_TARGET(clustermempool_split_stats)
+{
+    using BS = BitSet<256>;
+    auto cluster = DeserializeCluster<BS>(buffer);
+    if (!IsMul64Compatible(cluster)) return;
+    XoRoShiRo128PlusPlus rng(0x1337133713371337);
+
+    SortedCluster<BS> sorted(cluster);
+    AncestorSets<BS> anc(sorted.cluster);
+    if (!IsAcyclic(anc)) return;
+    DescendantSets<BS> desc(anc);
+
+    SplitStatsProcess<QueueStyle::DFS>("DFS", sorted, anc, desc, rng);
+    SplitStatsProcess<QueueStyle::DFS_EXC>("DFS_EXC", sorted, anc, desc, rng);
+    SplitStatsProcess<QueueStyle::RANDOM>("RANDOM", sorted, anc, desc, rng);
+    SplitStatsProcess<QueueStyle::BEST_ACHIEVED_FEEFRAC>("BEST_ACHIEVED_FEEFRAC", sorted, anc, desc, rng);
+    SplitStatsProcess<QueueStyle::HIGHEST_ACHIEVED_FEE>("HIGHEST_ACHIEVED_FEE", sorted, anc, desc, rng);
+    SplitStatsProcess<QueueStyle::HIGHEST_ACHIEVED_SIZE>("HIGHEST_ACHIEVED_SIZE", sorted, anc, desc, rng);
+    SplitStatsProcess<QueueStyle::BEST_POTENTIAL_FEEFRAC>("BEST_POTENTIAL_FEEFRAC", sorted, anc, desc, rng);
+    SplitStatsProcess<QueueStyle::HIGHEST_POTENTIAL_FEE>("HIGHEST_POTENTIAL_FEE", sorted, anc, desc, rng);
+    SplitStatsProcess<QueueStyle::HIGHEST_POTENTIAL_SIZE>("HIGHEST_POTENTIAL_SIZE", sorted, anc, desc, rng);
+    SplitStatsProcess<QueueStyle::BEST_GAIN_FEEFRAC>("BEST_GAIN_FEEFRAC", sorted, anc, desc, rng);
+    SplitStatsProcess<QueueStyle::HIGHEST_GAIN_FEE>("HIGHEST_GAIN_FEE", sorted, anc, desc, rng);
+    SplitStatsProcess<QueueStyle::HIGHEST_GAIN_SIZE>("HIGHEST_GAIN_SIZE", sorted, anc, desc, rng);
+    SplitStatsProcess<QueueStyle::WORST_ACHIEVED_FEEFRAC>("WORST_ACHIEVED_FEEFRAC", sorted, anc, desc, rng);
+    SplitStatsProcess<QueueStyle::LOWEST_ACHIEVED_FEE>("LOWEST_ACHIEVED_FEE", sorted, anc, desc, rng);
+    SplitStatsProcess<QueueStyle::LOWEST_ACHIEVED_SIZE>("LOWEST_ACHIEVED_SIZE", sorted, anc, desc, rng);
+    SplitStatsProcess<QueueStyle::WORST_POTENTIAL_FEEFRAC>("WORST_POTENTIAL_FEEFRAC", sorted, anc, desc, rng);
+    SplitStatsProcess<QueueStyle::LOWEST_POTENTIAL_FEE>("LOWEST_POTENTIAL_FEE", sorted, anc, desc, rng);
+    SplitStatsProcess<QueueStyle::LOWEST_POTENTIAL_SIZE>("LOWEST_POTENTIAL_SIZE", sorted, anc, desc, rng);
+    SplitStatsProcess<QueueStyle::WORST_GAIN_FEEFRAC>("WORST_GAIN_FEEFRAC", sorted, anc, desc, rng);
+    SplitStatsProcess<QueueStyle::LOWEST_GAIN_FEE>("LOWEST_GAIN_FEE", sorted, anc, desc, rng);
+    SplitStatsProcess<QueueStyle::LOWEST_GAIN_SIZE>("LOWEST_GAIN_SIZE", sorted, anc, desc, rng);
+    SplitStatsProcess<QueueStyle::MOST_ADVANCED_BEST_POTENTIAL_FEEFRAC>("MOST_ADVANCED_BEST_POTENTIAL_FEEFRAC", sorted, anc, desc, rng);
+    SplitStatsProcess<QueueStyle::LEAST_ADVANCED_BEST_POTENTIAL_FEEFRAC>("LEAST_ADVANCED_BEST_POTENTIAL_FEEFRAC", sorted, anc, desc, rng);
+    SplitStatsProcess<QueueStyle::MOST_LEFT_BEST_POTENTIAL_FEEFRAC>("MOST_LEFT_BEST_POTENTIAL_FEEFRAC", sorted, anc, desc, rng);
+    SplitStatsProcess<QueueStyle::LEAST_LEFT_BEST_POTENTIAL_FEEFRAC>("LEAST_LEFT_BEST_POTENTIAL_FEEFRAC", sorted, anc, desc, rng);
+    SplitStatsProcess<QueueStyle::MOST_INC_BEST_POTENTIAL_FEEFRAC>("MOST_INC_BEST_POTENTIAL_FEEFRAC", sorted, anc, desc, rng);
+    SplitStatsProcess<QueueStyle::LEAST_INC_BEST_POTENTIAL_FEEFRAC>("LEAST_INC_BEST_POTENTIAL_FEEFRAC", sorted, anc, desc, rng);
+    SplitStatsProcess<QueueStyle::LEAST_COVER>("LEAST_COVER", sorted, anc, desc, rng);
+}
+
 
 FUZZ_TARGET(clustermempool_efficient_limits)
 {
