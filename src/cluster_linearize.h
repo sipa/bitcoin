@@ -391,34 +391,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
     // - inc_feefrac: feerate of (inc / done)
     // - inc_may_be_best: whether inc_feerate could be better than best_feerate
     // - pot_known: pointer to the pot of the new item, if known, nullptr otherwise.
-    // - try_shrink: add unreachable subgraphs to exc
-    auto add_fn = [&](S inc, S exc, FeeFrac inc_feefrac, bool inc_may_be_best, const S* pot_known, bool try_shrink) -> bool {
-        if (try_shrink) {
-            assert(pot_known == nullptr);
-            S reach;
-            reach.Set((inc / done).First());
-            auto prev = exc | done;
-            auto added = reach;
-            while (true) {
-                S new_reach = reach;
-                for (unsigned added_pos : added) {
-                    new_reach |= anc[added_pos];
-                    new_reach |= desc[added_pos];
-                }
-                new_reach /= prev;
-                if (reach == new_reach) break;
-                added = new_reach / reach;
-                reach = new_reach;
-            }
-            if ((done | reach) >> inc) {
-                auto new_exc = all / (reach | done);
-                assert(new_exc >> exc);
-                exc = new_exc;
-            } else {
-                return false;
-            }
-        }
-
+    auto add_fn = [&](S inc, S exc, FeeFrac inc_feefrac, bool inc_may_be_best, const S* pot_known) -> bool {
         // In the loop below, we do two things simultaneously:
         // - compute the pot_feefrac for the new queue item.
         // - perform "jump ahead", which may add additional transactions to inc
@@ -509,8 +482,8 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
     // Find best ancestor set to seed the search. Add a queue item corresponding to the transaction
     // with the best ancestor set feefrac excluded, and one with it included.
     auto ret_ancestor = FindBestAncestorSet(cluster, anc, anc_feefracs, done);
-    add_fn(done, desc[ret_ancestor.chosen_transaction], {}, false, nullptr, false);
-    add_fn(done | ret_ancestor.best_candidate_set, {}, ret_ancestor.best_candidate_feefrac, true, nullptr, true);
+    add_fn(done, desc[ret_ancestor.chosen_transaction], {}, false, nullptr);
+    add_fn(done | ret_ancestor.best_candidate_set, {}, ret_ancestor.best_candidate_feefrac, true, nullptr);
 
     // Work processing loop.
     while (queue.size()) {
@@ -545,7 +518,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         // being added to inc, this new entry cannot be a new best. As desc[pos] always overlaps
         // with pot (in pos, at least), the new work item's potential set will definitely be
         // different from the parent.
-        bool added_exc = add_fn(inc, exc | desc[pos], inc_feefrac, false, nullptr, inc != done);
+        bool added_exc = add_fn(inc, exc | desc[pos], inc_feefrac, false, nullptr);
 
         // Consider adding a work item corresponding to that transaction included. Since only
         // connected subgraphs can be optimal candidates, if there is no overlap between the
@@ -560,7 +533,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         auto new_inc = inc | anc[pos];
         auto new_inc_feefrac = inc_feefrac + ComputeSetFeeFrac(cluster, new_inc / inc);
         bool may_be_new_best = !(done >> (inc & anc[pos]));
-        bool added_inc = add_fn(new_inc, exc, new_inc_feefrac, may_be_new_best, pot >> anc[pos] ? &pot : nullptr, inc == done);
+        bool added_inc = add_fn(new_inc, exc, new_inc_feefrac, may_be_new_best, pot >> anc[pos] ? &pot : nullptr);
 
         if constexpr (QS == QueueStyle::DFS_EXC) {
             if (added_inc && added_exc) {
