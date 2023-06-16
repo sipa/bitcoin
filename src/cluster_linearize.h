@@ -13,6 +13,7 @@
 #include <numeric>
 #include <optional>
 #include <vector>
+#include <tuple>
 
 #include <util/bitset.h>
 #include <util/feefrac.h>
@@ -471,6 +472,13 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         // queue. If not, it's not worth exploring further.
         if (!explore_further) return false;
 
+        if constexpr (QS != QueueStyle::DFS && QS != QueueStyle::DFS_EXC) {
+            if (!best_feefrac.IsEmpty()) {
+                ++ret.comparisons;
+                if (pot_feefrac <= best_feefrac) return false;
+            }
+        }
+
         queue.emplace_back(inc, exc, pot, inc_feefrac, pot_feefrac);
         ret.max_queue_size = std::max(ret.max_queue_size, queue.size());
         if constexpr (QS != QueueStyle::RANDOM && QS != QueueStyle::DFS && QS != QueueStyle::DFS_EXC) {
@@ -595,7 +603,7 @@ struct LinearizationResult
 };
 
 /** Compute a full linearization of a cluster (vector of cluster indices). */
-template<typename S>
+template<QueueStyle QS, typename S>
 LinearizationResult LinearizeCluster(const Cluster<S>& cluster, unsigned optimal_limit)
 {
     LinearizationResult ret;
@@ -622,7 +630,7 @@ LinearizationResult LinearizeCluster(const Cluster<S>& cluster, unsigned optimal
         if (left > optimal_limit) {
             analysis = FindBestAncestorSet(sorted.cluster, anc, anc_feefracs, done);
         } else {
-            analysis = FindBestCandidateSetEfficient<QueueStyle::LOWEST_POTENTIAL_SIZE>(sorted.cluster, anc, desc, anc_feefracs, done, nullptr);
+            analysis = FindBestCandidateSetEfficient<QS>(sorted.cluster, anc, desc, anc_feefracs, done, nullptr);
         }
 
         // Sanity checks.
@@ -649,14 +657,6 @@ LinearizationResult LinearizeCluster(const Cluster<S>& cluster, unsigned optimal
         done |= analysis.best_candidate_set;
         // Update precomputed ancestor FeeFracs.
         anc_feefracs.Done(sorted.cluster, desc, analysis.best_candidate_set);
-#if 0
-        // Verify that precomputed ancestor FeeFrac are correct.
-        for (unsigned i = 0; i < cluster.size(); ++i) {
-            if (!done[i]) {
-                assert(anc_feefracs[i] == ComputeSetFeeFrac(sorted.cluster, anc[i] / done));
-            }
-        }
-#endif
     }
 
     // Map linearization back from sorted cluster indices to original indices.
@@ -737,7 +737,7 @@ template<typename S>
 Cluster<S> DeserializeCluster(Span<const unsigned char>& data)
 {
     Cluster<S> ret;
-    while (ret.size() < S::Size()) {
+    while (true) {
         uint32_t size = DeserializeNumberBase128(data) & 0x3fffff;
         if (size == 0) break;
         uint64_t fee = DeserializeNumberBase128(data) & 0x7ffffffffffff;

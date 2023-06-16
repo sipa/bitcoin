@@ -224,6 +224,8 @@ public:
     friend bool operator>>(const IntBitSet& a, const IntBitSet& b) noexcept { return (b.m_val & ~a.m_val) == 0; }
     /** Check if bitset a is a subset of bitset b (= every 1 bit in a is also in b). */
     friend bool operator<<(const IntBitSet& a, const IntBitSet& b) noexcept { return (a.m_val & ~b.m_val) == 0; }
+    /** Swap two bitsets. */
+    friend void swap(IntBitSet& a, IntBitSet& b) noexcept { std::swap(a.m_val, b.m_val); }
 };
 
 /** A bitset implementation backed by N integers of type I. */
@@ -440,6 +442,8 @@ public:
     friend bool operator==(const MultiIntBitSet& a, const MultiIntBitSet& b) noexcept { return a.m_val == b.m_val; }
     /** Check if bitset a and bitset b are different. */
     friend bool operator!=(const MultiIntBitSet& a, const MultiIntBitSet& b) noexcept { return a.m_val != b.m_val; }
+    /** Swap two bitsets. */
+    friend void swap(MultiIntBitSet& a, MultiIntBitSet& b) noexcept { std::swap(a.m_val, b.m_val); }
 };
 
 } // namespace bitset_detail

@@ -146,6 +146,12 @@ struct FeeFrac
     {
         return a.fee * b.size > b.fee * a.size;
     }
+
+    friend inline void swap(FeeFrac& a, FeeFrac& b) noexcept
+    {
+        std::swap(a.fee, b.fee);
+        std::swap(a.size, b.size);
+    }
 };
 
 #endif // BITCOIN_UTIL_FEEFRAC_H
