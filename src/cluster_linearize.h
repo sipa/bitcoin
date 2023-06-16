@@ -479,10 +479,9 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         return true;
     };
 
-    // Find connected components of the cluster, and add a queue entry for each. For the component
-    // that contains the highest ancestor feerate transaction, add two entries (one with that
-    // transaction included, and one with it excluded).
-    auto ret_ancestor = FindBestAncestorSet(cluster, anc, anc_feefracs, done);
+    // Find connected components of the cluster, and add queue entries for each which exclude all
+    // the other components. This prevents the search further down from considering candidates
+    // that span multiple components (as those are necessarily suboptimal).
     auto to_cover = all / done;
     while (true) {
         // Start with one transaction that hasn't been covered with connected components yet.
@@ -500,15 +499,26 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
             if (prev_component == component) break;
             added = component / prev_component;
         }
-        if (component[ret_ancestor.chosen_transaction]) {
-            // If the found component contains the best ancestor set transaction, add two queue
-            // entries. This guarantees that regardless of how many iterations are performed later,
-            // the best found is always at least as good as the best ancestor set.
-            add_fn(done, desc[ret_ancestor.chosen_transaction] | (all / (done | component)), {}, false, nullptr);
-            add_fn(done | ret_ancestor.best_candidate_set, all / (done | component), ret_ancestor.best_candidate_feefrac, true, nullptr);
-        } else {
-            add_fn(done, all / (done | component), {}, false, nullptr);
+        // Find highest ancestor feerate transaction in the component using the precomputed values.
+        FeeFrac best_ancestor_feefrac;
+        unsigned best_ancestor_tx{0};
+        for (unsigned i : component) {
+            bool new_best = best_ancestor_feefrac.IsEmpty();
+            if (!new_best) {
+                ++ret.comparisons;
+                new_best = anc_feefracs[i] > best_ancestor_feefrac;
+            }
+            if (new_best) {
+                best_ancestor_tx = i;
+                best_ancestor_feefrac = anc_feefracs[i];
+            }
         }
+        // Add queue entries corresponding to the inclusion and the exclusion of that highest
+        // ancestor feerate transaction. This guarantees that regardless of how many iterations
+        // are performed later, the best found is always at least as good as the best ancestor set.
+        add_fn(done, desc[best_ancestor_tx] | (all / (done | component)), {}, false, nullptr);
+        add_fn(done | anc[best_ancestor_tx], all / (done | component), best_ancestor_feefrac, true, nullptr);
+        // Update the set of transactions to cover, and finish if there are none left.
         to_cover /= component;
         if (to_cover.None()) break;
     }
