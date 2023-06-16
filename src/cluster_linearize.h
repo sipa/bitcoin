@@ -479,11 +479,39 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         return true;
     };
 
-    // Find best ancestor set to seed the search. Add a queue item corresponding to the transaction
-    // with the best ancestor set feefrac excluded, and one with it included.
+    // Find connected components of the cluster, and add a queue entry for each. For the component
+    // that contains the highest ancestor feerate transaction, add two entries (one with that
+    // transaction included, and one with it excluded).
     auto ret_ancestor = FindBestAncestorSet(cluster, anc, anc_feefracs, done);
-    add_fn(done, desc[ret_ancestor.chosen_transaction], {}, false, nullptr);
-    add_fn(done | ret_ancestor.best_candidate_set, {}, ret_ancestor.best_candidate_feefrac, true, nullptr);
+    auto to_cover = all / done;
+    while (true) {
+        // Start with one transaction that hasn't been covered with connected components yet.
+        S component;
+        component.Set(to_cover.First());
+        S added = component;
+        // Compute the transitive closure of "is ancestor or descendant of but not done".
+        while (true) {
+            S prev_component = component;
+            for (unsigned i : added) {
+                component |= anc[i];
+                component |= desc[i];
+            }
+            component /= done;
+            if (prev_component == component) break;
+            added = component / prev_component;
+        }
+        if (component[ret_ancestor.chosen_transaction]) {
+            // If the found component contains the best ancestor set transaction, add two queue
+            // entries. This guarantees that regardless of how many iterations are performed later,
+            // the best found is always at least as good as the best ancestor set.
+            add_fn(done, desc[ret_ancestor.chosen_transaction] | (all / (done | component)), {}, false, nullptr);
+            add_fn(done | ret_ancestor.best_candidate_set, all / (done | component), ret_ancestor.best_candidate_feefrac, true, nullptr);
+        } else {
+            add_fn(done, all / (done | component), {}, false, nullptr);
+        }
+        to_cover /= component;
+        if (to_cover.None()) break;
+    }
 
     // Work processing loop.
     while (queue.size()) {
