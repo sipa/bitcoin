@@ -418,10 +418,10 @@ FUZZ_TARGET(clustermempool_linearize)
     for (unsigned i = 0; i < 11; ++i) {
         struct timespec measure_start, measure_stop;
         clock_gettime(CLOCK_THREAD_CPUTIME_ID, &measure_start);
-        auto linearization = LinearizeCluster(cluster, 15);
+        auto analysis = LinearizeCluster(cluster, 15);
         clock_gettime(CLOCK_THREAD_CPUTIME_ID, &measure_stop);
         double duration = (double)((int64_t)measure_stop.tv_sec - (int64_t)measure_start.tv_sec) + 0.000000001*(double)((int64_t)measure_stop.tv_nsec - (int64_t)measure_start.tv_nsec);
-        results.emplace_back(duration, linearization);
+        results.emplace_back(duration, std::move(analysis.linearization));
     }
 
     std::sort(results.begin(), results.end(), [](const auto& a, const auto& b) { return a.first < b.first; });

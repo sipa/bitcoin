@@ -577,14 +577,22 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
     return ret;
 }
 
+struct LinearizationResult
+{
+    std::vector<unsigned> linearization;
+    size_t iterations{0};
+    size_t comparisons{0};
+};
+
 /** Compute a full linearization of a cluster (vector of cluster indices). */
 template<typename S>
-std::vector<unsigned> LinearizeCluster(const Cluster<S>& cluster, unsigned optimal_limit)
+LinearizationResult LinearizeCluster(const Cluster<S>& cluster, unsigned optimal_limit)
 {
-    std::vector<unsigned> ret;
-    ret.reserve(cluster.size());
+    LinearizationResult ret;
+    ret.linearization.reserve(cluster.size());
     S done;
     unsigned left = cluster.size();
+    if (left == 0) return ret;
 
     // Precompute stuff.
     SortedCluster<S> sorted(cluster);
@@ -598,7 +606,7 @@ std::vector<unsigned> LinearizeCluster(const Cluster<S>& cluster, unsigned optim
     AncestorSetFeeFracs anc_feefracs(sorted.cluster, anc, done);
 
     // Iterate while there are transactions left.
-    while (left > 0) {
+    while (true) {
         // Invoke function to find a good/best candidate.
         CandidateSetAnalysis<S> analysis;
         if (left > optimal_limit) {
@@ -611,19 +619,23 @@ std::vector<unsigned> LinearizeCluster(const Cluster<S>& cluster, unsigned optim
         assert(analysis.best_candidate_set.Any()); // Must be at least one transaction
         assert((analysis.best_candidate_set & done).None()); // Cannot overlap with processed ones.
 
+        // Update statistics.
+        ret.iterations += analysis.iterations;
+        ret.comparisons += analysis.comparisons;
+
         // Append candidate's transactions to linearization, and topologically sort them.
-        size_t old_size = ret.size();
+        size_t old_size = ret.linearization.size();
         for (unsigned selected : analysis.best_candidate_set) {
-            ret.emplace_back(selected);
+            ret.linearization.emplace_back(selected);
         }
-        std::sort(ret.begin() + old_size, ret.end(), [&](unsigned a, unsigned b) {
+        std::sort(ret.linearization.begin() + old_size, ret.linearization.end(), [&](unsigned a, unsigned b) {
             if (anccount[a] == anccount[b]) return a < b;
             return anccount[a] < anccount[b];
         });
 
         // Update bookkeeping to reflect newly added transactions.
         left -= analysis.best_candidate_set.Count();
-        if (!left) break; // Bail out quickly if nothing left.
+        if (left == 0) break; // Bail out if nothing left.
         done |= analysis.best_candidate_set;
         // Update precomputed ancestor FeeFracs.
         anc_feefracs.Done(sorted.cluster, desc, analysis.best_candidate_set);
@@ -639,7 +651,7 @@ std::vector<unsigned> LinearizeCluster(const Cluster<S>& cluster, unsigned optim
 
     // Map linearization back from sorted cluster indices to original indices.
     for (unsigned i = 0; i < cluster.size(); ++i) {
-        ret[i] = sorted.sorted_to_original[ret[i]];
+        ret.linearization[i] = sorted.sorted_to_original[ret.linearization[i]];
     }
 
     return ret;
