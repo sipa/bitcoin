@@ -843,6 +843,25 @@ bool IsAcyclic(const AncestorSets<S>& anc)
     return true;
 }
 
+template<typename S>
+std::vector<std::pair<FeeFrac, S>> ChunkLinearization(const Cluster<S>& cluster, Span<const unsigned> linearization)
+{
+    std::vector<std::pair<FeeFrac, S>> chunks;
+    chunks.reserve(linearization.size());
+    for (unsigned i : linearization) {
+        S add;
+        add.Set(i);
+        FeeFrac add_feefrac = cluster[i].first;
+        while (!chunks.empty() && add_feefrac >> chunks.back().first) {
+            add |= chunks.back().second;
+            add_feefrac += chunks.back().first;
+            chunks.pop_back();
+        }
+        chunks.emplace_back(add_feefrac, add);
+    }
+    return chunks;
+}
+
 } // namespace
 
 } // namespace linearize_cluster

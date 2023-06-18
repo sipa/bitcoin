@@ -814,25 +814,11 @@ FUZZ_TARGET(clustermempool_linearize_optimal)
         satisfied.Set(i);
     }
 
-    // Perform chunking
-    std::vector<std::pair<FuzzBitSet, FeeFrac>> chunks;
-    for (unsigned i : lin.linearization) {
-        FuzzBitSet add;
-        add.Set(i);
-        FeeFrac add_feefrac = cluster[i].first;
-        while (!chunks.empty() && add_feefrac >> chunks.back().second) {
-            add |= chunks.back().first;
-            add_feefrac += chunks.back().second;
-            chunks.pop_back();
-        }
-        chunks.emplace_back(add, add_feefrac);
-    }
-
-    // Compare with exhaustive optimal.
+    // Compare chunks with exhaustive optimal.
     FuzzBitSet done;
-    for (const auto& [bitset, feefrac] : chunks) {
+    for (const auto& [feefrac, chunk] : ChunkLinearization(cluster, lin.linearization)) {
         auto ret_exhaustive = FindBestCandidateSetExhaustive(cluster, anc, done);
         assert(ret_exhaustive.best_candidate_feefrac == feefrac);
-        done |= bitset;
+        done |= chunk;
     }
 }
