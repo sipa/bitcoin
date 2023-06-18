@@ -133,12 +133,14 @@ template<typename S>
 class AncestorSetFeeFracs
 {
     std::vector<FeeFrac> m_anc_feefracs;
+    S m_done;
 
 public:
     /** Construct a precomputed AncestorSetFeeFracs object for given cluster/done. */
     explicit AncestorSetFeeFracs(const Cluster<S>& cluster, const AncestorSets<S>& anc, const S& done) noexcept
     {
         m_anc_feefracs.resize(cluster.size());
+        m_done = done;
         for (unsigned i = 0; i < cluster.size(); ++i) {
             if (!done[i]) {
                 m_anc_feefracs[i] = ComputeSetFeeFrac(cluster, anc[i] / done);
@@ -149,9 +151,11 @@ public:
     /** Update the precomputed data structure to reflect that new_done was added to done. */
     void Done(const Cluster<S>& cluster, const DescendantSets<S>& desc, const S& new_done) noexcept
     {
+        assert((m_done & new_done).None());
+        m_done |= new_done;
         for (unsigned pos : new_done) {
             FeeFrac feefrac = cluster[pos].first;
-            for (unsigned i : desc[pos] / new_done) {
+            for (unsigned i : desc[pos] / m_done) {
                 m_anc_feefracs[i] -= feefrac;
             }
         }
