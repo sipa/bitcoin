@@ -580,24 +580,29 @@ FUZZ_TARGET(clustermempool_efficient_limits)
 
     FuzzBitSet done;
     while (done != all) {
-        auto ret = FindBestCandidateSetEfficient<QueueStyle::DFS>(sorted.cluster, anc, desc, anc_feefracs, done, nullptr);
-
-        // Sanity checks
-        // - connectedness of candidate
-        assert(IsConnectedSubset(sorted.cluster, ret.best_candidate_set));
-        // - claimed FeeFrac matches
-        auto feefrac = ComputeSetFeeFrac(sorted.cluster, ret.best_candidate_set);
-        assert(feefrac == ret.best_candidate_feefrac);
-        // - topologically consistent
-        FuzzBitSet merged_ancestors = done;
-        for (unsigned val : ret.best_candidate_set) {
-            merged_ancestors |= anc[val];
+        CandidateSetAnalysis<FuzzBitSet> ret;
+        auto single_viable = SingleViableTransaction(sorted.cluster, done);
+        if (single_viable) {
+            ret.best_candidate_set.Set(*single_viable);
+        } else {
+            ret = FindBestCandidateSetEfficient<QueueStyle::DFS>(sorted.cluster, anc, desc, anc_feefracs, done, nullptr);
+            // Sanity checks
+            // - connectedness of candidate
+            assert(IsConnectedSubset(sorted.cluster, ret.best_candidate_set));
+            // - claimed FeeFrac matches
+            auto feefrac = ComputeSetFeeFrac(sorted.cluster, ret.best_candidate_set);
+            assert(feefrac == ret.best_candidate_feefrac);
+            // - topologically consistent
+            FuzzBitSet merged_ancestors = done;
+            for (unsigned val : ret.best_candidate_set) {
+                merged_ancestors |= anc[val];
+            }
+            assert((done | ret.best_candidate_set) == merged_ancestors);
         }
-        assert((done | ret.best_candidate_set) == merged_ancestors);
         unsigned left = (all / done).Count();
         // - if small enough, matches exhaustive search FeeFrac
 #if 1
-        if (left <= 10) {
+        if (left <= 10 && !single_viable) {
             auto ret_exhaustive = FindBestCandidateSetExhaustive(sorted.cluster, anc, done);
             assert(ret_exhaustive.best_candidate_feefrac == ret.best_candidate_feefrac);
         }
@@ -783,5 +788,51 @@ FUZZ_TARGET(clustermempool_efficient_limits)
 
     if (global_do_save) {
         FuzzSave(initial_buffer);
+    }
+}
+
+FUZZ_TARGET(clustermempool_linearize_optimal)
+{
+    auto initial_buffer = buffer;
+
+    Cluster<FuzzBitSet> cluster = DeserializeCluster<FuzzBitSet>(buffer);
+    if (cluster.size() > 18) return;
+    if (!IsMul64Compatible(cluster)) return;
+
+    FuzzBitSet all = FuzzBitSet::Fill(cluster.size());
+    if (!IsConnectedSubset(cluster, all)) return;
+
+    AncestorSets<FuzzBitSet> anc(cluster);
+    if (!IsAcyclic(anc)) return;
+
+    auto lin = LinearizeCluster<QueueStyle::DFS>(cluster, FuzzBitSet::Size());
+
+    // Check topology
+    FuzzBitSet satisfied;
+    for (unsigned i : lin.linearization) {
+        assert(satisfied >> cluster[i].second);
+        satisfied.Set(i);
+    }
+
+    // Perform chunking
+    std::vector<std::pair<FuzzBitSet, FeeFrac>> chunks;
+    for (unsigned i : lin.linearization) {
+        FuzzBitSet add;
+        add.Set(i);
+        FeeFrac add_feefrac = cluster[i].first;
+        while (!chunks.empty() && add_feefrac >> chunks.back().second) {
+            add |= chunks.back().first;
+            add_feefrac += chunks.back().second;
+            chunks.pop_back();
+        }
+        chunks.emplace_back(add, add_feefrac);
+    }
+
+    // Compare with exhaustive optimal.
+    FuzzBitSet done;
+    for (const auto& [bitset, feefrac] : chunks) {
+        auto ret_exhaustive = FindBestCandidateSetExhaustive(cluster, anc, done);
+        assert(ret_exhaustive.best_candidate_feefrac == feefrac);
+        done |= bitset;
     }
 }

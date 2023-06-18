@@ -581,6 +581,21 @@ struct LinearizationResult
     size_t comparisons{0};
 };
 
+template<typename S>
+std::optional<unsigned> SingleViableTransaction(const Cluster<S>& cluster, const S& done)
+{
+    unsigned num_viable = 0;
+    unsigned first_viable = 0;
+    for (unsigned i : S::Fill(cluster.size()) / done) {
+        if (done >> cluster[i].second) {
+            if (++num_viable == 2) return {};
+            first_viable = i;
+        }
+    }
+    assert(num_viable == 1);
+    return {first_viable};
+}
+
 /** Compute a full linearization of a cluster (vector of cluster indices). */
 template<QueueStyle QS, typename S>
 LinearizationResult LinearizeCluster(const Cluster<S>& cluster, unsigned optimal_limit)
@@ -604,36 +619,47 @@ LinearizationResult LinearizeCluster(const Cluster<S>& cluster, unsigned optimal
 
     // Iterate while there are transactions left.
     while (true) {
-        // Invoke function to find a good/best candidate.
         CandidateSetAnalysis<S> analysis;
-        if (left > optimal_limit) {
-            analysis = FindBestAncestorSet(sorted.cluster, anc, anc_feefracs, done);
-        } else {
-            analysis = FindBestCandidateSetEfficient<QS>(sorted.cluster, anc, desc, anc_feefracs, done, nullptr);
+
+        // Check if there is perhaps just one transaction with satisfied dependencies.
+/*        auto single_viable = SingleViableTransaction(cluster, done);
+        if (single_viable) {
+            analysis.best_candidate_set.Set(*single_viable);
+            ret.linearization.emplace_back(*single_viable);
+            left -= 1;
+            if (left == 0) break;
+            done.Set(*single_viable);
+        } else*/ {
+            // Otherwise invoke real analysis.
+            if (left > optimal_limit) {
+                analysis = FindBestAncestorSet(sorted.cluster, anc, anc_feefracs, done);
+            } else {
+                analysis = FindBestCandidateSetEfficient<QS>(sorted.cluster, anc, desc, anc_feefracs, done, nullptr);
+            }
+
+            // Sanity checks.
+            assert(analysis.best_candidate_set.Any()); // Must be at least one transaction
+            assert((analysis.best_candidate_set & done).None()); // Cannot overlap with processed ones.
+
+            // Update statistics.
+            ret.iterations += analysis.iterations;
+            ret.comparisons += analysis.comparisons;
+
+            // Append candidate's transactions to linearization, and topologically sort them.
+            size_t old_size = ret.linearization.size();
+            for (unsigned selected : analysis.best_candidate_set) {
+                ret.linearization.emplace_back(selected);
+            }
+            std::sort(ret.linearization.begin() + old_size, ret.linearization.end(), [&](unsigned a, unsigned b) {
+                if (anccount[a] == anccount[b]) return a < b;
+                return anccount[a] < anccount[b];
+            });
+            // Update bookkeeping to reflect newly added transactions.
+            left -= analysis.best_candidate_set.Count();
+            if (left == 0) break; // Bail out if nothing left.
+            done |= analysis.best_candidate_set;
         }
 
-        // Sanity checks.
-        assert(analysis.best_candidate_set.Any()); // Must be at least one transaction
-        assert((analysis.best_candidate_set & done).None()); // Cannot overlap with processed ones.
-
-        // Update statistics.
-        ret.iterations += analysis.iterations;
-        ret.comparisons += analysis.comparisons;
-
-        // Append candidate's transactions to linearization, and topologically sort them.
-        size_t old_size = ret.linearization.size();
-        for (unsigned selected : analysis.best_candidate_set) {
-            ret.linearization.emplace_back(selected);
-        }
-        std::sort(ret.linearization.begin() + old_size, ret.linearization.end(), [&](unsigned a, unsigned b) {
-            if (anccount[a] == anccount[b]) return a < b;
-            return anccount[a] < anccount[b];
-        });
-
-        // Update bookkeeping to reflect newly added transactions.
-        left -= analysis.best_candidate_set.Count();
-        if (left == 0) break; // Bail out if nothing left.
-        done |= analysis.best_candidate_set;
         // Update precomputed ancestor FeeFracs.
         anc_feefracs.Done(sorted.cluster, desc, analysis.best_candidate_set);
     }
