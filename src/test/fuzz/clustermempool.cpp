@@ -188,7 +188,7 @@ bool IsConnectedSubset(const Cluster<S>& cluster, const S& select)
  * best one out of those that do.
  */
 template<typename S>
-CandidateSetAnalysis<S> FindBestCandidateSetNaive(const Cluster<S>& cluster, const S& done)
+CandidateSetAnalysis<S> FindBestCandidateSetNaive(const Cluster<S>& cluster, const S& done, const S& after)
 {
     assert(cluster.size() <= 25); // This becomes really unwieldy for large clusters
     CandidateSetAnalysis<S> ret;
@@ -204,7 +204,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetNaive(const Cluster<S>& cluster, con
             }
         }
         // None of the already done transactions may be included again.
-        if ((done & bitset).Any()) continue;
+        if (((done | after) & bitset).Any()) continue;
         // We only consider non-empty additions.
         if (bitset.None()) continue;
         // All dependencies have to be satisfied.
@@ -229,14 +229,14 @@ CandidateSetAnalysis<S> FindBestCandidateSetNaive(const Cluster<S>& cluster, con
  * It efficiently constructs all valid candidate sets, and remembers the best one.
  */
 template<typename S>
-CandidateSetAnalysis<S> FindBestCandidateSetExhaustive(const Cluster<S>& cluster, const AncestorSets<S>& anc, const S& done)
+CandidateSetAnalysis<S> FindBestCandidateSetExhaustive(const Cluster<S>& cluster, const AncestorSets<S>& anc, const S& done, const S& after)
 {
     // Queue of work units. Each consists of:
     // - inc: set of transactions definitely included (always includes done)
     // - exc: set of transactions definitely excluded
     // - feefrac: the FeeFrac of (included / done)
     std::vector<std::tuple<S, S, FeeFrac>> queue;
-    queue.emplace_back(done, S{}, FeeFrac{});
+    queue.emplace_back(done, after, FeeFrac{});
 
     CandidateSetAnalysis<S> ret;
 
@@ -297,6 +297,20 @@ S DecodeDone(Span<const unsigned char>& data, const AncestorSets<S>& ancs)
     return ret;
 }
 
+template<typename S>
+S DecodeAfter(Span<const unsigned char>& data, const DescendantSets<S>& descs, const S& done)
+{
+    S ret;
+    while (true) {
+        unsigned pos = DeserializeNumberBase128(data) % (descs.Size() + 1);
+        if (pos == 0) break;
+        if (!done[descs.Size() - pos]) {
+            ret |= descs[descs.Size() - pos];
+        }
+    }
+    return ret;
+}
+
 template<typename T>
 class MaxVal
 {
@@ -346,12 +360,14 @@ FUZZ_TARGET(clustermempool_exhaustive_equals_naive)
     // Compute ancestor sets.
     AncestorSets anc(cluster);
     if (!IsAcyclic(anc)) return;
+    DescendantSets desc(anc);
     // Find a topologically (but not necessarily connect) subset to set as "done" already.
     FuzzBitSet done = DecodeDone(buffer, anc);
+    FuzzBitSet after = DecodeAfter(buffer, desc, done);
 
     // Run both algorithms.
-    auto ret_naive = FindBestCandidateSetNaive(cluster, done);
-    auto ret_exhaustive = FindBestCandidateSetExhaustive(cluster, anc, done);
+    auto ret_naive = FindBestCandidateSetNaive(cluster, done, after);
+    auto ret_exhaustive = FindBestCandidateSetExhaustive(cluster, anc, done, after);
 
     // Compute number of candidate sets and best feefrac of found result.
     assert(ret_exhaustive.num_candidate_sets == ret_naive.num_candidate_sets);
@@ -370,13 +386,16 @@ FUZZ_TARGET(clustermempool_efficient_equals_exhaustive)
 
     // Read cluster from fuzzer.
     Cluster<FuzzBitSet> cluster = DeserializeCluster<FuzzBitSet>(buffer);
+    if (cluster.size() >= FuzzBitSet::Size()) return;
     if (!IsMul64Compatible(cluster)) return;
     // Compute ancestor sets.
     AncestorSets anc(cluster);
     if (!IsAcyclic(anc)) return;
     // Find a topological subset to set as "done" already.
-    FuzzBitSet done = DecodeDone<FuzzBitSet>(buffer, anc);
-    if (cluster.size() - done.Count() > 20) return;
+    FuzzBitSet done = DecodeDone(buffer, anc);
+    DescendantSets desc(anc);
+    FuzzBitSet after = DecodeAfter(buffer, desc, done);
+    if (cluster.size() - done.Count() - after.Count() > 20) return;
     // Sort the cluster by individual FeeFrac.
     SortedCluster<FuzzBitSet> cluster_sorted(cluster);
     // Compute ancestor sets.
@@ -385,12 +404,13 @@ FUZZ_TARGET(clustermempool_efficient_equals_exhaustive)
     DescendantSets<FuzzBitSet> desc_sorted(anc_sorted);
     // Convert done to sorted ordering.
     FuzzBitSet done_sorted = cluster_sorted.OriginalToSorted(done);
+    FuzzBitSet after_sorted = cluster_sorted.OriginalToSorted(after);
     // Precompute ancestor set FreeFracs in sorted ordering.
     AncestorSetFeeFracs<FuzzBitSet> anc_sorted_feefrac(cluster_sorted.cluster, anc_sorted, done_sorted);
 
     // Run both algorithms.
-    auto ret_exhaustive = FindBestCandidateSetExhaustive(cluster, anc, done);
-    auto ret_efficient = FindBestCandidateSetEfficient<QueueStyle::DFS>(cluster_sorted.cluster, anc_sorted, desc_sorted, anc_sorted_feefrac, done_sorted, nullptr);
+    auto ret_exhaustive = FindBestCandidateSetExhaustive(cluster, anc, done, after);
+    auto ret_efficient = FindBestCandidateSetEfficient<QueueStyle::DFS>(cluster_sorted.cluster, anc_sorted, desc_sorted, anc_sorted_feefrac, done_sorted, after_sorted, nullptr);
 
     // Compare best found FeeFracs.
     assert(ret_exhaustive.best_candidate_feefrac == ret_efficient.best_candidate_feefrac);
@@ -464,6 +484,7 @@ FUZZ_TARGET(clustermempool_linearize_benchmark)
 FUZZ_TARGET(clustermempool_ancestorset)
 {
     Cluster<FuzzBitSet> cluster = DeserializeCluster<FuzzBitSet>(buffer);
+    if (cluster.size() > FuzzBitSet::Size()) return;
     AncestorSets<FuzzBitSet> anc(cluster);
     // Note: no requirement that cluster is acyclic.
 
@@ -486,6 +507,7 @@ FUZZ_TARGET(clustermempool_ancestorset)
 FUZZ_TARGET(clustermempool_encoding_roundtrip)
 {
     Cluster<FuzzBitSet> cluster = DeserializeCluster<FuzzBitSet>(buffer);
+    if (cluster.size() > FuzzBitSet::Size()) return;
     std::vector<unsigned char> encoded;
     SerializeCluster(cluster, encoded);
     encoded.pop_back();
@@ -497,6 +519,7 @@ FUZZ_TARGET(clustermempool_encoding_roundtrip)
 FUZZ_TARGET(clustermempool_weedcluster)
 {
     Cluster<FuzzBitSet> cluster = DeserializeCluster<FuzzBitSet>(buffer);
+    if (cluster.size() > FuzzBitSet::Size()) return;
     AncestorSets<FuzzBitSet> anc(cluster);
     if (!IsAcyclic(anc)) return;
     WeedCluster(cluster, anc);
@@ -518,26 +541,27 @@ FUZZ_TARGET(clustermempool_trim)
     SortedCluster<FuzzBitSet> sorted(cluster);
     AncestorSets<FuzzBitSet> anc(sorted.cluster);
     if (!IsAcyclic(anc)) return;
+    DescendantSets<FuzzBitSet> desc(anc);
 
     FuzzBitSet done = DecodeDone<FuzzBitSet>(buffer, anc);
+    FuzzBitSet after = DecodeAfter<FuzzBitSet>(buffer, desc, done);
 
-    DescendantSets<FuzzBitSet> desc(anc);
     AncestorSetFeeFracs<FuzzBitSet> anc_feefracs(sorted.cluster, anc, done);
-    auto eff1 = FindBestCandidateSetEfficient<QueueStyle::DFS>(sorted.cluster, anc, desc, anc_feefracs, done, nullptr);
+    auto eff1 = FindBestCandidateSetEfficient<QueueStyle::DFS>(sorted.cluster, anc, desc, anc_feefracs, done, after, nullptr);
     WeedCluster(sorted.cluster, anc);
-    Cluster<FuzzBitSet> trim = TrimCluster(sorted.cluster, done);
+    Cluster<FuzzBitSet> trim = TrimCluster(sorted.cluster, done | after);
     AncestorSets<FuzzBitSet> trim_anc(trim);
     DescendantSets<FuzzBitSet> trim_desc(trim_anc);
     AncestorSetFeeFracs<FuzzBitSet> trim_anc_feefracs(trim, trim_anc, {});
-    auto eff2 = FindBestCandidateSetEfficient<QueueStyle::DFS>(trim, trim_anc, trim_desc, trim_anc_feefracs, {}, nullptr);
+    auto eff2 = FindBestCandidateSetEfficient<QueueStyle::DFS>(trim, trim_anc, trim_desc, trim_anc_feefracs, {}, {}, nullptr);
     assert(eff1.best_candidate_feefrac == eff2.best_candidate_feefrac);
     assert(eff1.max_queue_size == eff2.max_queue_size);
     assert(eff1.iterations == eff2.iterations);
     assert(eff1.comparisons == eff2.comparisons);
 
     if (cluster.size() <= 15) {
-        auto ret1 = FindBestCandidateSetExhaustive(sorted.cluster, anc, done);
-        auto ret2 = FindBestCandidateSetExhaustive(trim, trim_anc, {});
+        auto ret1 = FindBestCandidateSetExhaustive(sorted.cluster, anc, done, after);
+        auto ret2 = FindBestCandidateSetExhaustive(trim, trim_anc, {}, {});
         assert(ret1.num_candidate_sets == ret2.num_candidate_sets);
         assert(ret1.best_candidate_feefrac == ret2.best_candidate_feefrac);
         assert(ret1.best_candidate_feefrac == eff1.best_candidate_feefrac);
@@ -585,7 +609,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
         if (single_viable) {
             ret.best_candidate_set.Set(*single_viable);
         } else {
-            ret = FindBestCandidateSetEfficient<QueueStyle::DFS>(sorted.cluster, anc, desc, anc_feefracs, done, nullptr);
+            ret = FindBestCandidateSetEfficient<QueueStyle::DFS>(sorted.cluster, anc, desc, anc_feefracs, done, {}, nullptr);
             // Sanity checks
             // - connectedness of candidate
             assert(IsConnectedSubset(sorted.cluster, ret.best_candidate_set));
@@ -603,7 +627,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
         // - if small enough, matches exhaustive search FeeFrac
 #if 1
         if (left <= 10 && !single_viable) {
-            auto ret_exhaustive = FindBestCandidateSetExhaustive(sorted.cluster, anc, done);
+            auto ret_exhaustive = FindBestCandidateSetExhaustive(sorted.cluster, anc, done, {});
             assert(ret_exhaustive.best_candidate_feefrac == ret.best_candidate_feefrac);
         }
 #endif
@@ -817,7 +841,7 @@ FUZZ_TARGET(clustermempool_linearize_optimal)
     // Compare chunks with exhaustive optimal.
     FuzzBitSet done;
     for (const auto& [feefrac, chunk] : ChunkLinearization(cluster, lin.linearization)) {
-        auto ret_exhaustive = FindBestCandidateSetExhaustive(cluster, anc, done);
+        auto ret_exhaustive = FindBestCandidateSetExhaustive(cluster, anc, done, {});
         assert(ret_exhaustive.best_candidate_feefrac == feefrac);
         done |= chunk;
     }

@@ -94,6 +94,7 @@ public:
     DescendantSets& operator=(DescendantSets&&) noexcept = default;
 
     const S& operator[](unsigned pos) const noexcept { return m_descendantsets[pos]; }
+    size_t Size() const noexcept { return m_descendantsets.size(); }
 };
 
 /** Output of FindBestCandidateSet* functions. */
@@ -220,13 +221,13 @@ struct SortedCluster
 
 /** Given a cluster and its ancestor sets, find the one with the best FeeFrac. */
 template<typename S, bool OutputIntermediate = false>
-CandidateSetAnalysis<S> FindBestAncestorSet(const Cluster<S>& cluster, const AncestorSets<S>& anc, const AncestorSetFeeFracs<S>& anc_feefracs, const S& done)
+CandidateSetAnalysis<S> FindBestAncestorSet(const Cluster<S>& cluster, const AncestorSets<S>& anc, const AncestorSetFeeFracs<S>& anc_feefracs, const S& done, const S& after)
 {
     CandidateSetAnalysis<S> ret;
     ret.max_queue_size = 1;
 
     for (size_t i = 0; i < cluster.size(); ++i) {
-        if (done[i]) continue;
+        if (done[i] || after[i]) continue;
         ++ret.iterations;
         ++ret.num_candidate_sets;
         const FeeFrac& feefrac = anc_feefracs[i];
@@ -283,7 +284,7 @@ enum class QueueStyle {
  * the same indexing as cluster.
  */
 template<QueueStyle QS, bool Intermediate = false, typename S = void, typename RNG = void>
-CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster, const AncestorSets<S>& anc, const DescendantSets<S>& desc, const AncestorSetFeeFracs<S>& anc_feefracs, const S& done, RNG&& rng)
+CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster, const AncestorSets<S>& anc, const DescendantSets<S>& desc, const AncestorSetFeeFracs<S>& anc_feefracs, const S& done, const S& after, RNG&& rng)
 {
     // Queue of work units. Each consists of:
     // - inc: bitset of transactions definitely included (always includes done)
@@ -298,9 +299,8 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
     CandidateSetAnalysis<S> ret;
 
     // Compute "all" set, with all the cluster's transaction.
-    S all = S::Fill(cluster.size());
-    if (done == all) return ret;
-    assert(all.Count() == cluster.size());
+    auto todo = S::Fill(cluster.size()) / (done | after);
+    if (todo.None()) return ret;
 
     auto queue_cmp_fn = [&](const QueueElem& a, const QueueElem& b) {
         if constexpr (QS == QueueStyle::BEST_ACHIEVED_FEEFRAC) {
@@ -344,23 +344,23 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         } else if constexpr (QS == QueueStyle::LOWEST_GAIN_SIZE) {
             return std::get<3>(a).size + std::get<2>(b).size > std::get<3>(b).size + std::get<2>(a).size;
         } else if constexpr (QS == QueueStyle::MOST_ADVANCED_BEST_POTENTIAL_FEEFRAC) {
-            unsigned adv_a = (all / (std::get<0>(a) | std::get<1>(a))).First();
-            unsigned adv_b = (all / (std::get<0>(b) | std::get<1>(b))).First();
+            unsigned adv_a = (todo / (std::get<0>(a) | std::get<1>(a))).First();
+            unsigned adv_b = (todo / (std::get<0>(b) | std::get<1>(b))).First();
             if (adv_a != adv_b) return adv_a < adv_b;
             return std::get<3>(b) > std::get<3>(a);
         } else if constexpr (QS == QueueStyle::LEAST_ADVANCED_BEST_POTENTIAL_FEEFRAC) {
-            unsigned adv_a = (all / (std::get<0>(a) | std::get<1>(a))).First();
-            unsigned adv_b = (all / (std::get<0>(b) | std::get<1>(b))).First();
+            unsigned adv_a = (todo / (std::get<0>(a) | std::get<1>(a))).First();
+            unsigned adv_b = (todo / (std::get<0>(b) | std::get<1>(b))).First();
             if (adv_a != adv_b) return adv_a > adv_b;
             return std::get<3>(b) > std::get<3>(a);
         } else if constexpr (QS == QueueStyle::MOST_LEFT_BEST_POTENTIAL_FEEFRAC) {
-            unsigned left_a = (all / (std::get<0>(a) | std::get<1>(a))).Count();
-            unsigned left_b = (all / (std::get<0>(b) | std::get<1>(b))).Count();
+            unsigned left_a = (todo / (std::get<0>(a) | std::get<1>(a))).Count();
+            unsigned left_b = (todo / (std::get<0>(b) | std::get<1>(b))).Count();
             if (left_a != left_b) return left_a < left_b;
             return std::get<3>(b) > std::get<3>(a);
         } else if constexpr (QS == QueueStyle::LEAST_LEFT_BEST_POTENTIAL_FEEFRAC) {
-            unsigned left_a = (all / (std::get<0>(a) | std::get<1>(a))).Count();
-            unsigned left_b = (all / (std::get<0>(b) | std::get<1>(b))).Count();
+            unsigned left_a = (todo / (std::get<0>(a) | std::get<1>(a))).Count();
+            unsigned left_b = (todo / (std::get<0>(b) | std::get<1>(b))).Count();
             if (left_a != left_b) return left_a > left_b;
             return std::get<3>(b) > std::get<3>(a);
         } else if constexpr (QS == QueueStyle::MOST_INC_BEST_POTENTIAL_FEEFRAC) {
@@ -379,8 +379,8 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
                 for (unsigned i : s) parents |= cluster[i].second;
                 return (s / parents).Count();
             };
-            unsigned cov_a = cover_fn(std::get<0>(a) / done);
-            unsigned cov_b = cover_fn(std::get<0>(b) / done);
+            unsigned cov_a = cover_fn(std::get<0>(a) / (done | after));
+            unsigned cov_b = cover_fn(std::get<0>(b) / (done | after));
             return cov_a > cov_b;
         } else {
             return false;
@@ -430,7 +430,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
 
         // In a second part we add undecided transaction beyond pot_range as long as they
         // improve pot_feerate.
-        for (unsigned pos : all / (pot | exc)) {
+        for (unsigned pos : todo / (pot | exc)) {
             // Determine if adding transaction pos to pot (ignoring topology) would improve it. If
             // not, we're done updating pot+pot_feefrac (and inc+inc_feefrac), and this becomes
             // our new pot_range.
@@ -497,22 +497,21 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
     // Find connected components of the cluster, and add queue entries for each which exclude all
     // the other components. This prevents the search further down from considering candidates
     // that span multiple components (as those are necessarily suboptimal).
-    auto to_cover = all / done;
-    auto todo = to_cover;
+    auto to_cover = todo;
     while (true) {
         ++ret.iterations;
         // Start with one transaction that hasn't been covered with connected components yet.
         S component;
         component.Set(to_cover.First());
         S added = component;
-        // Compute the transitive closure of "is ancestor or descendant of but not done".
+        // Compute the transitive closure of "is ancestor or descendant of but not done or after".
         while (true) {
             S prev_component = component;
             for (unsigned i : added) {
                 component |= anc[i];
                 component |= desc[i];
             }
-            component /= done;
+            component /= (done | after);
             if (prev_component == component) break;
             added = component / prev_component;
         }
@@ -534,8 +533,8 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         // ancestor feerate transaction. This guarantees that regardless of how many iterations
         // are performed later, the best found is always at least as good as the best ancestor set.
         auto exclude_others = todo / component;
-        add_fn(done, desc[best_ancestor_tx] | exclude_others, {}, false, 0);
-        add_fn(done | anc[best_ancestor_tx], exclude_others, best_ancestor_feefrac, true, 0);
+        add_fn(done, after | desc[best_ancestor_tx] | exclude_others, {}, false, 0);
+        add_fn(done | anc[best_ancestor_tx], after | exclude_others, best_ancestor_feefrac, true, 0);
         // Update the set of transactions to cover, and finish if there are none left.
         to_cover /= component;
         if (to_cover.None()) break;
@@ -568,7 +567,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         // Decide which transaction to split on (highest undecided individual feefrac one left).
         // There must be at least one such transaction, because otherwise explore_further would
         // have been false inside add_fn, and the entry would never have been added to the queue.
-        auto pos = (all / (inc | exc)).First();
+        auto pos = (todo / (inc | exc)).First();
 
         // Consider adding a work item corresponding to that transaction excluded. As nothing is
         // being added to inc, this new entry cannot be a new best. As desc[pos] always overlaps
@@ -663,9 +662,9 @@ LinearizationResult LinearizeCluster(const Cluster<S>& cluster, unsigned optimal
         } else {
             // Otherwise invoke real analysis.
             if (left > optimal_limit) {
-                analysis = FindBestAncestorSet(sorted.cluster, anc, anc_feefracs, done);
+                analysis = FindBestAncestorSet(sorted.cluster, anc, anc_feefracs, done, {});
             } else {
-                analysis = FindBestCandidateSetEfficient<QS>(sorted.cluster, anc, desc, anc_feefracs, done, nullptr);
+                analysis = FindBestCandidateSetEfficient<QS>(sorted.cluster, anc, desc, anc_feefracs, done, {}, nullptr);
             }
 
             // Sanity checks.
@@ -781,15 +780,17 @@ Cluster<S> DeserializeCluster(Span<const unsigned char>& data)
         while (true) {
             unsigned read = DeserializeNumberBase128(data);
             if (read == 0) break;
-            if (read <= ret.size()) {
+            if (read <= ret.size() && ret.size() < S::Size() + read) {
                 parents.Set(ret.size() - read);
             } else {
-                if (read < S::Size()) parents.Set(read);
+                if (read < S::Size()) {
+                    parents.Set(read);
+                }
             }
         }
         ret.emplace_back(FeeFrac{fee, size}, std::move(parents));
     }
-    S all = S::Fill(ret.size());
+    S all = S::Fill(std::min<unsigned>(ret.size(), S::Size()));
     for (unsigned i = 0; i < ret.size(); ++i) {
         ret[i].second &= all;
     }
