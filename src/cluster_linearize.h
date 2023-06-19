@@ -657,14 +657,14 @@ LinearizationResult LinearizeCluster(const Cluster<S>& cluster, unsigned optimal
         CandidateSetAnalysis<S> analysis;
 
         // Check if there is perhaps just one transaction with satisfied dependencies.
-/*        auto single_viable = SingleViableTransaction(cluster, done);
+        auto single_viable = SingleViableTransaction(sorted.cluster, done);
         if (single_viable) {
             analysis.best_candidate_set.Set(*single_viable);
             ret.linearization.emplace_back(*single_viable);
             left -= 1;
             if (left == 0) break;
             done.Set(*single_viable);
-        } else*/ {
+        } else {
             // Otherwise invoke real analysis.
             if (left > optimal_limit) {
                 analysis = FindBestAncestorSet(sorted.cluster, anc, anc_feefracs, done);
