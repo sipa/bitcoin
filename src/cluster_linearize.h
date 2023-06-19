@@ -289,8 +289,10 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
     // - inc: bitset of transactions definitely included (always includes done)
     // - exc: bitset of transactions definitely excluded
     // - inc_feefrac: the FeeFrac of (included / done)
-    // - pot_feefrac: the FeeFrac of (potential / done)
-    using QueueElem = std::tuple<S, S, FeeFrac, FeeFrac>;
+    // - pot_feefrac: the FeeFrac of (potential / done), where potential is the highest-feerate
+    //                subset that includes inc, excluded exc (ignoring topology).
+    // - pot_range: potential is (inc | S::Fill(pot_range)) / exc.
+    using QueueElem = std::tuple<S, S, FeeFrac, FeeFrac, unsigned>;
     std::vector<QueueElem> queue;
 
     CandidateSetAnalysis<S> ret;
@@ -393,10 +395,8 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
     // - exc: new excluded set of transactions
     // - inc_feefrac: feerate of (inc / done)
     // - inc_may_be_best: whether inc_feerate could be better than best_feerate
-    auto add_fn = [&](S inc, S exc, FeeFrac inc_feefrac, bool inc_may_be_best) -> bool {
-        // In the loop below, we do two things simultaneously:
-        // - compute the pot_feefrac for the new queue item.
-        // - perform "jump ahead", which may add additional transactions to inc
+    // - pot_range: lower bound for the new item's pot_range
+    auto add_fn = [&](S inc, const S& exc, FeeFrac inc_feefrac, bool inc_may_be_best, unsigned pot_range) -> bool {
         /** The new potential feefrac. */
         FeeFrac pot_feefrac = inc_feefrac;
         /** The set of transactions corresponding to that potential feefrac. */
@@ -405,14 +405,14 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         S pot_ancestors;
         /** Whether any undecided transactions with higher individual feefrac than inc_feefrac are left. */
         bool explore_further{false};
-        // Loop over all undecided transactions (not yet included or excluded), from good to bad feefrac.
-        for (unsigned pos : all / (inc | exc)) {
-            // Determine if adding transaction pos to pot (ignoring topology) would improve it. If not,
-            // we're done updating pot+pot_feefrac (and inc+inc_feefrac).
-            if (!pot_feefrac.IsEmpty()) {
-                ++ret.comparisons;
-                if (!(cluster[pos].first >> pot_feefrac)) break;
-            }
+
+        // In the loops below, we do two things simultaneously:
+        // - compute the pot_feefrac for the new queue item.
+        // - perform "jump ahead", which may add additional transactions to inc
+
+        // In a first, faster, part, we add all undecided transactions in pot_range (which we know
+        // will all become part of pot).
+        for (unsigned pos : S::Fill(pot_range) / (inc | exc)) {
             // Add the transaction to pot+pot_feefrac.
             pot_feefrac += cluster[pos].first;
             pot.Set(pos);
@@ -429,6 +429,34 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
                 explore_further = true;
             }
         }
+
+        // In a second part we add undecided transaction beyond pot_range as long as they
+        // improve pot_feerate.
+        for (unsigned pos : all / (pot | exc)) {
+            // Determine if adding transaction pos to pot (ignoring topology) would improve it. If
+            // not, we're done updating pot+pot_feefrac (and inc+inc_feefrac), and this becomes
+            // our new pot_range.
+            if (!pot_feefrac.IsEmpty()) {
+                ++ret.comparisons;
+                if (!(cluster[pos].first >> pot_feefrac)) {
+                    pot_range = pos;
+                    break;
+                }
+            }
+            // Repeat the operations from the previous loop.
+            pot_feefrac += cluster[pos].first;
+            pot.Set(pos);
+            pot_ancestors |= anc[pos];
+            if (pot >> pot_ancestors) {
+                inc = pot;
+                inc_feefrac = pot_feefrac;
+                inc_may_be_best = true;
+                explore_further = false;
+            } else {
+                explore_further = true;
+            }
+        }
+
         // If the potential feefrac is nothing, this is certainly uninteresting to work on.
         if (pot_feefrac.IsEmpty()) return false;
 
@@ -462,7 +490,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
             }
         }
 
-        queue.emplace_back(inc, exc, inc_feefrac, pot_feefrac);
+        queue.emplace_back(inc, exc, inc_feefrac, pot_feefrac, pot_range);
         ret.max_queue_size = std::max(ret.max_queue_size, queue.size());
         if constexpr (QS != QueueStyle::RANDOM && QS != QueueStyle::DFS && QS != QueueStyle::DFS_EXC) {
             std::push_heap(queue.begin(), queue.end(), queue_cmp_fn);
@@ -474,7 +502,9 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
     // the other components. This prevents the search further down from considering candidates
     // that span multiple components (as those are necessarily suboptimal).
     auto to_cover = all / done;
+    auto todo = to_cover;
     while (true) {
+        ++ret.iterations;
         // Start with one transaction that hasn't been covered with connected components yet.
         S component;
         component.Set(to_cover.First());
@@ -507,8 +537,9 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         // Add queue entries corresponding to the inclusion and the exclusion of that highest
         // ancestor feerate transaction. This guarantees that regardless of how many iterations
         // are performed later, the best found is always at least as good as the best ancestor set.
-        add_fn(done, desc[best_ancestor_tx] | (all / (done | component)), {}, false);
-        add_fn(done | anc[best_ancestor_tx], all / (done | component), best_ancestor_feefrac, true);
+        auto exclude_others = todo / component;
+        add_fn(done, desc[best_ancestor_tx] | exclude_others, {}, false, 0);
+        add_fn(done | anc[best_ancestor_tx], exclude_others, best_ancestor_feefrac, true, 0);
         // Update the set of transactions to cover, and finish if there are none left.
         to_cover /= component;
         if (to_cover.None()) break;
@@ -528,7 +559,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         }
 
         // Pop the last element of the queue.
-        auto [inc, exc, inc_feefrac, pot_feefrac] = queue.back();
+        auto [inc, exc, inc_feefrac, pot_feefrac, pot_range] = queue.back();
         queue.pop_back();
 
         // If this item's potential feefrac is not better than the best seen so far, drop it.
@@ -547,7 +578,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         // being added to inc, this new entry cannot be a new best. As desc[pos] always overlaps
         // with pot (in pos, at least), the new work item's potential set will definitely be
         // different from the parent.
-        bool added_exc = add_fn(inc, exc | desc[pos], inc_feefrac, false);
+        bool added_exc = add_fn(inc, exc | desc[pos], inc_feefrac, false, pot_range);
 
         // Consider adding a work item corresponding to that transaction included. Since only
         // connected subgraphs can be optimal candidates, if there is no overlap between the
@@ -559,10 +590,10 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         // concern.
         // In case anc[pos] is a subset of pot, the child potential will be identical to that of
         // the parent.
-        auto new_inc = inc | anc[pos];
-        auto new_inc_feefrac = inc_feefrac + ComputeSetFeeFrac(cluster, new_inc / inc);
+        inc_feefrac += ComputeSetFeeFrac(cluster, anc[pos] / inc);
         bool may_be_new_best = !(done >> (inc & anc[pos]));
-        bool added_inc = add_fn(new_inc, exc, new_inc_feefrac, may_be_new_best);
+        inc |= anc[pos];
+        bool added_inc = add_fn(inc, exc, inc_feefrac, may_be_new_best, pot_range);
 
         if constexpr (QS == QueueStyle::DFS_EXC) {
             if (added_inc && added_exc) {
