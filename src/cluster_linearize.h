@@ -402,7 +402,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         /** The set of transactions corresponding to that potential feefrac. */
         S pot = inc;
         /** The set of ancestors of everything in pot, combined. */
-        S pot_ancestors;
+        S pot_ancestors = inc;
         /** Whether any undecided transactions with higher individual feefrac than inc_feefrac are left. */
         bool explore_further{false};
 
@@ -420,13 +420,11 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
             pot_ancestors |= anc[pos];
             // If at this point pot covers all its own ancestors, it means pot is topologically
             // valid. Perform jump ahead (update inc+inc_frac to match pot+pot_feefrac).
-            if (pot >> pot_ancestors) {
+            explore_further = pot != pot_ancestors;
+            if (!explore_further) {
                 inc = pot;
                 inc_feefrac = pot_feefrac;
                 inc_may_be_best = true;
-                explore_further = false;
-            } else {
-                explore_further = true;
             }
         }
 
@@ -447,13 +445,11 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
             pot_feefrac += cluster[pos].first;
             pot.Set(pos);
             pot_ancestors |= anc[pos];
-            if (pot >> pot_ancestors) {
+            explore_further = pot != pot_ancestors;
+            if (!explore_further) {
                 inc = pot;
                 inc_feefrac = pot_feefrac;
                 inc_may_be_best = true;
-                explore_further = false;
-            } else {
-                explore_further = true;
             }
         }
 
