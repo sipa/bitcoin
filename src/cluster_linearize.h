@@ -17,6 +17,7 @@
 
 #include <util/bitset.h>
 #include <util/feefrac.h>
+#include <test/util/xoroshiro128plusplus.h>
 
 #include <assert.h>
 
@@ -258,44 +259,13 @@ CandidateSetAnalysis<S> FindBestAncestorSet(const Cluster<S>& cluster, const Anc
     return ret;
 }
 
-enum class QueueStyle {
-    DFS,
-    DFS_EXC,
-    RANDOM,
-    MOST_ADVANCED_BEST_POTENTIAL_FEEFRAC,
-    LEAST_ADVANCED_BEST_POTENTIAL_FEEFRAC,
-    MOST_LEFT_BEST_POTENTIAL_FEEFRAC,
-    LEAST_LEFT_BEST_POTENTIAL_FEEFRAC,
-    MOST_INC_BEST_POTENTIAL_FEEFRAC,
-    LEAST_INC_BEST_POTENTIAL_FEEFRAC,
-    LEAST_COVER,
-    BEST_ACHIEVED_FEEFRAC,
-    HIGHEST_ACHIEVED_FEE,
-    HIGHEST_ACHIEVED_SIZE,
-    BEST_POTENTIAL_FEEFRAC,
-    HIGHEST_POTENTIAL_FEE,
-    HIGHEST_POTENTIAL_SIZE,
-    BEST_GAIN_FEEFRAC,
-    HIGHEST_GAIN_FEE,
-    HIGHEST_GAIN_SIZE,
-    WORST_ACHIEVED_FEEFRAC,
-    LOWEST_ACHIEVED_FEE,
-    LOWEST_ACHIEVED_SIZE,
-    WORST_POTENTIAL_FEEFRAC,
-    LOWEST_POTENTIAL_FEE,
-    LOWEST_POTENTIAL_SIZE,
-    WORST_GAIN_FEEFRAC,
-    LOWEST_GAIN_FEE,
-    LOWEST_GAIN_SIZE,
-};
-
 /** An efficient algorithm for finding the best candidate set. Believed to be O(~1.6^n).
  *
  * cluster must be sorted (see SortedCluster) by individual feerate, and anc/desc/done must use
  * the same indexing as cluster.
  */
-template<QueueStyle QS, bool Intermediate = false, typename S = void, typename RNG = void>
-CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster, const AncestorSets<S>& anc, const DescendantSets<S>& desc, const AncestorSetFeeFracs<S>& anc_feefracs, const S& done, const S& after, RNG&& rng)
+template<typename S>
+CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster, const AncestorSets<S>& anc, const DescendantSets<S>& desc, const AncestorSetFeeFracs<S>& anc_feefracs, const S& done, const S& after, uint64_t seed)
 {
     // Queue of work units. Each consists of:
     // - inc: bitset of transactions definitely included (always includes done)
@@ -305,98 +275,15 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
     //                subset that includes inc, excluded exc (ignoring topology).
     // - pot: potential
     using QueueElem = std::tuple<S, S, FeeFrac, FeeFrac, S>;
-    std::vector<QueueElem> queue;
+    std::vector<QueueElem> queue[8];
+    unsigned queue_tot{0};
 
+    XoRoShiRo128PlusPlus rng(seed);
     CandidateSetAnalysis<S> ret;
 
     // Compute "all" set, with all the cluster's transaction.
     auto todo = S::Fill(cluster.size()) / (done | after);
     if (todo.None()) return ret;
-
-    auto queue_cmp_fn = [&](const QueueElem& a, const QueueElem& b) {
-        if constexpr (QS == QueueStyle::BEST_ACHIEVED_FEEFRAC) {
-            return std::get<2>(b) > std::get<2>(a);
-        } else if constexpr (QS == QueueStyle::HIGHEST_ACHIEVED_FEE) {
-            return std::get<2>(b).fee > std::get<2>(a).fee;
-        } else if constexpr (QS == QueueStyle::HIGHEST_ACHIEVED_SIZE) {
-            return std::get<2>(b).size > std::get<2>(a).size;
-        } else if constexpr (QS == QueueStyle::BEST_POTENTIAL_FEEFRAC) {
-            return std::get<3>(b) > std::get<3>(a);
-        } else if constexpr (QS == QueueStyle::HIGHEST_POTENTIAL_FEE) {
-            return std::get<3>(b).fee > std::get<3>(a).fee;
-        } else if constexpr (QS == QueueStyle::HIGHEST_POTENTIAL_SIZE) {
-            return std::get<3>(b).size > std::get<3>(a).size;
-        } else if constexpr (QS == QueueStyle::BEST_GAIN_FEEFRAC) {
-            auto gain_a = std::get<3>(a) - std::get<2>(a);
-            auto gain_b = std::get<3>(b) - std::get<2>(b);
-            return gain_b > gain_a;
-        } else if constexpr (QS == QueueStyle::HIGHEST_GAIN_FEE) {
-            return std::get<3>(b).fee + std::get<2>(a).fee > std::get<3>(a).fee + std::get<2>(b).fee;
-        } else if constexpr (QS == QueueStyle::HIGHEST_GAIN_SIZE) {
-            return std::get<3>(b).size + std::get<2>(a).size > std::get<3>(a).size + std::get<2>(b).size;
-        } else if constexpr (QS == QueueStyle::WORST_ACHIEVED_FEEFRAC) {
-            return std::get<2>(a) > std::get<2>(b);
-        } else if constexpr (QS == QueueStyle::LOWEST_ACHIEVED_FEE) {
-            return std::get<2>(a).fee > std::get<2>(b).fee;
-        } else if constexpr (QS == QueueStyle::LOWEST_ACHIEVED_SIZE) {
-            return std::get<2>(a).size > std::get<2>(b).size;
-        } else if constexpr (QS == QueueStyle::WORST_POTENTIAL_FEEFRAC) {
-            return std::get<3>(a) > std::get<3>(b);
-        } else if constexpr (QS == QueueStyle::LOWEST_POTENTIAL_FEE) {
-            return std::get<3>(a).fee > std::get<3>(b).fee;
-        } else if constexpr (QS == QueueStyle::LOWEST_POTENTIAL_SIZE) {
-            return std::get<3>(a).size > std::get<3>(b).size;
-        } else if constexpr (QS == QueueStyle::WORST_GAIN_FEEFRAC) {
-            auto gain_a = std::get<3>(a) - std::get<2>(a);
-            auto gain_b = std::get<3>(b) - std::get<2>(b);
-            return gain_a > gain_b;
-        } else if constexpr (QS == QueueStyle::LOWEST_GAIN_FEE) {
-            return std::get<3>(a).fee + std::get<2>(b).fee > std::get<3>(b).fee + std::get<2>(a).fee;
-        } else if constexpr (QS == QueueStyle::LOWEST_GAIN_SIZE) {
-            return std::get<3>(a).size + std::get<2>(b).size > std::get<3>(b).size + std::get<2>(a).size;
-        } else if constexpr (QS == QueueStyle::MOST_ADVANCED_BEST_POTENTIAL_FEEFRAC) {
-            unsigned adv_a = (todo / (std::get<0>(a) | std::get<1>(a))).First();
-            unsigned adv_b = (todo / (std::get<0>(b) | std::get<1>(b))).First();
-            if (adv_a != adv_b) return adv_a < adv_b;
-            return std::get<3>(b) > std::get<3>(a);
-        } else if constexpr (QS == QueueStyle::LEAST_ADVANCED_BEST_POTENTIAL_FEEFRAC) {
-            unsigned adv_a = (todo / (std::get<0>(a) | std::get<1>(a))).First();
-            unsigned adv_b = (todo / (std::get<0>(b) | std::get<1>(b))).First();
-            if (adv_a != adv_b) return adv_a > adv_b;
-            return std::get<3>(b) > std::get<3>(a);
-        } else if constexpr (QS == QueueStyle::MOST_LEFT_BEST_POTENTIAL_FEEFRAC) {
-            unsigned left_a = (todo / (std::get<0>(a) | std::get<1>(a))).Count();
-            unsigned left_b = (todo / (std::get<0>(b) | std::get<1>(b))).Count();
-            if (left_a != left_b) return left_a < left_b;
-            return std::get<3>(b) > std::get<3>(a);
-        } else if constexpr (QS == QueueStyle::LEAST_LEFT_BEST_POTENTIAL_FEEFRAC) {
-            unsigned left_a = (todo / (std::get<0>(a) | std::get<1>(a))).Count();
-            unsigned left_b = (todo / (std::get<0>(b) | std::get<1>(b))).Count();
-            if (left_a != left_b) return left_a > left_b;
-            return std::get<3>(b) > std::get<3>(a);
-        } else if constexpr (QS == QueueStyle::MOST_INC_BEST_POTENTIAL_FEEFRAC) {
-            unsigned inc_a = std::get<0>(a).Count();
-            unsigned inc_b = std::get<0>(b).Count();
-            if (inc_a != inc_b) return inc_a < inc_b;
-            return std::get<3>(b) > std::get<3>(a);
-        } else if constexpr (QS == QueueStyle::LEAST_INC_BEST_POTENTIAL_FEEFRAC) {
-            unsigned inc_a = std::get<0>(a).Count();
-            unsigned inc_b = std::get<0>(b).Count();
-            if (inc_a != inc_b) return inc_a > inc_b;
-            return std::get<3>(b) > std::get<3>(a);
-        } else if constexpr (QS == QueueStyle::LEAST_COVER) {
-            auto cover_fn = [&](const S& s) -> unsigned {
-                S parents;
-                for (unsigned i : s) parents |= cluster[i].second;
-                return (s / parents).Count();
-            };
-            unsigned cov_a = cover_fn(std::get<0>(a) / (done | after));
-            unsigned cov_b = cover_fn(std::get<0>(b) / (done | after));
-            return cov_a > cov_b;
-        } else {
-            return false;
-        }
-    };
 
     S best_candidate;
     FeeFrac best_feefrac;
@@ -407,7 +294,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
     // - inc_feefrac: feerate of (inc / done)
     // - inc_may_be_best: whether inc_feerate could be better than best_feerate
     // - pot_range: lower bound for the new item's pot_range
-    auto add_fn = [&](const S& init_inc, const S& exc, FeeFrac inc_feefrac, bool inc_may_be_best, S pot, FeeFrac pot_feefrac) -> bool {
+    auto add_fn = [&](const S& init_inc, const S& exc, FeeFrac inc_feefrac, bool inc_may_be_best, S pot, FeeFrac pot_feefrac, unsigned queue_idx) {
         S inc = init_inc;
 
         // Try to extend pot_range.
@@ -450,9 +337,6 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
             if (new_best) {
                 best_feefrac = inc_feefrac;
                 best_candidate = inc;
-                if constexpr (Intermediate) {
-                    ret.intermediate.emplace_back(ret.iterations, ret.comparisons, best_feefrac);
-                }
             }
         }
 
@@ -460,18 +344,9 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         // queue. If not, it's not worth exploring further.
         if (pot_feefrac == inc_feefrac) return false;
 
-        if constexpr (QS != QueueStyle::DFS && QS != QueueStyle::DFS_EXC) {
-            if (!best_feefrac.IsEmpty()) {
-                ++ret.comparisons;
-                if (pot_feefrac <= best_feefrac) return false;
-            }
-        }
-
-        queue.emplace_back(inc, exc, inc_feefrac, pot_feefrac, pot);
-        ret.max_queue_size = std::max(ret.max_queue_size, queue.size());
-        if constexpr (QS != QueueStyle::RANDOM && QS != QueueStyle::DFS && QS != QueueStyle::DFS_EXC) {
-            std::push_heap(queue.begin(), queue.end(), queue_cmp_fn);
-        }
+        queue[queue_idx].emplace_back(inc, exc, inc_feefrac, pot_feefrac, pot);
+        ++queue_tot;
+        ret.max_queue_size = std::max<size_t>(ret.max_queue_size, queue_tot);
         return true;
     };
 
@@ -515,29 +390,31 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         // ancestor feerate transaction. This guarantees that regardless of how many iterations
         // are performed later, the best found is always at least as good as the best ancestor set.
         auto exclude_others = todo / component;
-        add_fn(done, after | desc[best_ancestor_tx] | exclude_others, {}, false, done, {});
-        add_fn(done | anc[best_ancestor_tx], after | exclude_others, best_ancestor_feefrac, true, done | anc[best_ancestor_tx], best_ancestor_feefrac);
+        add_fn(done, after | desc[best_ancestor_tx] | exclude_others, {}, false, done, {}, 0);
+        add_fn(done | anc[best_ancestor_tx], after | exclude_others, best_ancestor_feefrac, true, done | anc[best_ancestor_tx], best_ancestor_feefrac, 1);
         // Update the set of transactions to cover, and finish if there are none left.
         to_cover /= component;
         if (to_cover.None()) break;
     }
 
     // Work processing loop.
-    while (queue.size()) {
+    while (queue_tot) {
         ++ret.iterations;
 
-        if constexpr (QS == QueueStyle::RANDOM) {
-            unsigned pos = ((rng() & 0xffffffff) * queue.size()) >> 32;
-            if (pos + 1 != queue.size()) {
-                std::swap(queue[pos], queue.back());
-            }
-        } else if constexpr (QS != QueueStyle::DFS && QS != QueueStyle::DFS_EXC) {
-            std::pop_heap(queue.begin(), queue.end(), queue_cmp_fn);
+        // Pop the last element of some queue.
+        uint32_t step = (uint64_t(rng() & 0xFFFFFFFF) * queue_tot) >> 32;
+        unsigned queue_idx = 0;
+        while (true) {
+            if (step < queue[queue_idx].size()) break;
+            step -= queue[queue_idx].size();
+            ++queue_idx;
         }
+        assert(queue_idx < 8);
+        assert(!queue[queue_idx].empty());
+        --queue_tot;
 
-        // Pop the last element of the queue.
-        auto [inc, exc, inc_feefrac, pot_feefrac, pot] = queue.back();
-        queue.pop_back();
+        auto [inc, exc, inc_feefrac, pot_feefrac, pot] = queue[queue_idx].back();
+        queue[queue_idx].pop_back();
 
         // If this item's potential feefrac is not better than the best seen so far, drop it.
         assert(pot_feefrac.size > 0);
@@ -571,7 +448,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         // being added to inc, this new entry cannot be a new best. As desc[pos] always overlaps
         // with pot (in pos, at least), the new work item's potential set will definitely be
         // different from the parent.
-        bool added_exc = add_fn(inc, exc | desc[pos], inc_feefrac, false, pot / desc[pos], pot_feefrac - ComputeSetFeeFrac(cluster, pot & desc[pos]));
+        add_fn(inc, exc | desc[pos], inc_feefrac, false, pot / desc[pos], pot_feefrac - ComputeSetFeeFrac(cluster, pot & desc[pos]), (queue_idx & 3) << 1);
 
         // Consider adding a work item corresponding to that transaction included. Since only
         // connected subgraphs can be optimal candidates, if there is no overlap between the
@@ -586,14 +463,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         inc_feefrac += ComputeSetFeeFrac(cluster, anc[pos] / inc);
         bool may_be_new_best = !(done >> (inc & anc[pos]));
         inc |= anc[pos];
-        bool added_inc = add_fn(inc, exc, inc_feefrac, may_be_new_best, pot | anc[pos], pot_feefrac + ComputeSetFeeFrac(cluster, anc[pos] / pot));
-
-        if constexpr (QS == QueueStyle::DFS_EXC) {
-            if (added_inc && added_exc) {
-                assert(queue.size() >= 2);
-                std::swap(queue.back(), *std::next(queue.rbegin()));
-            }
-        }
+        add_fn(inc, exc, inc_feefrac, may_be_new_best, pot | anc[pos], pot_feefrac + ComputeSetFeeFrac(cluster, anc[pos] / pot), ((queue_idx & 3) << 1) | 1);
     }
 
     // Return.
@@ -625,8 +495,8 @@ std::optional<unsigned> SingleViableTransaction(const Cluster<S>& cluster, const
 }
 
 /** Compute a full linearization of a cluster (vector of cluster indices). */
-template<QueueStyle QS, typename S>
-LinearizationResult LinearizeCluster(const Cluster<S>& cluster, unsigned optimal_limit)
+template<typename S>
+LinearizationResult LinearizeCluster(const Cluster<S>& cluster, unsigned optimal_limit, uint64_t seed)
 {
     LinearizationResult ret;
     ret.linearization.reserve(cluster.size());
@@ -697,7 +567,7 @@ LinearizationResult LinearizeCluster(const Cluster<S>& cluster, unsigned optimal
         if (left > optimal_limit) {
             analysis = FindBestAncestorSet(sorted.cluster, anc, anc_feefracs, done, after);
         } else {
-            analysis = FindBestCandidateSetEfficient<QS>(sorted.cluster, anc, desc, anc_feefracs, done, after, nullptr);
+            analysis = FindBestCandidateSetEfficient(sorted.cluster, anc, desc, anc_feefracs, done, after, seed++);
         }
 
         // Sanity checks.

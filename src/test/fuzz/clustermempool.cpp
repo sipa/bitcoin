@@ -410,7 +410,7 @@ FUZZ_TARGET(clustermempool_efficient_equals_exhaustive)
 
     // Run both algorithms.
     auto ret_exhaustive = FindBestCandidateSetExhaustive(cluster, anc, done, after);
-    auto ret_efficient = FindBestCandidateSetEfficient<QueueStyle::DFS>(cluster_sorted.cluster, anc_sorted, desc_sorted, anc_sorted_feefrac, done_sorted, after_sorted, nullptr);
+    auto ret_efficient = FindBestCandidateSetEfficient(cluster_sorted.cluster, anc_sorted, desc_sorted, anc_sorted_feefrac, done_sorted, after_sorted, 0);
 
     // Compare best found FeeFracs.
     assert(ret_exhaustive.best_candidate_feefrac == ret_efficient.best_candidate_feefrac);
@@ -422,26 +422,6 @@ FUZZ_TARGET(clustermempool_efficient_equals_exhaustive)
     assert(feefrac_efficient == ret_exhaustive.best_candidate_feefrac);
 }
 
-template<QueueStyle QS, typename BS>
-void LinearizeBenchmarkQS(const Cluster<BS>& cluster, const std::string& qs_name)
-{
-    std::vector<std::tuple<double, size_t, size_t>> results;
-    results.reserve(11);
-
-    for (unsigned i = 0; i < 11; ++i) {
-        struct timespec measure_start, measure_stop;
-        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &measure_start);
-        auto analysis = LinearizeCluster<QS>(cluster, BS::Size());
-        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &measure_stop);
-        double duration = (double)((int64_t)measure_stop.tv_sec - (int64_t)measure_start.tv_sec) + 0.000000001*(double)((int64_t)measure_stop.tv_nsec - (int64_t)measure_start.tv_nsec);
-        results.emplace_back(duration, analysis.iterations, analysis.comparisons);
-    }
-
-    std::sort(results.begin(), results.end(), [](const auto& a, const auto& b) { return std::get<0>(a) < std::get<0>(b); });
-    const auto [duration, iterations, comparisons] = results[5];
-    std::cerr << "LINEARIZE clustersize " << cluster.size() << ", queue " << qs_name << ", duration " << (duration * 1000.0) << "ms, iterations " << iterations << ", " << (1000000000.0 * duration / iterations) << "ns/iter, comparisons " << comparisons << ", " << (1000000000.0 * duration / comparisons) << "ns/comp" << std::endl;
-}
-
 template<typename BS>
 void LinearizeBenchmark(Span<const unsigned char> buffer)
 {
@@ -451,10 +431,21 @@ void LinearizeBenchmark(Span<const unsigned char> buffer)
     AncestorSets<BS> anc(cluster);
     if (!IsAcyclic(anc)) return;
 
-    LinearizeBenchmarkQS<QueueStyle::DFS>(cluster, "DFS");
-/*    LinearizeBenchmarkQS<QueueStyle::DFS_EXC>(cluster, "DFS_EXC");
-    LinearizeBenchmarkQS<QueueStyle::BEST_POTENTIAL_FEEFRAC>(cluster, "BEST_POTENTIAL_FEEFRAC");
-    LinearizeBenchmarkQS<QueueStyle::LOWEST_POTENTIAL_SIZE>(cluster, "SMALLEST_POTENTIAL_SIZE");*/
+    std::vector<std::tuple<double, size_t, size_t>> results;
+    results.reserve(11);
+
+    for (unsigned i = 0; i < 11; ++i) {
+        struct timespec measure_start, measure_stop;
+        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &measure_start);
+        auto analysis = LinearizeCluster(cluster, BS::Size(), 0);
+        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &measure_stop);
+        double duration = (double)((int64_t)measure_stop.tv_sec - (int64_t)measure_start.tv_sec) + 0.000000001*(double)((int64_t)measure_stop.tv_nsec - (int64_t)measure_start.tv_nsec);
+        results.emplace_back(duration, analysis.iterations, analysis.comparisons);
+    }
+
+    std::sort(results.begin(), results.end(), [](const auto& a, const auto& b) { return std::get<0>(a) < std::get<0>(b); });
+    const auto [duration, iterations, comparisons] = results[5];
+    std::cerr << "LINEARIZE clustersize " << cluster.size() << ", duration " << (duration * 1000.0) << "ms, iterations " << iterations << ", " << (1000000000.0 * duration / iterations) << "ns/iter, comparisons " << comparisons << ", " << (1000000000.0 * duration / comparisons) << "ns/comp" << std::endl;
 }
 
 FUZZ_TARGET(clustermempool_linearize_benchmark)
@@ -554,13 +545,13 @@ FUZZ_TARGET(clustermempool_trim)
     FuzzBitSet after = DecodeAfter<FuzzBitSet>(buffer, desc, done);
 
     AncestorSetFeeFracs<FuzzBitSet> anc_feefracs(sorted.cluster, anc, done);
-    auto eff1 = FindBestCandidateSetEfficient<QueueStyle::DFS>(sorted.cluster, anc, desc, anc_feefracs, done, after, nullptr);
+    auto eff1 = FindBestCandidateSetEfficient(sorted.cluster, anc, desc, anc_feefracs, done, after, 0);
     WeedCluster(sorted.cluster, anc);
     Cluster<FuzzBitSet> trim = TrimCluster(sorted.cluster, done | after);
     AncestorSets<FuzzBitSet> trim_anc(trim);
     DescendantSets<FuzzBitSet> trim_desc(trim_anc);
     AncestorSetFeeFracs<FuzzBitSet> trim_anc_feefracs(trim, trim_anc, {});
-    auto eff2 = FindBestCandidateSetEfficient<QueueStyle::DFS>(trim, trim_anc, trim_desc, trim_anc_feefracs, {}, {}, nullptr);
+    auto eff2 = FindBestCandidateSetEfficient(trim, trim_anc, trim_desc, trim_anc_feefracs, {}, {}, 0);
     assert(eff1.best_candidate_feefrac == eff2.best_candidate_feefrac);
     assert(eff1.max_queue_size == eff2.max_queue_size);
     assert(eff1.iterations == eff2.iterations);
@@ -616,7 +607,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
         if (single_viable) {
             ret.best_candidate_set.Set(*single_viable);
         } else {
-            ret = FindBestCandidateSetEfficient<QueueStyle::DFS>(sorted.cluster, anc, desc, anc_feefracs, done, {}, nullptr);
+            ret = FindBestCandidateSetEfficient(sorted.cluster, anc, desc, anc_feefracs, done, {}, 0);
             // Sanity checks
             // - connectedness of candidate
             assert(IsConnectedSubset(sorted.cluster, ret.best_candidate_set));
@@ -836,7 +827,7 @@ FUZZ_TARGET(clustermempool_linearize_optimal)
     AncestorSets<FuzzBitSet> anc(cluster);
     if (!IsAcyclic(anc)) return;
 
-    auto lin = LinearizeCluster<QueueStyle::DFS>(cluster, FuzzBitSet::Size());
+    auto lin = LinearizeCluster(cluster, FuzzBitSet::Size(), 0);
 
     // Check topology
     FuzzBitSet satisfied;
