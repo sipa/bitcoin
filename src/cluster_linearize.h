@@ -408,36 +408,10 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
     // - inc_may_be_best: whether inc_feerate could be better than best_feerate
     // - pot_range: lower bound for the new item's pot_range
     auto add_fn = [&](S inc, const S& exc, FeeFrac inc_feefrac, bool inc_may_be_best, unsigned pot_range) -> bool {
-        /** The new potential feefrac. */
-        FeeFrac pot_feefrac = inc_feefrac;
         /** The set of transactions corresponding to that potential feefrac. */
-        S pot = inc;
-        /** The set of ancestors of everything in pot, combined. */
-        S pot_ancestors = inc;
-        /** Whether any undecided transactions with higher individual feefrac than inc_feefrac are left. */
-        bool explore_further{false};
-
-        // In the loops below, we do two things simultaneously:
-        // - compute the pot_feefrac for the new queue item.
-        // - perform "jump ahead", which may add additional transactions to inc
-
-        // In a first, faster, part, we add all undecided transactions in pot_range (which we know
-        // will all become part of pot).
-        for (unsigned pos : S::Fill(pot_range) / (inc | exc)) {
-            // Add the transaction to pot+pot_feefrac.
-            pot_feefrac += cluster[pos].first;
-            pot.Set(pos);
-            // Update the combined ancestors of pot.
-            pot_ancestors |= anc[pos];
-            // If at this point pot covers all its own ancestors, it means pot is topologically
-            // valid. Perform jump ahead (update inc+inc_frac to match pot+pot_feefrac).
-            explore_further = pot != pot_ancestors;
-            if (!explore_further) {
-                inc = pot;
-                inc_feefrac = pot_feefrac;
-                inc_may_be_best = true;
-            }
-        }
+        S pot = inc | (S::Fill(pot_range) / exc);
+        /** The new potential feefrac. */
+        FeeFrac pot_feefrac = inc_feefrac + ComputeSetFeeFrac(cluster, pot / inc);
 
         // In a second part we add undecided transaction beyond pot_range as long as they
         // improve pot_feerate.
@@ -455,11 +429,13 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
             // Repeat the operations from the previous loop.
             pot_feefrac += cluster[pos].first;
             pot.Set(pos);
-            pot_ancestors |= anc[pos];
-            explore_further = pot != pot_ancestors;
-            if (!explore_further) {
-                inc = pot;
-                inc_feefrac = pot_feefrac;
+        }
+
+        for (unsigned pos : pot / inc) {
+            if (!inc[pos] && (pot >> anc[pos])) {
+                auto new_inc = inc | anc[pos];
+                inc_feefrac += ComputeSetFeeFrac(cluster, new_inc / inc);
+                inc = new_inc;
                 inc_may_be_best = true;
             }
         }
@@ -488,7 +464,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
 
         // Only if any transactions with feefrac better than inc_feefrac exist add this entry to the
         // queue. If not, it's not worth exploring further.
-        if (!explore_further) return false;
+        if (pot_feefrac == inc_feefrac) return false;
 
         if constexpr (QS != QueueStyle::DFS && QS != QueueStyle::DFS_EXC) {
             if (!best_feefrac.IsEmpty()) {
@@ -517,6 +493,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         S added = component;
         // Compute the transitive closure of "is ancestor or descendant of but not done or after".
         while (true) {
+            ++ret.iterations;
             S prev_component = component;
             for (unsigned i : added) {
                 component |= anc[i];
@@ -687,6 +664,7 @@ LinearizationResult LinearizeCluster(const Cluster<S>& cluster, unsigned optimal
             // Find bottlenecks in the current graph.
             auto bottlenecks = todo;
             for (unsigned i : todo) {
+                ++ret.iterations;
                 bottlenecks &= (anc[i] | desc[i]);
                 if (bottlenecks.None()) break;
             }

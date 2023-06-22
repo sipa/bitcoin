@@ -431,7 +431,7 @@ void LinearizeBenchmarkQS(const Cluster<BS>& cluster, const std::string& qs_name
     for (unsigned i = 0; i < 11; ++i) {
         struct timespec measure_start, measure_stop;
         clock_gettime(CLOCK_THREAD_CPUTIME_ID, &measure_start);
-        auto analysis = LinearizeCluster<QS>(cluster, BS::Size());
+        auto analysis = LinearizeCluster<QS>(cluster, 0);
         clock_gettime(CLOCK_THREAD_CPUTIME_ID, &measure_stop);
         double duration = (double)((int64_t)measure_stop.tv_sec - (int64_t)measure_start.tv_sec) + 0.000000001*(double)((int64_t)measure_stop.tv_nsec - (int64_t)measure_start.tv_nsec);
         results.emplace_back(duration, analysis.iterations, analysis.comparisons);
@@ -446,24 +446,22 @@ template<typename BS>
 void LinearizeBenchmark(Span<const unsigned char> buffer)
 {
     auto cluster = DeserializeCluster<BS>(buffer);
-    if (!IsMul64Compatible(cluster)) {std::cerr << "MUL64B" << std::endl; return;}
+    if (!IsMul64Compatible(cluster)) return;
 
-    auto all = BS::Fill(cluster.size());
-    if (!IsConnectedSubset(cluster, all)) {std::cerr << "DISCONNECTED" << std::endl; return;}
     AncestorSets<BS> anc(cluster);
-    if (!IsAcyclic(anc)) {std::cerr << "CYCLIC" << std::endl; return;}
+    if (!IsAcyclic(anc)) return;
 
     LinearizeBenchmarkQS<QueueStyle::DFS>(cluster, "DFS");
-    LinearizeBenchmarkQS<QueueStyle::DFS_EXC>(cluster, "DFS_EXC");
+/*    LinearizeBenchmarkQS<QueueStyle::DFS_EXC>(cluster, "DFS_EXC");
     LinearizeBenchmarkQS<QueueStyle::BEST_POTENTIAL_FEEFRAC>(cluster, "BEST_POTENTIAL_FEEFRAC");
-    LinearizeBenchmarkQS<QueueStyle::LOWEST_POTENTIAL_SIZE>(cluster, "SMALLEST_POTENTIAL_SIZE");
+    LinearizeBenchmarkQS<QueueStyle::LOWEST_POTENTIAL_SIZE>(cluster, "SMALLEST_POTENTIAL_SIZE");*/
 }
 
 FUZZ_TARGET(clustermempool_linearize_benchmark)
 {
     auto buffer_copy = buffer;
     auto cluster_small = DeserializeCluster<BitSet<64>>(buffer_copy);
-    if (!IsMul64Compatible(cluster_small)) {std::cerr << "MUL64A" << std::endl; return;}
+    if (!IsMul64Compatible(cluster_small)) return;
 
     if (cluster_small.size() <= 32) {
         LinearizeBenchmark<BitSet<32>>(buffer);
@@ -475,8 +473,17 @@ FUZZ_TARGET(clustermempool_linearize_benchmark)
         LinearizeBenchmark<BitSet<192>>(buffer);
     } else if (cluster_small.size() <= 256) {
         LinearizeBenchmark<BitSet<256>>(buffer);
+    } else if (cluster_small.size() <= 512) {
+        LinearizeBenchmark<BitSet<512>>(buffer);
+    } else if (cluster_small.size() <= 1024) {
+        LinearizeBenchmark<BitSet<1024>>(buffer);
+    } else if (cluster_small.size() <= 2048) {
+        LinearizeBenchmark<BitSet<2048>>(buffer);
+    } else if (cluster_small.size() <= 4096) {
+        LinearizeBenchmark<BitSet<4096>>(buffer);
+    } else if (cluster_small.size() <= 8192) {
+        LinearizeBenchmark<BitSet<8192>>(buffer);
     } else {
-        std::cerr << "NO_BITSET" << std::endl;
         return;
     }
 }
