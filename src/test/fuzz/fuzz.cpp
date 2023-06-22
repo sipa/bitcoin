@@ -226,6 +226,7 @@ int main(int argc, char** argv)
         } else {
             g_input_path = input_path;
             Assert(read_file(input_path, buffer));
+            std::cout << "Running " << input_path << std::endl;
             test_one_input(buffer);
             ++tested;
             buffer.clear();

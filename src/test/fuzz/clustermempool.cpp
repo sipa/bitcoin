@@ -431,7 +431,7 @@ void LinearizeBenchmarkQS(const Cluster<BS>& cluster, const std::string& qs_name
     for (unsigned i = 0; i < 11; ++i) {
         struct timespec measure_start, measure_stop;
         clock_gettime(CLOCK_THREAD_CPUTIME_ID, &measure_start);
-        auto analysis = LinearizeCluster<QS>(cluster, 0);
+        auto analysis = LinearizeCluster<QS>(cluster, BS::Size());
         clock_gettime(CLOCK_THREAD_CPUTIME_ID, &measure_stop);
         double duration = (double)((int64_t)measure_stop.tv_sec - (int64_t)measure_start.tv_sec) + 0.000000001*(double)((int64_t)measure_stop.tv_nsec - (int64_t)measure_start.tv_nsec);
         results.emplace_back(duration, analysis.iterations, analysis.comparisons);
