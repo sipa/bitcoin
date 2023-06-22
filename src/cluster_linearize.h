@@ -408,17 +408,18 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
     // - inc_may_be_best: whether inc_feerate could be better than best_feerate
     // - pot_range: lower bound for the new item's pot_range
     auto add_fn = [&](S inc, const S& exc, FeeFrac inc_feefrac, bool inc_may_be_best, unsigned pot_range) -> bool {
+        S init_inc = inc;
         /** The set of transactions corresponding to that potential feefrac. */
         S pot = inc | (S::Fill(pot_range) / exc);
         /** The new potential feefrac. */
         FeeFrac pot_feefrac = inc_feefrac + ComputeSetFeeFrac(cluster, pot / inc);
 
-        // In a second part we add undecided transaction beyond pot_range as long as they
-        // improve pot_feerate.
+        // Try to extend pot_range.
         for (unsigned pos : todo / (pot | exc)) {
             // Determine if adding transaction pos to pot (ignoring topology) would improve it. If
             // not, we're done updating pot+pot_feefrac (and inc+inc_feefrac), and this becomes
             // our new pot_range.
+            ++ret.iterations;
             if (!pot_feefrac.IsEmpty()) {
                 ++ret.comparisons;
                 if (!(cluster[pos].first >> pot_feefrac)) {
@@ -426,16 +427,15 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
                     break;
                 }
             }
-            // Repeat the operations from the previous loop.
             pot_feefrac += cluster[pos].first;
             pot.Set(pos);
         }
 
+        // If any transaction in pot has only missing ancestors in pot, add it to inc.
         for (unsigned pos : pot / inc) {
+            ++ret.iterations;
             if (!inc[pos] && (pot >> anc[pos])) {
-                auto new_inc = inc | anc[pos];
-                inc_feefrac += ComputeSetFeeFrac(cluster, new_inc / inc);
-                inc = new_inc;
+                inc |= anc[pos];
                 inc_may_be_best = true;
             }
         }
@@ -446,6 +446,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         // If inc is different from inc of the parent work item that spawned it, consider whether
         // it's the new best we've seen.
         if (inc_may_be_best) {
+            inc_feefrac += ComputeSetFeeFrac(cluster, inc / init_inc);
             ++ret.num_candidate_sets;
             assert(!inc_feefrac.IsEmpty());
             bool new_best = best_feefrac.IsEmpty();
