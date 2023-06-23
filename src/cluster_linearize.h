@@ -345,7 +345,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         // queue. If not, it's not worth exploring further.
         if (pot_feefrac == inc_feefrac) return false;
 
-        queue[insert_count & 7].emplace_back(inc, exc, inc_feefrac, pot_feefrac, pot);
+        queue[insert_count & 7].emplace_back(std::move(inc), std::move(exc), std::move(inc_feefrac), std::move(pot_feefrac), std::move(pot));
         ++insert_count;
         ++queue_tot;
         ret.max_queue_size = std::max<size_t>(ret.max_queue_size, queue_tot);
