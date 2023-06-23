@@ -287,6 +287,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
 
     S best_candidate;
     FeeFrac best_feefrac;
+    unsigned insert_count{0};
 
     // Internal add function. Arguments:
     // - inc: new included set of transactions
@@ -294,7 +295,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
     // - inc_feefrac: feerate of (inc / done)
     // - inc_may_be_best: whether inc_feerate could be better than best_feerate
     // - pot_range: lower bound for the new item's pot_range
-    auto add_fn = [&](const S& init_inc, const S& exc, FeeFrac inc_feefrac, bool inc_may_be_best, S pot, FeeFrac pot_feefrac, unsigned queue_idx) {
+    auto add_fn = [&](const S& init_inc, const S& exc, FeeFrac&& inc_feefrac, bool inc_may_be_best, S&& pot, FeeFrac&& pot_feefrac) {
         S inc = init_inc;
 
         // Try to extend pot_range.
@@ -344,7 +345,8 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         // queue. If not, it's not worth exploring further.
         if (pot_feefrac == inc_feefrac) return false;
 
-        queue[queue_idx].emplace_back(inc, exc, inc_feefrac, pot_feefrac, pot);
+        queue[insert_count & 7].emplace_back(inc, exc, inc_feefrac, pot_feefrac, pot);
+        ++insert_count;
         ++queue_tot;
         ret.max_queue_size = std::max<size_t>(ret.max_queue_size, queue_tot);
         return true;
@@ -390,8 +392,8 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         // ancestor feerate transaction. This guarantees that regardless of how many iterations
         // are performed later, the best found is always at least as good as the best ancestor set.
         auto exclude_others = todo / component;
-        add_fn(done, after | desc[best_ancestor_tx] | exclude_others, {}, false, done, {}, 0);
-        add_fn(done | anc[best_ancestor_tx], after | exclude_others, best_ancestor_feefrac, true, done | anc[best_ancestor_tx], best_ancestor_feefrac, 1);
+        add_fn(done, after | desc[best_ancestor_tx] | exclude_others, {}, false, S{done}, {});
+        add_fn(done | anc[best_ancestor_tx], after | exclude_others, FeeFrac{best_ancestor_feefrac}, true, done | anc[best_ancestor_tx], std::move(best_ancestor_feefrac));
         // Update the set of transactions to cover, and finish if there are none left.
         to_cover /= component;
         if (to_cover.None()) break;
@@ -411,10 +413,10 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         }
         assert(queue_idx < 8);
         assert(!queue[queue_idx].empty());
-        --queue_tot;
 
         auto [inc, exc, inc_feefrac, pot_feefrac, pot] = queue[queue_idx].back();
         queue[queue_idx].pop_back();
+        --queue_tot;
 
         // If this item's potential feefrac is not better than the best seen so far, drop it.
         assert(pot_feefrac.size > 0);
@@ -448,7 +450,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         // being added to inc, this new entry cannot be a new best. As desc[pos] always overlaps
         // with pot (in pos, at least), the new work item's potential set will definitely be
         // different from the parent.
-        add_fn(inc, exc | desc[pos], inc_feefrac, false, pot / desc[pos], pot_feefrac - ComputeSetFeeFrac(cluster, pot & desc[pos]), (queue_idx & 3) << 1);
+        add_fn(inc, exc | desc[pos], FeeFrac{inc_feefrac}, false, pot / desc[pos], pot_feefrac - ComputeSetFeeFrac(cluster, pot & desc[pos]));
 
         // Consider adding a work item corresponding to that transaction included. Since only
         // connected subgraphs can be optimal candidates, if there is no overlap between the
@@ -460,10 +462,12 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         // concern.
         // In case anc[pos] is a subset of pot, the child potential will be identical to that of
         // the parent.
-        inc_feefrac += ComputeSetFeeFrac(cluster, anc[pos] / inc);
         bool may_be_new_best = !(done >> (inc & anc[pos]));
+        inc_feefrac += ComputeSetFeeFrac(cluster, anc[pos] / inc);
+        pot_feefrac += ComputeSetFeeFrac(cluster, anc[pos] / pot);
         inc |= anc[pos];
-        add_fn(inc, exc, inc_feefrac, may_be_new_best, pot | anc[pos], pot_feefrac + ComputeSetFeeFrac(cluster, anc[pos] / pot), ((queue_idx & 3) << 1) | 1);
+        pot |= anc[pos];
+        add_fn(inc, exc, std::move(inc_feefrac), may_be_new_best, std::move(pot), std::move(pot_feefrac));
     }
 
     // Return.
