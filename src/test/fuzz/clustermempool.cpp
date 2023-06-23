@@ -25,7 +25,7 @@ using namespace cluster_linearize;
 
 namespace {
 
-std::ostream& operator<<(std::ostream& o, const FeeFrac& data)
+[[maybe_unused]] std::ostream& operator<<(std::ostream& o, const FeeFrac& data)
 {
     o << "(" << data.fee << "/" << data.size << "=" << ((double)data.fee / data.size) << ")";
     return o;
@@ -815,8 +815,6 @@ FUZZ_TARGET(clustermempool_efficient_limits)
 
 FUZZ_TARGET(clustermempool_linearize_optimal)
 {
-    auto initial_buffer = buffer;
-
     Cluster<FuzzBitSet> cluster = DeserializeCluster<FuzzBitSet>(buffer);
     if (cluster.size() > 18) return;
     if (!IsMul64Compatible(cluster)) return;

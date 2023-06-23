@@ -280,42 +280,57 @@ CandidateSetAnalysis<S> FindBestAncestorSet(const Cluster<S>& cluster, const Anc
 template<typename S>
 CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster, const AncestorSets<S>& anc, const DescendantSets<S>& desc, const AncestorSetFeeFracs<S>& anc_feefracs, const S& done, const S& after, uint64_t seed)
 {
-    // Queue of work units. Each consists of:
-    // - inc: bitset of transactions definitely included (always includes done)
-    // - exc: bitset of transactions definitely excluded
-    // - inc_feefrac: the FeeFrac of (included / done)
-    // - pot_feefrac: the FeeFrac of (potential / done), where potential is the highest-feerate
-    //                subset that includes inc, excluded exc (ignoring topology).
-    // - pot: potential
-    using QueueElem = std::tuple<S, S, S, FeeFrac, FeeFrac>;
-    std::vector<QueueElem> queue[8];
-    unsigned queue_tot{0};
-
-    XoRoShiRo128PlusPlus rng(seed);
+    /** Data structure with aggregated results. */
     CandidateSetAnalysis<S> ret;
-
-    // Compute "all" set, with all the cluster's transaction.
+    /** The set of all undecided transactions (everything except done or after). */
     auto todo = S::Fill(cluster.size()) / (done | after);
+    // Bail out quickly if we're given a (remaining) cluster that is empty.
     if (todo.None()) return ret;
 
+    /** Type for work queue items.
+     *
+     * Each consists of:
+     * - inc: bitset of transactions definitely included. For every transaction in it, all its
+     *        ancestors are also in it. This always includes done.
+     * - exc: bitset of transactions definitely excluded. For every transaction in it, all its
+     *        descendants are also in it. This always includes after.
+     * - pot: the superset of inc, non-overlapping with exc, with the best possible feefrac. It
+     *        may include transactions whose ancestors are not all included. It is always a strict
+     *        superset of inc (otherwise this work item would be unimprovable, and therefore
+     *        should not be in any queue).
+     * - inc_feefrac: equal to ComputeSetFeeFrac(cluster, inc / done).
+     * - pot_feefrac: equal to ComputeSetFeeFrac(cluster, pot / done). */
+    using QueueElem = std::tuple<S, S, S, FeeFrac, FeeFrac>;
+    /** Queues with work items. */
+    std::vector<QueueElem> queue[8];
+    /** Sum of total number of queue items across all queues. */
+    unsigned queue_tot{0};
+    /** Very fast local random number generator. */
+    XoRoShiRo128PlusPlus rng(seed);
+    /** The best found candidate set so far, including done. */
     S best_candidate;
+    /** Equal to ComputeSetFeeFrac(cluster, best_candidate / done). */
     FeeFrac best_feefrac;
+    /** The number of insertions so far into the queues in total. */
     unsigned insert_count{0};
 
-    // Internal add function. Arguments:
-    // - inc: new included set of transactions
-    // - exc: new excluded set of transactions
-    // - inc_feefrac: feerate of (inc / done)
-    // - inc_may_be_best: whether inc_feerate could be better than best_feerate
-    // - pot_range: lower bound for the new item's pot_range
+    /** Internal add function.
+     *
+     * - inc: included set of transactions for new item; must include done and own ancestors.
+     * - exc: excluded set of transactions for new item; must include after and own descendants.
+     * - pot: superset of inc, non-overlapping with exc, and subset of the new item's pot. The
+     *        function will add missing transactions to pot as needed, so it doesn't need to be
+     *        the actual new item's pot set.
+     * - inc_feefrac: equal to ComputeSetFeeFrac(cluster, inc / done).
+     * - pot_feefrac: equal to ComputeSetFeeFrac(cluster, pot / done).
+     * - inc_may_be_best: whether the possibility exists that inc_feefrac > best_feefrac.
+     */
     auto add_fn = [&](const S& init_inc, const S& exc, S&& pot, FeeFrac&& inc_feefrac, FeeFrac&& pot_feefrac, bool inc_may_be_best) {
-        S inc = init_inc;
-
-        // Try to extend pot_range.
+        // Add missing entries to pot (and pot_feefrac). We iterate over all undecided transactions
+        // excluding pot.
         for (unsigned pos : todo / (pot | exc)) {
             // Determine if adding transaction pos to pot (ignoring topology) would improve it. If
-            // not, we're done updating pot+pot_feefrac (and inc+inc_feefrac), and this becomes
-            // our new pot_range.
+            // not, we're done updating pot.
             ++ret.iterations;
             if (!pot_feefrac.IsEmpty()) {
                 ++ret.comparisons;
@@ -325,25 +340,43 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
             pot.Set(pos);
         }
 
-        // If the potential feefrac is nothing, this is certainly uninteresting to work on.
-        if (pot_feefrac.IsEmpty()) return false;
+        // If (pot / done) is empty, this is certainly uninteresting to work on.
+        if (pot_feefrac.IsEmpty()) return;
 
-        // If any transaction in pot has only missing ancestors in pot, add it to inc.
+        // If any transaction in pot has only missing ancestors in pot, add it (and its ancestors)
+        // to inc. This is legal because any topologically-valid subset of pot must be part of the
+        // best possible candidate reachable from this state. To see this:
+        // - The feefrac of every element of (pot / inc) is higher than that of (pot / done),
+        //   which on its turn is higher than that of (inc / done).
+        // - Thus, the feefrac of any non-empty subset of (pot / inc) is higher than that of the
+        //   set (inc / done) plus any amount of undecided transactions (including ones in pot).
+        // - Let A be a topologically-valid subset of pot, then every transaction in A must be
+        //   part of the best candidate reachable from this state:
+        //   - Assume A is not a subset of C, the best possible candidate set.
+        //   - Then A union C has higher feefrac than C itself.
+        //   - But A union C is also topologically valid, as both A and C are.
+        //   - That is a contradiction, because we assumed C was the best possible.
         bool updated_inc{false};
+        S inc = init_inc;
+        // Iterate over all transactions in pot that are not yet included in inc.
         for (unsigned pos : pot / inc) {
             ++ret.iterations;
+            // If that transaction's ancestors are a subset of pot, and the transaction is
+            // (still) not part of inc, we can merge it together with its ancestors to inc.
             if (!inc[pos] && (pot >> anc[pos])) {
                 inc |= anc[pos];
                 updated_inc = true;
             }
         }
+        // If anything was added to inc this way, recompute inc_feefrac, remembering that
+        // the new inc_feefrac may now be the new best.
         if (updated_inc) {
             inc_feefrac += ComputeSetFeeFrac(cluster, inc / init_inc);
             inc_may_be_best = true;
         }
 
-        // If inc is different from inc of the parent work item that spawned it, consider whether
-        // it's the new best we've seen.
+        // If inc_feefrac may be the new best, check whether it actually is, and if so, update
+        // best_feefrac and the associated best_candidate set.
         if (inc_may_be_best) {
             ++ret.num_candidate_sets;
 #if DEBUG_LINEARIZE
@@ -361,14 +394,15 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         }
 
         // Only if any transactions with feefrac better than inc_feefrac exist add this entry to the
-        // queue. If not, it's not worth exploring further.
-        if (pot_feefrac == inc_feefrac) return false;
+        // queue. If not, it is unimprovable, and it is not worth exploring further.
+        if (pot_feefrac == inc_feefrac) return;
 
+        // Construct a new work item in one of the queues, in a round-robin fashion, and update
+        // statistics.
         queue[insert_count & 7].emplace_back(std::move(inc), std::move(exc), std::move(pot), std::move(inc_feefrac), std::move(pot_feefrac));
         ++insert_count;
         ++queue_tot;
         ret.max_queue_size = std::max<size_t>(ret.max_queue_size, queue_tot);
-        return true;
     };
 
     // Find connected components of the cluster, and add queue entries for each which exclude all
@@ -424,17 +458,10 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         ++ret.iterations;
 
         // Find a queue to pop a work item from.
-        uint32_t step = (uint64_t(rng() & 0xFFFFFFFF) * queue_tot) >> 32;
-        unsigned queue_idx = 0;
-        while (true) {
-            if (step < queue[queue_idx].size()) break;
-            step -= queue[queue_idx].size();
-            ++queue_idx;
-        }
-#if DEBUG_LINEARIZE
-        assert(queue_idx < 8);
-        assert(!queue[queue_idx].empty());
-#endif
+        unsigned queue_idx;
+        do {
+            queue_idx = rng() & 7;
+        } while (queue[queue_idx].empty());
 
         // If this item's potential feefrac is not better than the best seen so far, drop it.
         const auto& pot_feefrac_ref = std::get<4>(queue[queue_idx].back());
@@ -450,33 +477,33 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
             }
         }
 
-        // Move the work item from the queue to local variables.
+        // Move the work item from the queue to local variables, popping it.
         auto [inc, exc, pot, inc_feefrac, pot_feefrac] = std::move(queue[queue_idx].back());
         queue[queue_idx].pop_back();
         --queue_tot;
 
-        // Decide which transaction to split on (highest undecided individual feefrac one left).
-        // There must be at least one such transaction, because otherwise explore_further would
-        // have been false inside add_fn, and the entry would never have been added to the queue.
-        bool have_pos{false};
-        std::pair<unsigned, unsigned> quality{0, 0};
+        // Decide which transaction to split on: pick the one that:
+        // - Minimizes the size of the largest of the undecided sets after including or excluding.
+        // - If the above is equal, the one that minimizes the other branch's undecided set.
+        // - If the above are equal, the one with the best individual feefrac.
+        // To avoid needing to inspect a large number of transactions to decide this, limit the
+        // search to just those in (pot / inc), a necessarily non-empty set that contains only
+        // transactions that would individually improve the inc_feefrac.
         unsigned pos = 0;
+        std::optional<std::pair<unsigned, unsigned>> pos_counts;
+        auto remain = todo / (inc | exc);
         for (unsigned i : pot / inc) {
             ++ret.iterations;
-            unsigned inc_count = (todo / (inc | exc | anc[i])).Count();
-            unsigned exc_count = (todo / (inc | exc | desc[i])).Count();
-            std::pair<unsigned, unsigned> qual{std::max(inc_count, exc_count), std::min(inc_count, exc_count)};
-            if (!have_pos || qual < quality) {
-                have_pos = true;
+            std::pair<unsigned, unsigned> counts{(remain / anc[i]).Count(), (remain / desc[i]).Count()};
+            if (counts.first < counts.second) std::swap(counts.first, counts.second);
+            if (!pos_counts.has_value() || counts < *pos_counts) {
                 pos = i;
-                quality = qual;
+                pos_counts = counts;
             }
         }
 
         // Consider adding a work item corresponding to that transaction excluded. As nothing is
-        // being added to inc, this new entry cannot be a new best. As desc[pos] always overlaps
-        // with pot (in pos, at least), the new work item's potential set will definitely be
-        // different from the parent.
+        // being added to inc, this new entry cannot be a new best.
         add_fn(inc, exc | desc[pos], pot / desc[pos], FeeFrac{inc_feefrac}, pot_feefrac - ComputeSetFeeFrac(cluster, pot & desc[pos]), false);
 
         // Consider adding a work item corresponding to that transaction included. Since only
@@ -487,8 +514,6 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         // due to the preseeding with the best ancestor set, we know that anything better must
         // necessarily consist of the union of at least two ancestor sets, and this is not a
         // concern.
-        // In case anc[pos] is a subset of pot, the child potential will be identical to that of
-        // the parent.
         bool may_be_new_best = !(done >> (inc & anc[pos]));
         inc_feefrac += ComputeSetFeeFrac(cluster, anc[pos] / inc);
         pot_feefrac += ComputeSetFeeFrac(cluster, anc[pos] / pot);
@@ -497,7 +522,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         add_fn(inc, exc, std::move(pot), std::move(inc_feefrac), std::move(pot_feefrac), may_be_new_best);
     }
 
-    // Return.
+    // Return the best seen candidate set.
     ret.best_candidate_set = best_candidate / done;
     ret.best_candidate_feefrac = best_feefrac;
     return ret;
