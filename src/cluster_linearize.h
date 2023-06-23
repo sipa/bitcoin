@@ -21,6 +21,14 @@
 
 #include <assert.h>
 
+#if !defined(DEBUG_LINEARIZE)
+#  if defined(PROVIDE_FUZZ_MAIN_FUNCTION)
+#    define DEBUG_LINEARIZE 0
+#  else
+#    define DEBUG_LINEARIZE 1
+#  endif
+#endif
+
 namespace cluster_linearize {
 
 namespace {
@@ -52,7 +60,7 @@ public:
         // Propagate
         for (unsigned i = 0; i < cluster.size(); ++i) {
             // At this point, m_ancestorsets[a][b] is true iff b is an ancestor of a and there is
-            // a path from a to b through the subgraph consisting of {a, b} union {0..(i-1)}.
+            // a path from a to b through the subgraph consisting of {a, b, 0, 1, ..(i-1)}.
             S to_merge = m_ancestorsets[i];
             for (unsigned j = 0; j < cluster.size(); ++j) {
                 if (m_ancestorsets[j][i]) {
@@ -71,6 +79,7 @@ public:
     const S& operator[](unsigned pos) const noexcept { return m_ancestorsets[pos]; }
     size_t Size() const noexcept { return m_ancestorsets.size(); }
 };
+
 /** Precomputation data structure with all descendant sets of a cluster. */
 template<typename S>
 class DescendantSets
@@ -117,8 +126,6 @@ struct CandidateSetAnalysis
     size_t iterations{0};
     /** Number of feefrac comparisons performed. */
     size_t comparisons{0};
-
-    std::vector<std::tuple<size_t, size_t, FeeFrac>> intermediate;
 };
 
 /** Compute the combined fee and size of a subset of a cluster. */
@@ -153,7 +160,9 @@ public:
     /** Update the precomputed data structure to reflect that set new_done was added to done. */
     void Done(const Cluster<S>& cluster, const DescendantSets<S>& desc, const S& new_done) noexcept
     {
+#if DEBUG_LINEARIZE
         assert((m_done & new_done).None());
+#endif
         m_done |= new_done;
         for (unsigned pos : new_done) {
             FeeFrac feefrac = cluster[pos].first;
@@ -166,7 +175,9 @@ public:
     /** Update the precomputed data structure to reflect that transaction new_done was added to done. */
     void Done(const Cluster<S>& cluster, const DescendantSets<S>& desc, unsigned new_done) noexcept
     {
+#if DEBUG_LINEARIZE
         assert(!m_done[new_done]);
+#endif
         m_done.Set(new_done);
         FeeFrac feefrac = cluster[new_done].first;
         for (unsigned i : desc[new_done] / m_done) {
@@ -243,7 +254,9 @@ CandidateSetAnalysis<S> FindBestAncestorSet(const Cluster<S>& cluster, const Anc
         ++ret.iterations;
         ++ret.num_candidate_sets;
         const FeeFrac& feefrac = anc_feefracs[i];
+#if DEBUG_LINEARIZE
         assert(!feefrac.IsEmpty());
+#endif
         bool new_best = ret.best_candidate_feefrac.IsEmpty();
         if (!new_best) {
             ++ret.comparisons;
@@ -274,7 +287,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
     // - pot_feefrac: the FeeFrac of (potential / done), where potential is the highest-feerate
     //                subset that includes inc, excluded exc (ignoring topology).
     // - pot: potential
-    using QueueElem = std::tuple<S, S, FeeFrac, FeeFrac, S>;
+    using QueueElem = std::tuple<S, S, S, FeeFrac, FeeFrac>;
     std::vector<QueueElem> queue[8];
     unsigned queue_tot{0};
 
@@ -295,7 +308,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
     // - inc_feefrac: feerate of (inc / done)
     // - inc_may_be_best: whether inc_feerate could be better than best_feerate
     // - pot_range: lower bound for the new item's pot_range
-    auto add_fn = [&](const S& init_inc, const S& exc, FeeFrac&& inc_feefrac, bool inc_may_be_best, S&& pot, FeeFrac&& pot_feefrac) {
+    auto add_fn = [&](const S& init_inc, const S& exc, S&& pot, FeeFrac&& inc_feefrac, FeeFrac&& pot_feefrac, bool inc_may_be_best) {
         S inc = init_inc;
 
         // Try to extend pot_range.
@@ -312,24 +325,30 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
             pot.Set(pos);
         }
 
+        // If the potential feefrac is nothing, this is certainly uninteresting to work on.
+        if (pot_feefrac.IsEmpty()) return false;
+
         // If any transaction in pot has only missing ancestors in pot, add it to inc.
+        bool updated_inc{false};
         for (unsigned pos : pot / inc) {
             ++ret.iterations;
             if (!inc[pos] && (pot >> anc[pos])) {
                 inc |= anc[pos];
-                inc_may_be_best = true;
+                updated_inc = true;
             }
         }
-
-        // If the potential feefrac is nothing, this is certainly uninteresting to work on.
-        if (pot_feefrac.IsEmpty()) return false;
+        if (updated_inc) {
+            inc_feefrac += ComputeSetFeeFrac(cluster, inc / init_inc);
+            inc_may_be_best = true;
+        }
 
         // If inc is different from inc of the parent work item that spawned it, consider whether
         // it's the new best we've seen.
         if (inc_may_be_best) {
-            inc_feefrac += ComputeSetFeeFrac(cluster, inc / init_inc);
             ++ret.num_candidate_sets;
+#if DEBUG_LINEARIZE
             assert(!inc_feefrac.IsEmpty());
+#endif
             bool new_best = best_feefrac.IsEmpty();
             if (!new_best) {
                 ++ret.comparisons;
@@ -345,7 +364,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         // queue. If not, it's not worth exploring further.
         if (pot_feefrac == inc_feefrac) return false;
 
-        queue[insert_count & 7].emplace_back(std::move(inc), std::move(exc), std::move(inc_feefrac), std::move(pot_feefrac), std::move(pot));
+        queue[insert_count & 7].emplace_back(std::move(inc), std::move(exc), std::move(pot), std::move(inc_feefrac), std::move(pot_feefrac));
         ++insert_count;
         ++queue_tot;
         ret.max_queue_size = std::max<size_t>(ret.max_queue_size, queue_tot);
@@ -392,8 +411,9 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         // ancestor feerate transaction. This guarantees that regardless of how many iterations
         // are performed later, the best found is always at least as good as the best ancestor set.
         auto exclude_others = todo / component;
-        add_fn(done, after | desc[best_ancestor_tx] | exclude_others, {}, false, S{done}, {});
-        add_fn(done | anc[best_ancestor_tx], after | exclude_others, FeeFrac{best_ancestor_feefrac}, true, done | anc[best_ancestor_tx], std::move(best_ancestor_feefrac));
+        add_fn(done, after | desc[best_ancestor_tx] | exclude_others, S{done}, {}, {}, false);
+        auto inc{done | anc[best_ancestor_tx]};
+        add_fn(inc, after | exclude_others, S{inc}, FeeFrac{best_ancestor_feefrac}, std::move(best_ancestor_feefrac), true);
         // Update the set of transactions to cover, and finish if there are none left.
         to_cover /= component;
         if (to_cover.None()) break;
@@ -403,7 +423,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
     while (queue_tot) {
         ++ret.iterations;
 
-        // Pop the last element of some queue.
+        // Find a queue to pop a work item from.
         uint32_t step = (uint64_t(rng() & 0xFFFFFFFF) * queue_tot) >> 32;
         unsigned queue_idx = 0;
         while (true) {
@@ -411,28 +431,36 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
             step -= queue[queue_idx].size();
             ++queue_idx;
         }
+#if DEBUG_LINEARIZE
         assert(queue_idx < 8);
         assert(!queue[queue_idx].empty());
-
-        auto [inc, exc, inc_feefrac, pot_feefrac, pot] = queue[queue_idx].back();
-        queue[queue_idx].pop_back();
-        --queue_tot;
+#endif
 
         // If this item's potential feefrac is not better than the best seen so far, drop it.
-        assert(pot_feefrac.size > 0);
+        const auto& pot_feefrac_ref = std::get<4>(queue[queue_idx].back());
+#if DEBUG_LINEARIZE
+        assert(pot_feefrac_ref.size > 0);
+#endif
         if (!best_feefrac.IsEmpty()) {
             ++ret.comparisons;
-            if (pot_feefrac <= best_feefrac) continue;
+            if (pot_feefrac_ref <= best_feefrac) {
+                queue[queue_idx].pop_back();
+                --queue_tot;
+                continue;
+            }
         }
+
+        // Move the work item from the queue to local variables.
+        auto [inc, exc, pot, inc_feefrac, pot_feefrac] = std::move(queue[queue_idx].back());
+        queue[queue_idx].pop_back();
+        --queue_tot;
 
         // Decide which transaction to split on (highest undecided individual feefrac one left).
         // There must be at least one such transaction, because otherwise explore_further would
         // have been false inside add_fn, and the entry would never have been added to the queue.
-
         bool have_pos{false};
         std::pair<unsigned, unsigned> quality{0, 0};
         unsigned pos = 0;
-//        for (unsigned i : todo / (inc | exc)) {
         for (unsigned i : pot / inc) {
             ++ret.iterations;
             unsigned inc_count = (todo / (inc | exc | anc[i])).Count();
@@ -444,13 +472,12 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
                 quality = qual;
             }
         }
-//        unsigned pos = (pot / inc).First();
 
         // Consider adding a work item corresponding to that transaction excluded. As nothing is
         // being added to inc, this new entry cannot be a new best. As desc[pos] always overlaps
         // with pot (in pos, at least), the new work item's potential set will definitely be
         // different from the parent.
-        add_fn(inc, exc | desc[pos], FeeFrac{inc_feefrac}, false, pot / desc[pos], pot_feefrac - ComputeSetFeeFrac(cluster, pot & desc[pos]));
+        add_fn(inc, exc | desc[pos], pot / desc[pos], FeeFrac{inc_feefrac}, pot_feefrac - ComputeSetFeeFrac(cluster, pot & desc[pos]), false);
 
         // Consider adding a work item corresponding to that transaction included. Since only
         // connected subgraphs can be optimal candidates, if there is no overlap between the
@@ -467,7 +494,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         pot_feefrac += ComputeSetFeeFrac(cluster, anc[pos] / pot);
         inc |= anc[pos];
         pot |= anc[pos];
-        add_fn(inc, exc, std::move(inc_feefrac), may_be_new_best, std::move(pot), std::move(pot_feefrac));
+        add_fn(inc, exc, std::move(pot), std::move(inc_feefrac), std::move(pot_feefrac), may_be_new_best);
     }
 
     // Return.
@@ -494,7 +521,9 @@ std::optional<unsigned> SingleViableTransaction(const Cluster<S>& cluster, const
             first_viable = i;
         }
     }
+#if DEBUG_LINEARIZE
     assert(num_viable == 1);
+#endif
     return {first_viable};
 }
 
@@ -575,8 +604,10 @@ LinearizationResult LinearizeCluster(const Cluster<S>& cluster, unsigned optimal
         }
 
         // Sanity checks.
+#if DEBUG_LINEARIZE
         assert(analysis.best_candidate_set.Any()); // Must be at least one transaction
         assert((analysis.best_candidate_set & (done | after)).None()); // Cannot overlap with processed ones.
+#endif
 
         // Update statistics.
         ret.iterations += analysis.iterations;
@@ -722,7 +753,9 @@ void WeedCluster(Cluster<S>& cluster, const AncestorSets<S>& ancs)
                 cover |= ancs[idx_j];
             }
         }
+#if DEBUG_LINEARIZE
         assert(cover == ancs[idx]);
+#endif
         cluster[idx].second = std::move(parents);
     }
 }
