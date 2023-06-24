@@ -568,9 +568,8 @@ FUZZ_TARGET(clustermempool_trim)
 
 FUZZ_TARGET(clustermempool_efficient_limits)
 {
-    auto initial_buffer = buffer;
-
-    Cluster<FuzzBitSet> cluster = DeserializeCluster<FuzzBitSet>(buffer);
+    auto buffer_tmp = buffer;
+    Cluster<FuzzBitSet> cluster = DeserializeCluster<FuzzBitSet>(buffer_tmp);
     if (cluster.size() > 18) return;
     if (!IsMul64Compatible(cluster)) return;
 
@@ -668,17 +667,17 @@ FUZZ_TARGET(clustermempool_efficient_limits)
 
     for (const auto& entry : stats) {
         bool do_save = false;
-        if (DIS_COMPS[entry.cluster_left].Set({entry.comparisons, cluster.size(), initial_buffer.size()})) do_save = dis_comps_updated = true;
-        if (DIS_ITERS[entry.cluster_left].Set({entry.iterations, cluster.size(), initial_buffer.size()})) do_save = dis_iters_updated = true;
-        if (DIS_QUEUE[entry.cluster_left].Set({entry.max_queue_size, cluster.size(), initial_buffer.size()})) do_save = dis_queue_updated = true;
-        if (DIS_TOT_COMPS[entry.cluster_left].Set({entry.tot_comparisons, cluster.size(), initial_buffer.size()})) do_save = dis_tot_comps_updated = true;
-        if (DIS_TOT_ITERS[entry.cluster_left].Set({entry.tot_iterations, cluster.size(), initial_buffer.size()})) do_save = dis_tot_iters_updated = true;
+        if (DIS_COMPS[entry.cluster_left].Set({entry.comparisons, cluster.size(), buffer.size()})) do_save = dis_comps_updated = true;
+        if (DIS_ITERS[entry.cluster_left].Set({entry.iterations, cluster.size(), buffer.size()})) do_save = dis_iters_updated = true;
+        if (DIS_QUEUE[entry.cluster_left].Set({entry.max_queue_size, cluster.size(), buffer.size()})) do_save = dis_queue_updated = true;
+        if (DIS_TOT_COMPS[entry.cluster_left].Set({entry.tot_comparisons, cluster.size(), buffer.size()})) do_save = dis_tot_comps_updated = true;
+        if (DIS_TOT_ITERS[entry.cluster_left].Set({entry.tot_iterations, cluster.size(), buffer.size()})) do_save = dis_tot_iters_updated = true;
         if (entry.left_connected) {
-            if (COMPS[entry.cluster_left].Set({entry.comparisons, cluster.size(), initial_buffer.size()})) do_save = comps_updated = true;
-            if (ITERS[entry.cluster_left].Set({entry.iterations, cluster.size(), initial_buffer.size()})) do_save = iters_updated = true;
-            if (QUEUE[entry.cluster_left].Set({entry.max_queue_size, cluster.size(), initial_buffer.size()})) do_save = queue_updated = true;
-            if (TOT_COMPS[entry.cluster_left].Set({entry.tot_comparisons, cluster.size(), initial_buffer.size()})) do_save = tot_comps_updated = true;
-            if (TOT_ITERS[entry.cluster_left].Set({entry.tot_iterations, cluster.size(), initial_buffer.size()})) do_save = tot_iters_updated = true;
+            if (COMPS[entry.cluster_left].Set({entry.comparisons, cluster.size(), buffer.size()})) do_save = comps_updated = true;
+            if (ITERS[entry.cluster_left].Set({entry.iterations, cluster.size(), buffer.size()})) do_save = iters_updated = true;
+            if (QUEUE[entry.cluster_left].Set({entry.max_queue_size, cluster.size(), buffer.size()})) do_save = queue_updated = true;
+            if (TOT_COMPS[entry.cluster_left].Set({entry.tot_comparisons, cluster.size(), buffer.size()})) do_save = tot_comps_updated = true;
+            if (TOT_ITERS[entry.cluster_left].Set({entry.tot_iterations, cluster.size(), buffer.size()})) do_save = tot_iters_updated = true;
         }
         if (do_save) {
             auto trim = TrimCluster(sorted.cluster, entry.done);
@@ -809,7 +808,7 @@ FUZZ_TARGET(clustermempool_efficient_limits)
     }
 
     if (global_do_save) {
-        FuzzSave(initial_buffer);
+        FuzzSave(buffer);
     }
 }
 
@@ -840,5 +839,80 @@ FUZZ_TARGET(clustermempool_linearize_optimal)
         auto ret_exhaustive = FindBestCandidateSetExhaustive(cluster, anc, done, {});
         assert(ret_exhaustive.best_candidate_feefrac == feefrac);
         done |= chunk;
+    }
+}
+
+template<typename BS>
+LinearizationResult LinearizeAncLimit(Span<const unsigned char> buffer)
+{
+    auto cluster = DeserializeCluster<BS>(buffer);
+    if (!IsMul64Compatible(cluster)) return {};
+
+    AncestorSets<BS> anc(cluster);
+    if (!IsAcyclic(anc)) return {};
+
+    return LinearizeCluster(cluster, 0, 0);
+}
+
+template<typename BS>
+std::vector<unsigned char> ReserializeCluster(Span<const unsigned char> buffer)
+{
+    auto cluster = DeserializeCluster<BS>(buffer);
+    return DumpCluster(cluster);
+}
+
+FUZZ_TARGET(clustermempool_linearize_anclimit)
+{
+    auto buffer_tmp = buffer;
+    auto cluster_small = DeserializeCluster<BitSet<64>>(buffer_tmp);
+    if (!IsMul64Compatible(cluster_small)) return;
+
+    LinearizationResult lin;
+    if (cluster_small.size() <= 32) {
+        lin = LinearizeAncLimit<BitSet<32>>(buffer);
+    } else if (cluster_small.size() <= 64) {
+        lin = LinearizeAncLimit<BitSet<64>>(buffer);
+    } else if (cluster_small.size() <= 128) {
+        lin = LinearizeAncLimit<BitSet<128>>(buffer);
+    } else if (cluster_small.size() <= 192) {
+        lin = LinearizeAncLimit<BitSet<192>>(buffer);
+    } else if (cluster_small.size() <= 256) {
+        lin = LinearizeAncLimit<BitSet<256>>(buffer);
+    } else {
+        return;
+    }
+
+    if (lin.iterations == 0 || lin.comparisons == 0) return;
+
+    static std::array<MaxVal<ClusterStat>, 257> COMPS{};
+    static std::array<MaxVal<ClusterStat>, 257> ITERS{};
+
+    bool comps_updated = COMPS[cluster_small.size()].Set({lin.comparisons, 0, buffer.size()});
+    bool iters_updated = ITERS[cluster_small.size()].Set({lin.iterations, 0, buffer.size()});
+
+    if (comps_updated) {
+        std::cerr << "COMPS:";
+        for (size_t i = 0; i <= 256; ++i) {
+            if (COMPS[i]) {
+                std::cerr << " " << i << ":" << COMPS[i]->stat;
+            }
+        }
+        std::cerr << std::endl;
+    }
+
+    if (iters_updated) {
+        std::cerr << "ITERS:";
+        for (size_t i = 0; i <= 256; ++i) {
+            if (ITERS[i]) {
+                std::cerr << " " << i << ":" << ITERS[i]->stat;
+            }
+        }
+        std::cerr << std::endl;
+    }
+
+    if (comps_updated || iters_updated) {
+        FuzzSave(buffer);
+        auto reser = ReserializeCluster<BitSet<256>>(buffer);
+        FuzzSave(reser);
     }
 }
