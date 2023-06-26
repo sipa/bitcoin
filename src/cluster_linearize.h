@@ -302,7 +302,8 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
      * - pot_feefrac: equal to ComputeSetFeeFrac(cluster, pot / done). */
     using QueueElem = std::tuple<S, S, S, FeeFrac, FeeFrac>;
     /** Queues with work items. */
-    std::vector<QueueElem> queue[8];
+    static constexpr unsigned NUM_QUEUES = 4;
+    std::vector<QueueElem> queue[NUM_QUEUES];
     /** Sum of total number of queue items across all queues. */
     unsigned queue_tot{0};
     /** Very fast local random number generator. */
@@ -399,7 +400,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
 
         // Construct a new work item in one of the queues, in a round-robin fashion, and update
         // statistics.
-        queue[insert_count & 7].emplace_back(std::move(inc), std::move(exc), std::move(pot), std::move(inc_feefrac), std::move(pot_feefrac));
+        queue[insert_count % NUM_QUEUES].emplace_back(std::move(inc), std::move(exc), std::move(pot), std::move(inc_feefrac), std::move(pot_feefrac));
         ++insert_count;
         ++queue_tot;
         ret.max_queue_size = std::max<size_t>(ret.max_queue_size, queue_tot);
@@ -460,7 +461,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         // Find a queue to pop a work item from.
         unsigned queue_idx;
         do {
-            queue_idx = rng() & 7;
+            queue_idx = rng() % NUM_QUEUES;
         } while (queue[queue_idx].empty());
 
         // If this item's potential feefrac is not better than the best seen so far, drop it.
@@ -482,17 +483,19 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         queue[queue_idx].pop_back();
         --queue_tot;
 
-        // Decide which transaction to split on: pick the one that:
+        // Decide which transaction to split on (create new work items; one with it included, one
+        // with it excluded).
+        //
+        // Among the (undecided) ancestors and descendants of the best individual feefrac undecided
+        // transaction, pick the one which:
         // - Minimizes the size of the largest of the undecided sets after including or excluding.
-        // - If the above is equal, the one that minimizes the other branch's undecided set.
+        // - If the above is equal, the one that minimizes the other branch's undecided set size.
         // - If the above are equal, the one with the best individual feefrac.
-        // To avoid needing to inspect a large number of transactions to decide this, limit the
-        // search to just those in (pot / inc), a necessarily non-empty set that contains only
-        // transactions that would individually improve the inc_feefrac.
         unsigned pos = 0;
         std::optional<std::pair<unsigned, unsigned>> pos_counts;
         auto remain = todo / (inc | exc);
-        for (unsigned i : pot / inc) {
+        unsigned first = remain.First();
+        for (unsigned i : (anc[first] | desc[first]) / (inc | exc)) {
             ++ret.iterations;
             std::pair<unsigned, unsigned> counts{(remain / anc[i]).Count(), (remain / desc[i]).Count()};
             if (counts.first < counts.second) std::swap(counts.first, counts.second);
@@ -560,6 +563,9 @@ LinearizationResult LinearizeCluster(const Cluster<S>& cluster, unsigned optimal
     ret.linearization.reserve(cluster.size());
     auto all = S::Fill(cluster.size());
 
+    /** Very fast local random number generator. */
+    XoRoShiRo128PlusPlus rng(seed);
+
     std::vector<std::tuple<S, S, bool, std::optional<unsigned>>> queue;
     queue.reserve(cluster.size() * 2);
     queue.emplace_back(S{}, S{}, true, std::nullopt);
@@ -625,7 +631,7 @@ LinearizationResult LinearizeCluster(const Cluster<S>& cluster, unsigned optimal
         if (left > optimal_limit) {
             analysis = FindBestAncestorSet(sorted.cluster, anc, anc_feefracs, done, after);
         } else {
-            analysis = FindBestCandidateSetEfficient(sorted.cluster, anc, desc, anc_feefracs, done, after, seed++);
+            analysis = FindBestCandidateSetEfficient(sorted.cluster, anc, desc, anc_feefracs, done, after, rng() ^ ret.iterations);
         }
 
         // Sanity checks.
