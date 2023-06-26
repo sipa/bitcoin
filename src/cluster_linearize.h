@@ -493,9 +493,10 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         // - If the above are equal, the one with the best individual feefrac.
         unsigned pos = 0;
         std::optional<std::pair<unsigned, unsigned>> pos_counts;
-        auto remain = todo / (inc | exc);
+        auto remain = todo / inc;
+        remain /= exc;
         unsigned first = remain.First();
-        for (unsigned i : (anc[first] | desc[first]) / (inc | exc)) {
+        for (unsigned i : (anc[first] | desc[first]) & remain) {
             ++ret.iterations;
             std::pair<unsigned, unsigned> counts{(remain / anc[i]).Count(), (remain / desc[i]).Count()};
             if (counts.first < counts.second) std::swap(counts.first, counts.second);
