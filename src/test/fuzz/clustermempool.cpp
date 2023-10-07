@@ -916,3 +916,77 @@ FUZZ_TARGET(clustermempool_linearize_anclimit)
         FuzzSave(reser);
     }
 }
+
+FUZZ_TARGET(clustermempool_add_bottom_improves)
+{
+    auto buffer_tmp = buffer;
+    Cluster<FuzzBitSet> cluster = DeserializeCluster<FuzzBitSet>(buffer);
+    if (cluster.size() > 12) return;
+    if (!IsMul64Compatible(cluster)) return;
+    AncestorSets<FuzzBitSet> anc(cluster);
+    if (!IsAcyclic(anc)) return;
+    DescendantSets<FuzzBitSet> desc(anc);
+    FuzzBitSet after = DecodeAfter<FuzzBitSet>(buffer, desc, {});
+    if (after.None()) return;
+    if (after >> FuzzBitSet::Fill(cluster.size())) return;
+
+//    std::cerr << std::endl << "FULL: " << cluster << std::endl;
+//    std::cerr << "AFTER: " << after << std::endl;
+    auto lin_full = LinearizeCluster(cluster, 20, 0);
+    auto chunk_full = ChunkLinearization(cluster, lin_full.linearization);
+    std::map<unsigned, FeeFrac> feefrac_full;
+    for (const auto& [feefrac, chunk] : chunk_full) {
+//        std::cerr << "- CHUNK " << chunk << " feerate=" << feefrac << std::endl;
+        for (auto idx : chunk) {
+            feefrac_full[idx] = feefrac;
+        }
+    }
+
+    std::vector<unsigned> full_to_shrink(cluster.size());
+    std::vector<unsigned> shrink_to_full(cluster.size() - after.Count());
+    unsigned idx{0};
+    for (unsigned i = 0; i < cluster.size(); ++i) {
+        if (after[i]) {
+            full_to_shrink[i] = -1;
+        } else {
+            full_to_shrink[i] = idx;
+            shrink_to_full[idx] = i;
+            ++idx;
+        }
+    }
+    Cluster<FuzzBitSet> cluster_shrink(idx);
+    assert(idx == shrink_to_full.size());
+    for (unsigned i = 0; i < cluster_shrink.size(); ++i) {
+        cluster_shrink[i].first = cluster[shrink_to_full[i]].first;
+        cluster_shrink[i].second = FuzzBitSet{};
+        for (unsigned j = 0; j < cluster_shrink.size(); ++j) {
+            if (cluster[shrink_to_full[i]].second[shrink_to_full[j]]) {
+                cluster_shrink[i].second.Set(j);
+            }
+        }
+    }
+//    std::cerr << "SHRINK: " << cluster_shrink << std::endl;
+
+    auto lin_shrink = LinearizeCluster(cluster_shrink, 20, 0);
+    auto chunk_shrink = ChunkLinearization(cluster_shrink, lin_shrink.linearization);
+    for (const auto& [feefrac, chunk] : chunk_shrink) {
+//        std::cerr << "- CHUNK " << chunk << " feerate=" << feefrac << std::endl;
+        for (auto idx : chunk) {
+//            std::cerr << "- full tx" << shrink_to_full[idx] << " feerate " << feefrac_full[shrink_to_full[idx]] << ", shrink tx" << idx << " feerate " << feefrac << std::endl;
+            assert(!(feefrac_full[shrink_to_full[idx]] << feefrac));
+        }
+    }
+
+    static std::pair<uint64_t, size_t> scores[32][32] = {};
+    auto& score_box = scores[cluster.size()][cluster_shrink.size()];
+    uint64_t score = uint64_t{lin_full.comparisons} * std::min<uint64_t>(lin_full.comparisons - lin_shrink.comparisons, lin_shrink.comparisons);
+    if (score > score_box.first) {
+        std::cerr << "len=" << buffer_tmp.size() << " score=" << score_box.first << "->" << score << " full=" << cluster.size() << "(comp=" << lin_full.comparisons << ") shrink=" << cluster_shrink.size() << "(comp=" << lin_shrink.comparisons << ")" << std::endl;
+        score_box = {score, buffer_tmp.size()};
+        FuzzSave(buffer_tmp);
+    } else if (score == score_box.first && buffer_tmp.size() < score_box.second) {
+        std::cerr << "len=" << score_box.second << "->" << buffer_tmp.size() << " score=" << score << " full=" << cluster.size() << "(comp=" << lin_full.comparisons << ") shrink=" << cluster_shrink.size() << "(comp=" << lin_shrink.comparisons << ")" << std::endl;
+        score_box = {score, buffer_tmp.size()};
+        FuzzSave(buffer_tmp);
+    }
+}
