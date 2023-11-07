@@ -990,3 +990,81 @@ FUZZ_TARGET(clustermempool_add_bottom_improves)
         FuzzSave(buffer_tmp);
     }
 }
+
+namespace {
+
+/** Determine chunk feerate for every transaction. 0/0 for non-included ones. */
+template<typename BS>
+std::vector<FeeFrac> GetChunkFeerates(const Cluster<BS>& cluster, BS done, BS after)
+{
+    SortedCluster<FuzzBitSet> sorted(cluster);
+    AncestorSets<FuzzBitSet> anc_sorted(sorted.cluster);
+    assert(IsAcyclic(anc));
+    DescendantSets<FuzzBitSet> desc_sorted(anc);
+    BS done_sorted = sorted.OriginalToSorted(done);
+    BS after_sorted = sorted.OriginalToSorted(after);
+
+    AncestorSetFeeFracs<FuzzBitSet> anc_feefracs(sorted.cluster, anc, done_sorted | after_sorted);
+    std::vector<FeeFrac> ret(scluster.cluster.size());
+    auto all = BS::Fill(scluster.cluster.size());
+    while ((done | after) != all) {
+        auto res = FindBestCandidateSetEfficient(scluster.cluster, anc, desc, anc_feefracs, done, after, 0);
+        for (auto idx : res.best_candidate_set) {
+            ret[sorted.sorted_to_original[idx]] = res.best_candidate_feefrac;
+        }
+        anc_freefracs.Done(res, best_candidate_set);
+        done_sorted |= best_candidate_set;
+    }
+    return ret;
+}
+
+} // namespace
+
+FUZZ_TARGET(clustermempool_replacemnt_heuristic)
+{
+    auto buffer_tmp = buffer;
+    Cluster<FuzzBitSet> cluster = DeserializeCluster<FuzzBitSet>(buffer);
+    if (cluster.size() > 7) return;
+    if (!IsMul64Compatible(cluster)) return;
+    AncestorSets<FuzzBitSet> anc(cluster);
+    if (!IsAcyclic(anc)) return;
+    DescendantSets<FuzzBitSet> desc(anc);
+    auto all = FuzzBitSet::Fill(cluster.size());
+
+    // Decide eviction set.
+    FuzzBitSet evict = DecodeAfter<FuzzBitSet>(buffer, desc, {});
+
+    // Decide add set.
+    unsigned num_leaves{0};
+    for (auto idx : all / evict) {
+        if (desc[idx].Count() == 1) ++num_leaves;
+    }
+    if (num_leaves == 0) return;
+    FuzzBitSet add;
+    for (auto idx : all / evict) {
+        if (desc[idx].Count() == 1) {
+            if (num_leaves == 0) {
+                add.Set(idx);
+                break;
+            }
+            --num_leaves;
+        }
+    }
+    assert(num_leaves == 0);
+    assert(add.Count() == 1);
+
+    // Guarantee absolute fee goes up.
+    auto evict_feefrac = ComputeSetFeeFrac(cluster, evict);
+    auto add_feefrac = ComputeSetFeeFrac(cluster, add);
+    if (add_feefrac.fee <= evict_feefrac.fee) return;
+
+    // Analyse.
+    auto original_feerates = GetChunkFeerates(cluster, {}, add);
+    auto replaced_feerates = GetChunkFeerates(cluster, {}, evict);
+    for (auto idx : all / (add | evict)) {
+        if (original_feerates[idx] >> replaced_feerates[idx]) return;
+    }
+
+    std::cerr << "CLUSTER " << cluster << " evict=" << evict << " add=" << add << std::endl;
+}
+
