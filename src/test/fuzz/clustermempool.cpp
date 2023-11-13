@@ -1023,6 +1023,118 @@ std::vector<FeeFrac> GetChunkFeerates(const Cluster<BS>& cluster, BS done, BS af
     return ret;
 }
 
+template<typename BS>
+std::vector<std::pair<FeeFrac, BS>> DeserializeGenChunks(const Cluster<BS>& cluster, const AncestorSets<BS>& anc, Span<const unsigned char>& data)
+{
+    std::vector<std::pair<FeeFrac, BS>> ret;
+    BS todo = BS::Fill(cluster.size());
+    uint8_t cache{0};
+    unsigned cache_bits{0};
+    auto get_bool = [&]() {
+        if (cache_bits == 0) {
+            if (data.empty()) {
+                cache = 0;
+            } else {
+                cache = data[0];
+                data = data.subspan(1);
+            }
+            cache_bits = 8;
+        }
+        bool ret = cache & 1;
+        cache >>= 1;
+        cache_bits -= 1;
+        return ret;
+    };
+    while (todo.Any()) {
+        BS now;
+        for (auto i : todo) {
+            if (now[i]) continue;
+            if (get_bool()) {
+                now |= anc[i];
+            }
+        }
+        if (now.None()) now = anc[todo.First()];
+        now &= todo;
+        assert(now.Any());
+        ret.emplace_back(ComputeSetFeeFrac(cluster, now), now);
+        todo /= now;
+    }
+    return ret;
+}
+
+template<typename BS>
+std::vector<std::pair<FeeFrac, BS>> DeserializeGenConnectedChunks(const Cluster<BS>& cluster, const AncestorSets<BS>& anc, const DescendantSets<BS>& desc, Span<const unsigned char>& data)
+{
+    std::vector<std::pair<FeeFrac, BS>> ret;
+    BS todo = BS::Fill(cluster.size());
+    uint8_t cache{0};
+    unsigned cache_bits{0};
+    auto get_bool = [&]() {
+        if (cache_bits == 0) {
+            if (data.empty()) {
+                cache = 0;
+            } else {
+                cache = data[0];
+                data = data.subspan(1);
+            }
+            cache_bits = 8;
+        }
+        bool ret = cache & 1;
+        cache >>= 1;
+        cache_bits -= 1;
+        return ret;
+    };
+    while (todo.Any()) {
+        BS inc, exc;
+        while (true) {
+            bool choice{false};
+            for (auto i : todo / (inc | exc)) {
+                if (inc.Any() && (anc[i] & inc).None()) continue;
+                choice = true;
+                if (get_bool()) {
+                    inc |= anc[i] & todo;
+                } else {
+                    exc |= desc[i];
+                }
+            }
+            if (!choice) break;
+        }
+        if (inc.None()) inc = anc[todo.First()] & todo;
+        assert(inc.Any());
+        assert(inc << todo);
+        assert(exc << todo);
+        ret.emplace_back(ComputeSetFeeFrac(cluster, inc), inc);
+        todo /= inc;
+    }
+    return ret;
+}
+
+template<typename BS>
+std::vector<std::pair<FeeFrac, BS>> MergeGenChunks(const Cluster<BS>& cluster, const std::vector<std::pair<FeeFrac, BS>> ch1, const std::vector<std::pair<FeeFrac, BS>>& ch2)
+{
+    std::vector<std::pair<FeeFrac, BS>> ret;
+    unsigned done1{0}, done2{0};
+    BS todo = BS::Fill(cluster.size());
+    auto get_stat = [&](BS sel) -> std::pair<FeeFrac, BS> { return {ComputeSetFeeFrac(cluster, sel), sel}; };
+    while (todo.Any()) {
+        while (done1 < ch1.size() && (ch1[done1].second & todo).None()) ++done1;
+        while (done2 < ch2.size() && (ch2[done2].second & todo).None()) ++done2;
+        assert(done1 < ch1.size());
+        assert(done2 < ch2.size());
+        auto res1 = get_stat(ch1[done1].second & todo);
+        auto res2 = get_stat(ch2[done2].second & todo);
+        auto res = res1;
+        if (res2.first > res.first) res = res2;
+/*        if (res1.second & res2.second) {
+            auto res3 = get_stat(res1.second & res2.second);
+            if (res3.first < res.first) res = res3;
+        }*/
+        ret.push_back(res);
+        todo /= res.second;
+    }
+    return ret;
+}
+
 } // namespace
 
 FUZZ_TARGET(clustermempool_replacement_heuristic)
@@ -1150,6 +1262,37 @@ FUZZ_TARGET(clustermempool_find_incomparable)
         assert(CompareDiagrams(diag4, diag3) == 1);
         std::cerr << "BEST:" << lin4 << " " << chunks4 << std::endl;
 
+        assert(false);
+    }
+}
+
+FUZZ_TARGET(clustermempool_find_incomparable_gen)
+{
+    Cluster<FuzzBitSet> cluster = DeserializeCluster<FuzzBitSet>(buffer);
+    if (cluster.size() < 2) return;
+    if (cluster.size() > 6) return;
+    if (!IsMul64Compatible(cluster)) return;
+    AncestorSets<FuzzBitSet> anc(cluster);
+    DescendantSets<FuzzBitSet> desc(anc);
+    if (!IsAcyclic(anc)) return;
+
+    auto chunks1 = DeserializeGenConnectedChunks(cluster, anc, desc, buffer);
+    auto chunks2 = DeserializeGenConnectedChunks(cluster, anc, desc, buffer);
+
+    auto diag1 = GetLinearizationDiagram(chunks1);
+    auto diag2 = GetLinearizationDiagram(chunks2);
+
+    if (CompareDiagrams(diag1, diag2).has_value()) return;
+
+    auto chunks3 = MergeGenChunks(cluster, chunks1, chunks2);
+    auto diag3 = GetLinearizationDiagram(chunks3);
+
+    if (CompareDiagrams(diag3, diag1) != 1 || CompareDiagrams(diag3, diag2) != 1) {
+        std::cerr << std::endl;
+        std::cerr << "CLUSTER:" << cluster << std::endl;
+        std::cerr << "CH1:" << chunks1 << std::endl;
+        std::cerr << "CH2:" << chunks2 << std::endl;
+        std::cerr << "MRG:" << chunks3 << std::endl;
         assert(false);
     }
 }
