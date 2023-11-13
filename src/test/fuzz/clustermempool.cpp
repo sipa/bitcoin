@@ -31,6 +31,22 @@ namespace {
     return o;
 }
 
+[[maybe_unused]] std::ostream& operator<<(std::ostream& o, Span<const unsigned> data)
+{
+    o << '{';
+    bool first = true;
+    for (unsigned i : data) {
+        if (first) {
+            first = false;
+        } else {
+            o << ',';
+        }
+        o << i;
+    }
+    o << '}';
+    return o;
+}
+
 template<typename I>
 std::ostream& operator<<(std::ostream& s, const bitset_detail::IntBitSet<I>& bs)
 {
@@ -105,7 +121,7 @@ bool IsMul64Compatible(const Cluster<S>& c)
     uint64_t high = (sum_fee >> 32) * sum_size;
     uint64_t low = (sum_fee & 0xFFFFFFFF) * sum_size;
     high += low >> 32;
-    return (high >> 32) == 0;
+    return (high >> 30) == 0;
 }
 
 /** Union-Find data structure. */
@@ -993,6 +1009,62 @@ FUZZ_TARGET(clustermempool_add_bottom_improves)
 
 namespace {
 
+/** Compute FeeFrac diagram for a cluster linearization. */
+template<typename BS>
+std::vector<FeeFrac> GetLinearizationDiagram(const std::vector<std::pair<FeeFrac, BS>>& chunks)
+{
+    std::vector<FeeFrac> ret;
+    ret.push_back(FeeFrac{});
+    for (const auto& chunk : chunks) {
+        ret.push_back(ret.back() + chunk.first);
+    }
+    return ret;
+}
+
+int CompareFeeFracWithDiagram(const FeeFrac& ff, Span<const FeeFrac> diagram)
+{
+    assert(diagram.size() > 0);
+    unsigned not_above = 0;
+    unsigned not_below = diagram.size() - 1;
+    if (ff.size < diagram[not_above].size) return 0;
+    if (ff.size > diagram[not_below].size) return 0;
+    while (not_below > not_above + 1) {
+        unsigned mid = (not_below + not_above) / 2;
+        if (diagram[mid].size <= ff.size) not_above = mid;
+        if (diagram[mid].size >= ff.size) not_below = mid;
+    }
+    if (not_below == not_above) {
+        if (ff.fee > diagram[not_below].fee) return 1;
+        if (ff.fee < diagram[not_below].fee) return -1;
+        return 0;
+    }
+    uint64_t left = ff.fee*diagram[not_below].size + diagram[not_above].fee*ff.size + diagram[not_below].fee*diagram[not_above].size;
+    uint64_t right = ff.size*diagram[not_below].fee + diagram[not_above].size*ff.fee + diagram[not_below].size*diagram[not_above].fee;
+    if (left > right) return 1;
+    if (left < right) return -1;
+    return 0;
+}
+
+std::optional<int> CompareDiagrams(Span<const FeeFrac> dia1, Span<const FeeFrac> dia2)
+{
+    bool all_ge = true;
+    bool all_le = true;
+    for (const auto p1 : dia1) {
+        int cmp = CompareFeeFracWithDiagram(p1, dia2);
+        if (cmp < 0) all_ge = false;
+        if (cmp > 0) all_le = false;
+    }
+    for (const auto p2 : dia2) {
+        int cmp = CompareFeeFracWithDiagram(p2, dia1);
+        if (cmp < 0) all_le = false;
+        if (cmp > 0) all_ge = false;
+    }
+    if (all_ge && all_le) return 0;
+    if (all_ge && !all_le) return 1;
+    if (!all_ge && all_le) return -1;
+    return std::nullopt;
+}
+
 /** Determine chunk feerate for every transaction. 0/0 for non-included ones. */
 template<typename BS>
 std::vector<FeeFrac> GetChunkFeerates(const Cluster<BS>& cluster, BS done, BS after)
@@ -1069,3 +1141,79 @@ FUZZ_TARGET(clustermempool_replacement_heuristic)
     std::cerr << "CLUSTER " << cluster << " evict=" << evict << " add=" << add << std::endl;
 }
 
+FUZZ_TARGET(clustermempool_find_incomparable)
+{
+    Cluster<FuzzBitSet> cluster = DeserializeCluster<FuzzBitSet>(buffer);
+    if (cluster.size() < 2) return;
+    if (cluster.size() > 6) return;
+    if (!IsMul64Compatible(cluster)) return;
+    AncestorSets<FuzzBitSet> anc(cluster);
+    if (!IsAcyclic(anc)) return;
+    FuzzBitSet all = FuzzBitSet::Fill(cluster.size());
+    if (!IsConnectedSubset(cluster, all)) return;
+
+    std::vector<unsigned> lin1 = LinearizeCluster(cluster, 0, 0).linearization;
+
+    std::vector<unsigned> lin2;
+    FuzzBitSet todo2 = FuzzBitSet::Fill(cluster.size());
+    while (todo2.Any()) {
+        unsigned leaves{0};
+        for (auto i : todo2) {
+            if ((anc[i] & todo2).Count() == 1) {
+                ++leaves;
+            }
+        }
+        assert(leaves > 0);
+        unsigned choice = DeserializeNumberBase128(buffer) % leaves;
+        for (auto i : todo2) {
+            if ((anc[i] & todo2).Count() == 1) {
+                if (choice == 0) {
+                    lin2.push_back(i);
+                    todo2 /= anc[i];
+                    break;
+                }
+                --choice;
+            }
+        }
+    }
+
+    if (lin1 == lin2) return;
+
+    auto chunks1 = ChunkLinearization(cluster, lin1);
+    auto chunks2 = ChunkLinearization(cluster, lin2);
+
+    auto diag1 = GetLinearizationDiagram(chunks1);
+    auto diag2 = GetLinearizationDiagram(chunks2);
+
+    if (CompareDiagrams(diag1, diag2).has_value()) return;
+
+    auto lin3 = MergeLinearizations(cluster, lin1, lin2, anc);
+    auto chunks3 = ChunkLinearization(cluster, lin3);
+    auto diag3 = GetLinearizationDiagram(chunks3);
+
+    auto cmp31 = CompareDiagrams(diag3, diag1);
+    auto cmp32 = CompareDiagrams(diag3, diag2);
+
+    static uint64_t succ{0};
+    ++succ;
+    if ((succ & (succ - 1U)) == 0) {
+        std::cerr << "... " << succ << " done" << std::endl;
+    }
+
+    if (cmp31 != 1 || cmp32 != 1) {
+        std::cerr << "CLUSTER:" << cluster << std::endl;
+        std::cerr << "LIN1:" << lin1 << " " << chunks1 << std::endl;
+        std::cerr << "LIN2:" << lin2 << " " << chunks2 << std::endl;
+        std::cerr << "MERG:" << lin3 << " " << chunks3 << std::endl;
+
+        auto lin4 = LinearizeCluster(cluster, 20, 0).linearization;
+        auto chunks4 = ChunkLinearization(cluster, lin4);
+        auto diag4 = GetLinearizationDiagram(chunks4);
+        assert(CompareDiagrams(diag4, diag1) == 1);
+        assert(CompareDiagrams(diag4, diag2) == 1);
+        assert(CompareDiagrams(diag4, diag3) == 1);
+        std::cerr << "BEST:" << lin4 << " " << chunks4 << std::endl;
+
+        assert(false);
+    }
+}

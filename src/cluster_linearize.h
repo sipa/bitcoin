@@ -859,6 +859,45 @@ std::vector<std::pair<FeeFrac, S>> ChunkLinearization(const Cluster<S>& cluster,
     return chunks;
 }
 
+template<typename S>
+std::vector<unsigned> MergeLinearizations(const Cluster<S>& cluster, Span<const unsigned> lin1, Span<const unsigned> lin2, const AncestorSets<S>& anc)
+{
+    std::vector<unsigned> ret;
+    ret.reserve(std::max(lin1.size(), lin2.size()));
+    S done;
+
+    auto next_chunk_fn = [&](Span<const unsigned> lin) -> std::pair<S, FeeFrac> {
+        std::pair<S, FeeFrac> run, best;
+        for (unsigned i : lin) {
+            if (done[i]) continue;
+            run.first.Set(i);
+            run.second += cluster[i].first;
+            if (best.first.None() || run.second >> best.second) best = run;
+        }
+        return best;
+    };
+
+    while (true) {
+        const auto ret1 = next_chunk_fn(lin1);
+        const auto ret2 = next_chunk_fn(lin2);
+        if (ret1.first.None() && ret2.first.None()) break;
+        auto rets = (ret2.first.Any() && (ret1.first.None() || ret2.second > ret1.second)) ? ret2 : ret1;
+        S chunk3 = ret1.first & ret2.first;
+        if (chunk3.Any() && ret1.first != chunk3 && ret2.first != chunk3) {
+            FeeFrac feerate3 = ComputeSetFeeFrac(cluster, chunk3);
+            if (feerate3 > rets.second) rets = {chunk3, feerate3};
+        }
+        assert(rets.first.Any());
+        size_t old_len = ret.size();
+        done |= rets.first;
+        for (auto i : rets.first) {
+            ret.push_back(i);
+        }
+        std::sort(ret.begin() + old_len, ret.end(), [&](unsigned a, unsigned b) { return anc[a].Size() < anc[b].Size(); });
+    }
+    return ret;
+}
+
 } // namespace
 
 } // namespace linearize_cluster
