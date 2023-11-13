@@ -556,6 +556,73 @@ std::optional<unsigned> SingleViableTransaction(const Cluster<S>& cluster, const
     return {first_viable};
 }
 
+[[maybe_unused]] std::ostream& operator<<(std::ostream& o, const FeeFrac& data)
+{
+    o << "(" << data.fee << "/" << data.size << "=" << ((double)data.fee / data.size) << ")";
+    return o;
+}
+
+[[maybe_unused]] std::ostream& operator<<(std::ostream& o, Span<const unsigned> data)
+{
+    o << '{';
+    bool first = true;
+    for (unsigned i : data) {
+        if (first) {
+            first = false;
+        } else {
+            o << ',';
+        }
+        o << i;
+    }
+    o << '}';
+    return o;
+}
+
+template<typename I>
+std::ostream& operator<<(std::ostream& s, const bitset_detail::IntBitSet<I>& bs)
+{
+    s << "[";
+    size_t cnt = 0;
+    for (size_t i = 0; i < bs.Size(); ++i) {
+        if (bs[i]) {
+            if (cnt) s << ",";
+            ++cnt;
+            s << i;
+        }
+    }
+    s << "]";
+    return s;
+}
+
+template<typename I, unsigned N>
+std::ostream& operator<<(std::ostream& s, const bitset_detail::MultiIntBitSet<I, N>& bs)
+{
+    s << "[";
+    size_t cnt = 0;
+    for (size_t i = 0; i < bs.Size(); ++i) {
+        if (bs[i]) {
+            if (cnt) s << ",";
+            ++cnt;
+            s << i;
+        }
+    }
+    s << "]";
+    return s;
+}
+
+/** String serialization for debug output of Cluster. */
+template<typename S>
+std::ostream& operator<<(std::ostream& o, const Cluster<S>& cluster)
+{
+    o << "Cluster{";
+    for (size_t i = 0; i < cluster.size(); ++i) {
+        if (i) o << ",";
+        o << i << ":" << cluster[i].first << cluster[i].second;
+    }
+    o << "}";
+    return o;
+}
+
 /** Compute a full linearization of a cluster (vector of cluster indices). */
 template<typename S>
 LinearizationResult LinearizeCluster(const Cluster<S>& cluster, unsigned optimal_limit, uint64_t seed)
@@ -886,6 +953,11 @@ std::vector<unsigned> MergeLinearizations(const Cluster<S>& cluster, Span<const 
         if (chunk3.Any() && ret1.first != chunk3 && ret2.first != chunk3) {
             FeeFrac feerate3 = ComputeSetFeeFrac(cluster, chunk3);
             if (feerate3 > rets.second) rets = {chunk3, feerate3};
+        }
+        S chunk4 = ret1.first | ret2.first;
+        if (ret1.first != chunk4 && ret2.first != chunk4) {
+            FeeFrac feerate4 = ComputeSetFeeFrac(cluster, chunk4);
+            if (feerate4 > rets.second) rets = {chunk4, feerate4};
         }
         assert(rets.first.Any());
         size_t old_len = ret.size();

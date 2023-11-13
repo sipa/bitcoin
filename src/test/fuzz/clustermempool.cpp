@@ -25,73 +25,6 @@ using namespace cluster_linearize;
 
 namespace {
 
-[[maybe_unused]] std::ostream& operator<<(std::ostream& o, const FeeFrac& data)
-{
-    o << "(" << data.fee << "/" << data.size << "=" << ((double)data.fee / data.size) << ")";
-    return o;
-}
-
-[[maybe_unused]] std::ostream& operator<<(std::ostream& o, Span<const unsigned> data)
-{
-    o << '{';
-    bool first = true;
-    for (unsigned i : data) {
-        if (first) {
-            first = false;
-        } else {
-            o << ',';
-        }
-        o << i;
-    }
-    o << '}';
-    return o;
-}
-
-template<typename I>
-std::ostream& operator<<(std::ostream& s, const bitset_detail::IntBitSet<I>& bs)
-{
-    s << "[";
-    size_t cnt = 0;
-    for (size_t i = 0; i < bs.Size(); ++i) {
-        if (bs[i]) {
-            if (cnt) s << ",";
-            ++cnt;
-            s << i;
-        }
-    }
-    s << "]";
-    return s;
-}
-
-template<typename I, unsigned N>
-std::ostream& operator<<(std::ostream& s, const bitset_detail::MultiIntBitSet<I, N>& bs)
-{
-    s << "[";
-    size_t cnt = 0;
-    for (size_t i = 0; i < bs.Size(); ++i) {
-        if (bs[i]) {
-            if (cnt) s << ",";
-            ++cnt;
-            s << i;
-        }
-    }
-    s << "]";
-    return s;
-}
-
-/** String serialization for debug output of Cluster. */
-template<typename S>
-std::ostream& operator<<(std::ostream& o, const Cluster<S>& cluster)
-{
-    o << "Cluster{";
-    for (size_t i = 0; i < cluster.size(); ++i) {
-        if (i) o << ",";
-        o << i << ":" << cluster[i].first << cluster[i].second;
-    }
-    o << "}";
-    return o;
-}
-
 template<typename S>
 void DrawCluster(std::ostream& o, const Cluster<S>& cluster)
 {
@@ -1151,6 +1084,9 @@ FUZZ_TARGET(clustermempool_find_incomparable)
     if (!IsAcyclic(anc)) return;
     FuzzBitSet all = FuzzBitSet::Fill(cluster.size());
     if (!IsConnectedSubset(cluster, all)) return;
+
+    std::cerr << std::endl;
+    std::cerr << "START" << std::endl;
 
     std::vector<unsigned> lin1 = LinearizeCluster(cluster, 0, 0).linearization;
 
