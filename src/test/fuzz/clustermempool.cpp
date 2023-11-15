@@ -260,6 +260,41 @@ S DecodeAfter(Span<const unsigned char>& data, const DescendantSets<S>& descs, c
     return ret;
 }
 
+template<typename S>
+std::vector<unsigned> DecodeLinearization(Span<const unsigned char>& data, const Cluster<S>& cluster)
+{
+    S done;
+    std::vector<unsigned> ret(cluster.size());
+    for (unsigned i = 0; i < cluster.size(); ++i) {
+        S accept;
+        for (unsigned j = 0; j < cluster.size(); ++j) {
+            if (!done[j] && (done >> cluster[j].second)) accept.Set(j);
+        }
+        assert(accept.Any());
+        unsigned idx = DeserializeNumberBase128(data) % accept.Count();
+        for (auto j : accept) {
+            if (idx == 0) {
+                ret[i] = j;
+                done.Set(j);
+                break;
+            }
+            --idx;
+        }
+    }
+    return ret;
+}
+
+template<typename S>
+bool IsTopologicalLinearization(Span<const unsigned> lin, const Cluster<S>& cluster)
+{
+    S done;
+    for (auto i : lin) {
+        if (!(cluster[i].second << done)) return false;
+        done.Set(i);
+    }
+    return true;
+}
+
 template<typename T>
 class MaxVal
 {
@@ -1201,6 +1236,7 @@ FUZZ_TARGET(clustermempool_find_incomparable)
     std::cerr << "START" << std::endl;
 
     std::vector<unsigned> lin1 = LinearizeCluster(cluster, 0, 0).linearization;
+    PostLinearization(cluster, lin1);
 
     std::vector<unsigned> lin2;
     FuzzBitSet todo2 = FuzzBitSet::Fill(cluster.size());
@@ -1296,3 +1332,54 @@ FUZZ_TARGET(clustermempool_find_incomparable_gen)
         assert(false);
     }
 }
+
+FUZZ_TARGET(clustermempool_postlinearize)
+{
+    Cluster<FuzzBitSet> cluster = DeserializeCluster<FuzzBitSet>(buffer);
+    if (!IsMul64Compatible(cluster)) return;
+    AncestorSets<FuzzBitSet> anc(cluster);
+    if (!IsAcyclic(anc)) return;
+
+
+    auto lin_pre = DecodeLinearization(buffer, cluster);
+    assert(IsTopologicalLinearization(lin_pre, cluster));
+
+
+    auto lin_post = lin_pre;
+    PostLinearization(cluster, lin_post);
+
+    {
+        auto lin_pre2 = lin_pre, lin_post2 = lin_post;
+        std::sort(lin_pre2.begin(), lin_pre2.end());
+        std::sort(lin_post2.begin(), lin_post2.end());
+        if (lin_pre2 != lin_post2) {
+            std::cerr << std::endl;
+            std::cerr << "CLUSTER " << cluster << std::endl;
+            std::cerr << "LIN_PRE " << lin_pre << std::endl;
+            std::cerr << "LIN_POST " << lin_post << std::endl;
+            assert(false);
+        }
+    }
+
+    if (!IsTopologicalLinearization(lin_post, cluster)) {
+        std::cerr << std::endl;
+        std::cerr << "CLUSTER " << cluster << std::endl;
+        std::cerr << "LIN_PRE " << lin_pre << std::endl;
+        std::cerr << "LIN_POST " << lin_post << std::endl;
+        assert(false);
+    }
+
+    auto chunks_pre = ChunkLinearization(cluster, lin_pre);
+    auto chunks_post = ChunkLinearization(cluster, lin_post);
+    auto diag_pre = GetLinearizationDiagram(chunks_pre);
+    auto diag_post = GetLinearizationDiagram(chunks_post);
+    auto cmp = CompareDiagrams(diag_post, diag_pre);
+    if (!cmp.has_value() || cmp == -1) {
+        std::cerr << std::endl;
+        std::cerr << "CLUSTER " << cluster << std::endl;
+        std::cerr << "LIN_PRE " << lin_pre << " " << chunks_pre << std::endl;
+        std::cerr << "LIN_POST " << lin_post << " " << chunks_post << std::endl;
+        assert(false);
+    }
+}
+

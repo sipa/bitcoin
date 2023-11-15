@@ -927,6 +927,74 @@ std::vector<std::pair<FeeFrac, S>> ChunkLinearization(const Cluster<S>& cluster,
 }
 
 template<typename S>
+void PostLinearization(const Cluster<S>& cluster, std::vector<unsigned>& lin)
+{
+    struct Entry {
+        unsigned next;
+        unsigned head;
+        FeeFrac total;
+    };
+    std::vector<Entry> state(cluster.size());
+    auto find_fn = [&](unsigned pos) -> unsigned {
+        while (state[pos].head != pos) {
+            state[pos].head = state[state[pos].head].head;
+            pos = state[pos].head;
+        }
+        return pos;
+    };
+    auto cmp_fn = [&](unsigned head1, unsigned head2) -> bool {
+        assert(state[head1].head == head1);
+        assert(state[head2].head == head2);
+        return state[head1].total > state[head2].total;
+    };
+    std::vector<unsigned> sort_tmp;
+    sort_tmp.reserve(cluster.size());
+//    std::cerr << "POSTLIN START" << std::endl;
+    for (unsigned i : lin) {
+//        std::cerr << "POSTLIN PROC " << i << std::endl;
+        S deps;
+        for (auto par : cluster[i].second) deps.Set(find_fn(par));
+        sort_tmp.clear();
+        for (auto dep : deps) sort_tmp.push_back(dep);
+//        std::cerr << "POSTLIN DEPS " << i << ": " << sort_tmp << std::endl;
+        std::sort(sort_tmp.begin(), sort_tmp.end(), cmp_fn);
+        state[i].next = sort_tmp.empty() ? i : state[sort_tmp[0]].next;
+        state[i].head = i;
+        state[i].total = cluster[i].first;
+        for (unsigned idx = 0; idx < sort_tmp.size(); ++idx) {
+            unsigned dep = sort_tmp[idx];
+            state[dep].head = i;
+            state[i].total += state[dep].total;
+            state[dep].next = (idx + 1 == sort_tmp.size() ? i : state[sort_tmp[idx + 1]].next);
+        }
+
+        unsigned start = state[i].next;
+        unsigned walk = start;
+        sort_tmp.clear();
+        do {
+            sort_tmp.push_back(walk);
+            walk = state[walk].next;
+        } while (walk != start);
+//        std::cerr << "POSTLIN MERGE " << i << ": " << sort_tmp << " " << state[i].total << std::endl;
+    }
+    S roots;
+    for (unsigned i : lin) roots.Set(find_fn(i));
+    sort_tmp.clear();
+    for (auto root : roots) sort_tmp.push_back(root);
+    std::sort(sort_tmp.begin(), sort_tmp.end(), cmp_fn);
+    unsigned out = 0;
+//    std::cerr << "POSTLIN ROOTS: " << roots << std::endl;
+    for (unsigned idx = 0; idx < sort_tmp.size(); ++idx) {
+        unsigned start = state[sort_tmp[idx]].next;
+        unsigned walk = start;
+        do {
+            lin[out++] = walk;
+            walk = state[walk].next;
+        } while (walk != start);
+    }
+}
+
+template<typename S>
 std::vector<unsigned> MergeLinearizations(const Cluster<S>& cluster, Span<const unsigned> lin1, Span<const unsigned> lin2, const AncestorSets<S>& anc)
 {
     std::vector<unsigned> ret;
