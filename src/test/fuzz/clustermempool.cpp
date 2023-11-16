@@ -295,18 +295,30 @@ bool IsTopologicalLinearization(Span<const unsigned> lin, const Cluster<S>& clus
     return true;
 }
 
+/** Check whether the provided chunking is valid. */
 template<typename S>
-bool IsTopologicalChunking(const std::vector<std::pair<FeeFrac, S>>& chunking, const Cluster<S>& cluster)
+void VerifyChunking(const std::vector<std::pair<FeeFrac, S>>& chunking, const Cluster<S>& cluster)
 {
     S done;
-    for (const auto& [_, chunk] : chunking) {
-        if ((done & chunk).Any()) return false;
+    std::optional<FeeFrac> prev_feerate;
+    for (const auto& [feerate, chunk] : chunking) {
+        // Chunk is non-empty.
+        assert(chunk.Any());
+        // No overlapping chunks.
+        assert((done & chunk).None()); 
         done |= chunk;
+        // Monotonically decreasing feerates.
+        if (prev_feerate.has_value()) assert(!(feerate >> *prev_feerate));
+        prev_feerate = feerate;
+        // Topological.
         for (auto i : chunk) {
-            if (!(cluster[i].second << done)) return false;
+            assert(cluster[i].second << done);
         }
+        // Correct feerate.
+        assert(feerate == ComputeSetFeeFrac(cluster, chunk));
     }
-    return done == S::Fill(cluster.size());
+    // Covers whole cluster
+    assert(done == S::Fill(cluster.size()));
 }
 
 template<typename T>
@@ -1396,16 +1408,9 @@ FUZZ_TARGET(clustermempool_fancychunk)
     assert(IsTopologicalLinearization(lin, cluster));
 
     auto chunks_old = ChunkLinearization(cluster, lin);
-    assert(IsTopologicalChunking(chunks_old, cluster));
+    VerifyChunking(chunks_old, cluster);
     auto chunks_new = ChunkLinearizationFancy(cluster, lin);
-    if (!IsTopologicalChunking(chunks_new, cluster)) {
-        std::cerr << std::endl;
-        std::cerr << "CLUSTER " << cluster << std::endl;
-        std::cerr << "LIN " << lin << std::endl;
-        std::cerr << "CHUNK_OLD " << chunks_old << std::endl;
-        std::cerr << "CHUNK_NEW " << chunks_new << std::endl;
-    }
-    assert(IsTopologicalChunking(chunks_new, cluster));
+    VerifyChunking(chunks_new, cluster);
 
     auto diag_old = GetLinearizationDiagram(chunks_old);
     auto diag_new = GetLinearizationDiagram(chunks_new);
@@ -1415,5 +1420,35 @@ FUZZ_TARGET(clustermempool_fancychunk)
 
     for (const auto& [_feerate, chunk] : chunks_new) {
         assert(IsConnectedSubset(cluster, chunk));
+    }
+}
+
+FUZZ_TARGET(clustermempool_fancychunk_maxswaps)
+{
+    auto buffer_old = buffer;
+    Cluster<FuzzBitSet> cluster = DeserializeCluster<FuzzBitSet>(buffer);
+    if (cluster.size() > 16) return;
+    if (!IsMul64Compatible(cluster)) return;
+    AncestorSets<FuzzBitSet> anc(cluster);
+    if (!IsAcyclic(anc)) return;
+    FuzzBitSet all = FuzzBitSet::Fill(cluster.size());
+    if (!IsConnectedSubset(cluster, all)) return;
+
+    auto lin = LinearizeCluster(cluster, 0, 0).linearization;
+    uint64_t swaps = 0;
+    auto chunks = ChunkLinearizationFancy(cluster, lin, &swaps);
+    VerifyChunking(chunks, cluster);
+
+    for (const auto& [_feerate, chunk] : chunks) {
+        assert(IsConnectedSubset(cluster, chunk));
+    }
+
+    static std::pair<uint64_t, int64_t> MAX_SWAPS[65];
+    std::pair<uint64_t, int64_t> ours{swaps, -(int64_t)buffer_old.size()};
+    auto& entry = MAX_SWAPS[cluster.size()];
+    if (ours > entry) {
+        std::cerr << cluster.size() << " " << swaps << std::endl;
+        entry = ours;
+        FuzzSave(buffer_old);
     }
 }

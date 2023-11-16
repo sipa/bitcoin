@@ -927,7 +927,7 @@ std::vector<std::pair<FeeFrac, S>> ChunkLinearization(const Cluster<S>& cluster,
 }
 
 template<typename S>
-std::vector<std::pair<FeeFrac, S>> ChunkLinearizationFancy(const Cluster<S>& cluster, Span<const unsigned> linearization)
+std::vector<std::pair<FeeFrac, S>> ChunkLinearizationFancy(const Cluster<S>& cluster, Span<const unsigned> linearization, uint64_t* swaps = nullptr)
 {
     struct Entry {
         S chunk;
@@ -981,6 +981,7 @@ std::vector<std::pair<FeeFrac, S>> ChunkLinearizationFancy(const Cluster<S>& clu
                 // Drop final position element.
                 chunkdata.pop_back();
             } else {
+                if (swaps) (*swaps) += 1;
                 // Swap work with work_prev.
                 unsigned old_next = chunkdata[work].next, old_prev = chunkdata[work_prev].prev;
                 // Update external references to the elements.
@@ -998,10 +999,10 @@ std::vector<std::pair<FeeFrac, S>> ChunkLinearizationFancy(const Cluster<S>& clu
     // Produce output.
     std::vector<std::pair<FeeFrac, S>> ret;
     unsigned walk = chunkdata[0].next;
-    do {
+    while (walk != 0) {
         ret.emplace_back(chunkdata[walk].feerate, chunkdata[walk].chunk);
         walk = chunkdata[walk].next;
-    } while (walk != 0);
+    }
     return ret;
 }
 
