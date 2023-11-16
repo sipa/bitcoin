@@ -927,6 +927,85 @@ std::vector<std::pair<FeeFrac, S>> ChunkLinearization(const Cluster<S>& cluster,
 }
 
 template<typename S>
+std::vector<std::pair<FeeFrac, S>> ChunkLinearizationFancy(const Cluster<S>& cluster, Span<const unsigned> linearization)
+{
+    struct Entry {
+        S chunk;
+        S parents;
+        FeeFrac feerate;
+        unsigned prev, next;
+    };
+    std::vector<Entry> chunkdata;
+    chunkdata.reserve(linearization.size() + 1);
+    chunkdata.resize(1);
+    chunkdata[0].prev = 0;
+    chunkdata[0].next = 0;
+    for (unsigned i : linearization) {
+        // Add new chunk with just transaction 'i' at the end.
+        unsigned prev_last = chunkdata[0].prev;
+        chunkdata.resize(chunkdata.size() + 1);
+        auto& new_entry = chunkdata.back();
+        new_entry.chunk.Set(i);
+        new_entry.parents = cluster[i].second;
+        new_entry.feerate = cluster[i].first;
+        new_entry.next = 0;
+        new_entry.prev = prev_last;
+        chunkdata[prev_last].next = chunkdata.size() - 1;
+        chunkdata[0].prev = chunkdata.size() - 1;
+        // Start insertion cycle with the just-inserted chunk.
+        unsigned work = chunkdata[0].prev;
+        while (true) {
+            unsigned work_prev = chunkdata[work].prev;
+            // If there is no predecessor, or work doesn't have higher feerate than it, we're done.
+            if (work_prev == 0) break;
+            if (!(chunkdata[work].feerate >> chunkdata[work_prev].feerate)) break;
+            // Check for dependency between the work chunk and its predecessor.
+            if ((chunkdata[work].parents & chunkdata[work_prev].chunk).Any()) {
+                // There is a dependency; merge work_prev into work.
+                chunkdata[work].feerate += chunkdata[work_prev].feerate;
+                chunkdata[work].chunk |= chunkdata[work_prev].chunk;
+                chunkdata[work].parents = (chunkdata[work].parents | chunkdata[work_prev].parents) / chunkdata[work].chunk;
+                // Remove references to work_prev before removing it.
+                unsigned work_prev_prev = chunkdata[work_prev].prev;
+                chunkdata[work_prev_prev].next = work;
+                chunkdata[work].prev = work_prev_prev;
+                // If work_prev is not in final position, move final element to work_prev' place.
+                unsigned fin = chunkdata.size() - 1;
+                if (work_prev != fin) {
+                    unsigned finprev = chunkdata[fin].prev, finnext = chunkdata[fin].next;
+                    chunkdata[finprev].next = work_prev;
+                    chunkdata[finnext].prev = work_prev;
+                    chunkdata[work_prev] = chunkdata[fin];
+                    if (work == fin) work = work_prev;
+                }
+                // Drop final position element.
+                chunkdata.pop_back();
+            } else {
+                // Swap work with work_prev.
+                unsigned old_next = chunkdata[work].next, old_prev = chunkdata[work_prev].prev;
+                // Update external references to the elements.
+                chunkdata[old_next].prev = work_prev;
+                chunkdata[old_prev].next = work;
+                // Update elements references to external.
+                chunkdata[work].prev = old_prev;
+                chunkdata[work_prev].next = old_next;
+                // Update internal references.
+                chunkdata[work].next = work_prev;
+                chunkdata[work_prev].prev = work;
+            }
+        }
+    }
+    // Produce output.
+    std::vector<std::pair<FeeFrac, S>> ret;
+    unsigned walk = chunkdata[0].next;
+    do {
+        ret.emplace_back(chunkdata[walk].feerate, chunkdata[walk].chunk);
+        walk = chunkdata[walk].next;
+    } while (walk != 0);
+    return ret;
+}
+
+template<typename S>
 void PostLinearization(const Cluster<S>& cluster, std::vector<unsigned>& linearization)
 {
     struct Entry {

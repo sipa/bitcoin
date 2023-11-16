@@ -295,6 +295,20 @@ bool IsTopologicalLinearization(Span<const unsigned> lin, const Cluster<S>& clus
     return true;
 }
 
+template<typename S>
+bool IsTopologicalChunking(const std::vector<std::pair<FeeFrac, S>>& chunking, const Cluster<S>& cluster)
+{
+    S done;
+    for (const auto& [_, chunk] : chunking) {
+        if ((done & chunk).Any()) return false;
+        done |= chunk;
+        for (auto i : chunk) {
+            if (!(cluster[i].second << done)) return false;
+        }
+    }
+    return done == S::Fill(cluster.size());
+}
+
 template<typename T>
 class MaxVal
 {
@@ -1371,3 +1385,35 @@ FUZZ_TARGET(clustermempool_postlinearize)
     }
 }
 
+FUZZ_TARGET(clustermempool_fancychunk)
+{
+    Cluster<FuzzBitSet> cluster = DeserializeCluster<FuzzBitSet>(buffer);
+    if (cluster.size() > 10) return;
+    if (!IsMul64Compatible(cluster)) return;
+    AncestorSets<FuzzBitSet> anc(cluster);
+    if (!IsAcyclic(anc)) return;
+    auto lin = DecodeLinearization(buffer, cluster);
+    assert(IsTopologicalLinearization(lin, cluster));
+
+    auto chunks_old = ChunkLinearization(cluster, lin);
+    assert(IsTopologicalChunking(chunks_old, cluster));
+    auto chunks_new = ChunkLinearizationFancy(cluster, lin);
+    if (!IsTopologicalChunking(chunks_new, cluster)) {
+        std::cerr << std::endl;
+        std::cerr << "CLUSTER " << cluster << std::endl;
+        std::cerr << "LIN " << lin << std::endl;
+        std::cerr << "CHUNK_OLD " << chunks_old << std::endl;
+        std::cerr << "CHUNK_NEW " << chunks_new << std::endl;
+    }
+    assert(IsTopologicalChunking(chunks_new, cluster));
+
+    auto diag_old = GetLinearizationDiagram(chunks_old);
+    auto diag_new = GetLinearizationDiagram(chunks_new);
+    auto cmp = CompareDiagrams(diag_new, diag_old);
+    assert(cmp.has_value());
+    assert(cmp == 0 || cmp == 1);
+
+    for (const auto& [_feerate, chunk] : chunks_new) {
+        assert(IsConnectedSubset(cluster, chunk));
+    }
+}
