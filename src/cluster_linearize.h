@@ -927,71 +927,151 @@ std::vector<std::pair<FeeFrac, S>> ChunkLinearization(const Cluster<S>& cluster,
 }
 
 template<typename S>
-void PostLinearization(const Cluster<S>& cluster, std::vector<unsigned>& lin)
+void PostLinearization(const Cluster<S>& cluster, std::vector<unsigned>& linearization)
 {
     struct Entry {
-        unsigned next;
-        unsigned head;
-        FeeFrac total;
+        //! Original position in linearization. Used for tie-breaking chunk sorting.
+        unsigned orig_pos;
+        //! Index of next transaction within the same chunk (cyclic, so last one points to first one).
+        unsigned next_tx;
+        //! (If this is last transaction of a chunk) index of the last transaction of the next best chunk in the
+        //! same chunkset. Cyclic, so the worst chunk points back to the last transaction of the bext chunk.
+        unsigned next_chunk;
+        //! If this transaction is the last transaction of the best chunk in a chunkset, its own index.
+        //! Otherwise an index of another transaction in the same chunkset (indirectly pointing to the root).
+        unsigned uf_ptr;
+        //! (If this is last transaction of a chunk) The total feerate of this chunk.
+        FeeFrac chunk_total;
     };
-    std::vector<Entry> state(cluster.size());
+    //! Set of chunkset representatives (last transaction in best chunk of each chunkset).
+    std::vector<Entry> state(linearization.size());
+    for (unsigned i = 0; i < linearization.size(); ++i) {
+        state[linearization[i]].orig_pos = i;
+    }
+    //! Union-find find algorithm: find representative of set transaction 'pos' is in.
     auto find_fn = [&](unsigned pos) -> unsigned {
-        while (state[pos].head != pos) {
-            state[pos].head = state[state[pos].head].head;
-            pos = state[pos].head;
+        unsigned par = state[pos].uf_ptr;
+        while (par != pos) {
+            unsigned gpar = state[par].uf_ptr;
+            state[pos].uf_ptr = gpar;
+            pos = par;
+            par = gpar;
         }
         return pos;
     };
-    auto cmp_fn = [&](unsigned head1, unsigned head2) -> bool {
-        assert(state[head1].head == head1);
-        assert(state[head2].head == head2);
-        return state[head1].total > state[head2].total;
+    auto merge_fn = [&](unsigned pos1, unsigned pos2) {
+        unsigned root1 = find_fn(pos1);
+        unsigned root2 = find_fn(pos2);
+        state[root1].uf_ptr = root2;
+    };
+    //! Make transaction 'pos' the union-find representative of its set.
+    auto make_root_fn = [&](unsigned pos) {
+        unsigned cur_root = find_fn(pos);
+        state[cur_root].uf_ptr = pos;
+        state[pos].uf_ptr = pos;
+    };
+    //! Compare two transactions (each must be last transaction in a chunk).
+    //! Higher feerate goes first. In case of ties, original linearization order is used.
+    auto cmp_fn = [&](unsigned a, unsigned b) -> bool {
+        if (state[a].chunk_total >> state[b].chunk_total) return true;
+        if (state[a].chunk_total << state[b].chunk_total) return false;
+        return state[a].orig_pos < state[b].orig_pos;
     };
     std::vector<unsigned> sort_tmp;
     sort_tmp.reserve(cluster.size());
-//    std::cerr << "POSTLIN START" << std::endl;
-    for (unsigned i : lin) {
-//        std::cerr << "POSTLIN PROC " << i << std::endl;
+//    std::cerr << "POSTLIN: START" << std::endl;
+    for (unsigned i : linearization) {
+//        std::cerr << "POSTLIN: PROC " << i << std::endl;
+        // Construct a new chunk, in a new chunkset (for now), consisting of just the transaction 'i'.
+        state[i].uf_ptr = i;
+        state[i].next_tx = i;
+        state[i].next_chunk = i;
+        state[i].chunk_total = cluster[i].first;
+        // Gather (representatives of) chunksets transaction 'i' depends on.
         S deps;
         for (auto par : cluster[i].second) deps.Set(find_fn(par));
+        // Put in sort_tmp the indices of the last transaction of each chunk depended on by 'i'.
         sort_tmp.clear();
-        for (auto dep : deps) sort_tmp.push_back(dep);
-//        std::cerr << "POSTLIN DEPS " << i << ": " << sort_tmp << std::endl;
-        std::sort(sort_tmp.begin(), sort_tmp.end(), cmp_fn);
-        state[i].next = sort_tmp.empty() ? i : state[sort_tmp[0]].next;
-        state[i].head = i;
-        state[i].total = cluster[i].first;
-        for (unsigned idx = 0; idx < sort_tmp.size(); ++idx) {
-            unsigned dep = sort_tmp[idx];
-            state[dep].head = i;
-            state[i].total += state[dep].total;
-            state[dep].next = (idx + 1 == sort_tmp.size() ? i : state[sort_tmp[idx + 1]].next);
+        for (auto dep : deps) {
+//            std::cerr << "POSTLIN: PROC " << i << ": DEP CHUNKSET " << dep << std::endl;
+            // Make all dependencies part of the 'i' chunkset temporarily.
+            merge_fn(i, dep);
+            unsigned walk = dep;
+            do {
+//                std::cerr << "POSTLIN: PROC " << i << ": DEP CHUNKSET " << dep << ": DEP CHUNK " << walk << std::endl;
+                sort_tmp.push_back(walk);
+                assert(find_fn(walk) == find_fn(dep));
+                assert(find_fn(i) == find_fn(dep));
+                walk = state[walk].next_chunk;
+            } while (walk != dep);
         }
-
-        unsigned start = state[i].next;
-        unsigned walk = start;
-        sort_tmp.clear();
-        do {
-            sort_tmp.push_back(walk);
-            walk = state[walk].next;
-        } while (walk != start);
-//        std::cerr << "POSTLIN MERGE " << i << ": " << sort_tmp << " " << state[i].total << std::endl;
+        // If there was at most one dependency, sort_tmp is sorted from best to worst chunk already.
+        // If there are multiple dependencies, each will have contributed chunks, and they need to be
+        // sorted. TODO: merge sort instead of fully resorting.
+        if (deps.Count() > 1) {
+//            std::cerr << "POSTLIN: PROC " << i << ": SORT" << std::endl;
+            std::sort(sort_tmp.begin(), sort_tmp.end(), cmp_fn);
+        }
+        // Add the 'i' chunk to the end of the list.
+        sort_tmp.push_back(i);
+//        std::cerr << "POSTLIN: PROC " << i << ": CHUNKS " << sort_tmp << std::endl;
+        // If the list's last chunk has higher feerate than the penultimate, concatenate them into
+        // one chunk and repeat.
+        while (sort_tmp.size() > 1) {
+            unsigned last_chunk_last_tx = sort_tmp.back();
+            unsigned penult_chunk_last_tx = sort_tmp[sort_tmp.size() - 2];
+            if (!(state[last_chunk_last_tx].chunk_total >> state[penult_chunk_last_tx].chunk_total)) break;
+//            std::cerr << "POSTLIN: PROC " << i << ": MERGE CHUNKS " << last_chunk_last_tx << " + " << penult_chunk_last_tx << std::endl;
+            unsigned last_chunk_first_tx = state[last_chunk_last_tx].next_tx;
+            unsigned penult_chunk_first_tx = state[penult_chunk_last_tx].next_tx;
+            state[last_chunk_last_tx].next_tx = penult_chunk_first_tx;
+            state[penult_chunk_last_tx].next_tx = last_chunk_first_tx;
+            state[last_chunk_last_tx].chunk_total += state[penult_chunk_last_tx].chunk_total;
+            sort_tmp.resize(sort_tmp.size() - 2);
+            sort_tmp.push_back(last_chunk_last_tx);
+        }
+//        std::cerr << "POSTLIN: PROC " << i << ": CHUNKS " << sort_tmp << std::endl;
+        // Update the next_chunk indices, making each in sort_tmp point to the next one.
+        for (unsigned j = 1; j < sort_tmp.size(); ++j) {
+            state[sort_tmp[j - 1]].next_chunk = sort_tmp[j];
+        }
+        state[sort_tmp.back()].next_chunk = sort_tmp[0];
+        // Make sort_tmp[0] (last tx of best chunk) the root, so it can be used to locate the other chunks.
+        make_root_fn(sort_tmp[0]);
     }
+    // Find the set of roots (each corresponds to a connected component; if the cluster is connected, only 1).
     S roots;
-    for (unsigned i : lin) roots.Set(find_fn(i));
+    for (unsigned i : linearization) roots.Set(find_fn(i));
+    // Put into sort_tmp the indices of the last tx in each chunk of the component.
     sort_tmp.clear();
-    for (auto root : roots) sort_tmp.push_back(root);
-    std::sort(sort_tmp.begin(), sort_tmp.end(), cmp_fn);
-    unsigned out = 0;
-//    std::cerr << "POSTLIN ROOTS: " << roots << std::endl;
-    for (unsigned idx = 0; idx < sort_tmp.size(); ++idx) {
-        unsigned start = state[sort_tmp[idx]].next;
-        unsigned walk = start;
+//    std::cerr << "POSTLIN: ROOTS " << roots << std::endl;
+    for (auto root : roots) {
+        unsigned walk = root;
         do {
-            lin[out++] = walk;
-            walk = state[walk].next;
-        } while (walk != start);
+//            std::cerr << "POSTLIN: ROOT " << root << ": CHUNK " << walk << std::endl;
+            sort_tmp.push_back(walk);
+            walk = state[walk].next_chunk;
+        } while (walk != root);
     }
+    // If there is more than one component, re-sort the chunks.
+    if (roots.Count() > 1) {
+        std::sort(sort_tmp.begin(), sort_tmp.end(), cmp_fn);
+    }
+//    std::cerr << "POSTLIN: FINAL CHUNKS " << sort_tmp << std::endl;
+    unsigned out = 0;
+    // Iterate over all chunks.
+    for (unsigned idx = 0; idx < sort_tmp.size(); ++idx) {
+        unsigned first_tx = state[sort_tmp[idx]].next_tx;
+        unsigned walk_tx = first_tx;
+//        std::cerr << "POSTLIN: CHUNK " << first_tx << " - " << sort_tmp[idx] << std::endl;
+        // Iterate over all transaction in that chunk.
+        do {
+            // Place them in linearization, overwriting the input.
+            linearization[out++] = walk_tx;
+            walk_tx = state[walk_tx].next_tx;
+        } while (walk_tx != first_tx);
+    }
+//    std::cerr << "POSTLIN: END" << std::endl;
 }
 
 template<typename S>

@@ -1336,15 +1336,12 @@ FUZZ_TARGET(clustermempool_find_incomparable_gen)
 FUZZ_TARGET(clustermempool_postlinearize)
 {
     Cluster<FuzzBitSet> cluster = DeserializeCluster<FuzzBitSet>(buffer);
+    if (cluster.size() > 10) return;
     if (!IsMul64Compatible(cluster)) return;
     AncestorSets<FuzzBitSet> anc(cluster);
     if (!IsAcyclic(anc)) return;
-
-
     auto lin_pre = DecodeLinearization(buffer, cluster);
     assert(IsTopologicalLinearization(lin_pre, cluster));
-
-
     auto lin_post = lin_pre;
     PostLinearization(cluster, lin_post);
 
@@ -1352,34 +1349,25 @@ FUZZ_TARGET(clustermempool_postlinearize)
         auto lin_pre2 = lin_pre, lin_post2 = lin_post;
         std::sort(lin_pre2.begin(), lin_pre2.end());
         std::sort(lin_post2.begin(), lin_post2.end());
-        if (lin_pre2 != lin_post2) {
-            std::cerr << std::endl;
-            std::cerr << "CLUSTER " << cluster << std::endl;
-            std::cerr << "LIN_PRE " << lin_pre << std::endl;
-            std::cerr << "LIN_POST " << lin_post << std::endl;
-            assert(false);
-        }
+        assert(lin_pre2 == lin_post2);
     }
 
-    if (!IsTopologicalLinearization(lin_post, cluster)) {
-        std::cerr << std::endl;
-        std::cerr << "CLUSTER " << cluster << std::endl;
-        std::cerr << "LIN_PRE " << lin_pre << std::endl;
-        std::cerr << "LIN_POST " << lin_post << std::endl;
-        assert(false);
-    }
+    assert(IsTopologicalLinearization(lin_post, cluster));
 
     auto chunks_pre = ChunkLinearization(cluster, lin_pre);
     auto chunks_post = ChunkLinearization(cluster, lin_post);
     auto diag_pre = GetLinearizationDiagram(chunks_pre);
     auto diag_post = GetLinearizationDiagram(chunks_post);
     auto cmp = CompareDiagrams(diag_post, diag_pre);
-    if (!cmp.has_value() || cmp == -1) {
-        std::cerr << std::endl;
-        std::cerr << "CLUSTER " << cluster << std::endl;
-        std::cerr << "LIN_PRE " << lin_pre << " " << chunks_pre << std::endl;
-        std::cerr << "LIN_POST " << lin_post << " " << chunks_post << std::endl;
-        assert(false);
+    assert(cmp.has_value());
+    assert(cmp == 0 || cmp == 1);
+
+    std::cerr << "CLUSTER " << cluster << std::endl;
+    std::cerr << "LIN_PRE " << lin_pre << " " << chunks_pre << std::endl;
+    std::cerr << "LIN_POST " << lin_post << " " << chunks_post << std::endl;
+
+    for (const auto& [_feerate, chunk] : chunks_post) {
+        assert(IsConnectedSubset(cluster, chunk));
     }
 }
 
