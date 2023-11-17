@@ -1147,6 +1147,11 @@ FUZZ_TARGET(clustermempool_postlinearize)
     auto lin_post = lin_pre;
     PostLinearization(cluster, lin_post);
     assert(IsTopologicalLinearization(lin_post, cluster));
+    uint64_t swaps = 0;
+    auto lin_postpost = lin_post;
+    PostLinearization(cluster, lin_postpost, &swaps);
+    assert(lin_postpost == lin_post);
+    assert(swaps == 0);
 
     {
         auto lin_pre2 = lin_pre, lin_post2 = lin_post;
