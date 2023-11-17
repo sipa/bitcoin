@@ -1169,38 +1169,9 @@ FUZZ_TARGET(clustermempool_postlinearize)
     for (const auto& [_feerate, chunk] : chunks_post) {
         assert(IsConnectedSubset(cluster, chunk));
     }
-
-    auto chunks_fancy = ChunkLinearizationFancy(cluster, lin_pre);
-    assert(chunks_fancy == chunks_post);
 }
 
-FUZZ_TARGET(clustermempool_fancychunk)
-{
-    Cluster<FuzzBitSet> cluster = DeserializeCluster<FuzzBitSet>(buffer);
-    if (cluster.size() > 10) return;
-    if (!IsMul64Compatible(cluster)) return;
-    AncestorSets<FuzzBitSet> anc(cluster);
-    if (!IsAcyclic(anc)) return;
-    auto lin = DecodeLinearization(buffer, cluster);
-    assert(IsTopologicalLinearization(lin, cluster));
-
-    auto chunks_old = ChunkLinearization(cluster, lin);
-    VerifyChunking(chunks_old, cluster);
-    auto chunks_new = ChunkLinearizationFancy(cluster, lin);
-    VerifyChunking(chunks_new, cluster);
-
-    auto diag_old = GetLinearizationDiagram(chunks_old);
-    auto diag_new = GetLinearizationDiagram(chunks_new);
-    auto cmp = CompareDiagrams(diag_new, diag_old);
-    assert(cmp.has_value());
-    assert(cmp == 0 || cmp == 1);
-
-    for (const auto& [_feerate, chunk] : chunks_new) {
-        assert(IsConnectedSubset(cluster, chunk));
-    }
-}
-
-FUZZ_TARGET(clustermempool_fancychunk_maxswaps)
+FUZZ_TARGET(clustermempool_postlinearize_maxswaps)
 {
     auto buffer_old = buffer;
     Cluster<FuzzBitSet> cluster = DeserializeCluster<FuzzBitSet>(buffer);
@@ -1212,8 +1183,11 @@ FUZZ_TARGET(clustermempool_fancychunk_maxswaps)
     if (!IsConnectedSubset(cluster, all)) return;
 
     auto lin = LinearizeCluster(cluster, 0, 0).linearization;
+    assert(IsTopologicalLinearization(lin, cluster));
     uint64_t swaps = 0;
-    auto chunks = ChunkLinearizationFancy(cluster, lin, &swaps);
+    PostLinearization(cluster, lin, &swaps);
+    assert(IsTopologicalLinearization(lin, cluster));
+    auto chunks = ChunkLinearization(cluster, lin);
     VerifyChunking(chunks, cluster);
 
     for (const auto& [_feerate, chunk] : chunks) {
