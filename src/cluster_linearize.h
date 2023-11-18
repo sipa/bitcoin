@@ -1018,12 +1018,12 @@ std::vector<unsigned> MergeLinearizations(const Cluster<S>& cluster, Span<const 
 {
     std::vector<unsigned> ret;
     ret.reserve(std::max(lin1.size(), lin2.size()));
-    S done;
+    S todo = S::Fill(cluster.size());
 
     auto next_chunk_fn = [&](Span<const unsigned> lin) -> std::pair<S, FeeFrac> {
         std::pair<S, FeeFrac> run, best;
         for (unsigned i : lin) {
-            if (done[i]) continue;
+            if (!todo[i]) continue;
             run.first.Set(i);
             run.second += cluster[i].first;
             if (best.first.None() || run.second >> best.second) best = run;
@@ -1031,28 +1031,49 @@ std::vector<unsigned> MergeLinearizations(const Cluster<S>& cluster, Span<const 
         return best;
     };
 
-    while (true) {
+    while (todo.Any()) {
         const auto ret1 = next_chunk_fn(lin1);
         const auto ret2 = next_chunk_fn(lin2);
-        if (ret1.first.None() && ret2.first.None()) break;
-        auto rets = (ret2.first.Any() && (ret1.first.None() || ret2.second > ret1.second)) ? ret2 : ret1;
-        S chunk3 = ret1.first & ret2.first;
-        if (chunk3.Any() && ret1.first != chunk3 && ret2.first != chunk3) {
-            FeeFrac feerate3 = ComputeSetFeeFrac(cluster, chunk3);
-            if (feerate3 > rets.second) rets = {chunk3, feerate3};
+        assert(ret1.first.Any());
+        assert(ret2.first.Any());
+        auto retb = (ret2.second > ret1.second) ? ret2 : ret1;
+        {
+            S walk;
+            FeeFrac walkrate;
+            for (unsigned i : lin2) {
+                if (ret1.first[i]) {
+                    walk.Set(i);
+                    if (walk == ret1.first) break;
+                    walkrate += cluster[i].first;
+                    if (walkrate > retb.second) {
+                        retb.first = walk;
+                        retb.second = walkrate;
+                    }
+                }
+            }
         }
-        S chunk4 = ret1.first | ret2.first;
-        if (ret1.first != chunk4 && ret2.first != chunk4) {
-            FeeFrac feerate4 = ComputeSetFeeFrac(cluster, chunk4);
-            if (feerate4 > rets.second) rets = {chunk4, feerate4};
+        {
+            S walk;
+            FeeFrac walkrate;
+            for (unsigned i : lin1) {
+                if (ret2.first[i]) {
+                    walk.Set(i);
+                    if (walk == ret2.first) break;
+                    walkrate += cluster[i].first;
+                    if (walkrate > retb.second) {
+                        retb.first = walk;
+                        retb.second = walkrate;
+                    }
+                }
+            }
         }
-        assert(rets.first.Any());
+        assert(retb.first.Any());
         size_t old_len = ret.size();
-        done |= rets.first;
-        for (auto i : rets.first) {
+        todo /= retb.first;
+        for (auto i : retb.first) {
             ret.push_back(i);
         }
-        std::sort(ret.begin() + old_len, ret.end(), [&](unsigned a, unsigned b) { return anc[a].Size() < anc[b].Size(); });
+        std::sort(ret.begin() + old_len, ret.end(), [&](unsigned a, unsigned b) { return anc[a].Count() < anc[b].Count(); });
     }
     return ret;
 }

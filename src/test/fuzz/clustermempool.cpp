@@ -1209,25 +1209,21 @@ FUZZ_TARGET(clustermempool_postlinearize_maxswaps)
     }
 }
 
-FUZZ_TARGET(clustermempool_postlinearize_incomparable)
+FUZZ_TARGET(clustermempool_merge_supremacy)
 {
     Cluster<FuzzBitSet> cluster = DeserializeCluster<FuzzBitSet>(buffer);
-    if (cluster.size() > 5) return;
+    if (cluster.size() > 24) return;
     if (!IsMul64Compatible(cluster)) return;
     AncestorSets<FuzzBitSet> anc(cluster);
     if (!IsAcyclic(anc)) return;
 
     auto lin1 = DecodeLinearization(buffer, cluster);
     assert(IsTopologicalLinearization(lin1, cluster));
-    PostLinearization(cluster, lin1);
-    assert(IsTopologicalLinearization(lin1, cluster));
     auto chunk1 = ChunkLinearization(cluster, lin1);
     VerifyChunking(chunk1, cluster);
     auto diag1 = GetLinearizationDiagram(chunk1);
 
     auto lin2 = DecodeLinearization(buffer, cluster);
-    assert(IsTopologicalLinearization(lin2, cluster));
-    PostLinearization(cluster, lin2);
     assert(IsTopologicalLinearization(lin2, cluster));
     auto chunk2 = ChunkLinearization(cluster, lin2);
     VerifyChunking(chunk2, cluster);
@@ -1237,8 +1233,6 @@ FUZZ_TARGET(clustermempool_postlinearize_incomparable)
     if (cmp12.has_value()) return;
 
     auto linm = MergeLinearizations(cluster, lin1, lin2, anc);
-    assert(IsTopologicalLinearization(linm, cluster));
-    PostLinearization(cluster, linm);
     assert(IsTopologicalLinearization(linm, cluster));
     auto chunkm = ChunkLinearization(cluster, linm);
     VerifyChunking(chunkm, cluster);
@@ -1254,8 +1248,6 @@ FUZZ_TARGET(clustermempool_postlinearize_incomparable)
         std::cerr << "LIN2 " << lin2 << " " << chunk2 << std::endl;
         std::cerr << "LINM " << lin2 << " " << chunkm << std::endl;
         auto lino = LinearizeCluster(cluster, 0, 0).linearization;
-        assert(IsTopologicalLinearization(lino, cluster));
-        PostLinearization(cluster, lino);
         assert(IsTopologicalLinearization(lino, cluster));
         auto chunko = ChunkLinearization(cluster, lino);
         VerifyChunking(chunko, cluster);
