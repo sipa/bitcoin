@@ -1246,12 +1246,12 @@ FUZZ_TARGET(clustermempool_merge_supremacy)
         std::cerr << "CLUSTER " << cluster << std::endl;
         std::cerr << "LIN1 " << lin1 << " " << chunk1 << std::endl;
         std::cerr << "LIN2 " << lin2 << " " << chunk2 << std::endl;
-        std::cerr << "LINM " << lin2 << " " << chunkm << std::endl;
-        auto lino = LinearizeCluster(cluster, 0, 0).linearization;
+        std::cerr << "LINM " << linm << " " << chunkm << std::endl;
+        auto lino = LinearizeCluster(cluster, 20, 0).linearization;
         assert(IsTopologicalLinearization(lino, cluster));
         auto chunko = ChunkLinearization(cluster, lino);
         VerifyChunking(chunko, cluster);
-        std::cerr << "LINO " << lin2 << " " << chunko << std::endl;
+        std::cerr << "LINO " << lino << " " << chunko << std::endl;
     }
     assert(cmpm1.has_value());
     assert(cmpm2.has_value());
