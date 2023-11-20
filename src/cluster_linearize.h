@@ -1043,8 +1043,8 @@ std::vector<unsigned> MergeLinearizations(const Cluster<S>& cluster, Span<const 
             for (unsigned i : lin2) {
                 if (ret1.first[i]) {
                     walk.Set(i);
-                    if (walk == ret1.first) break;
                     walkrate += cluster[i].first;
+                    if (walkrate.size >= ret1.second.size) break;
                     if (walkrate > retb.second) {
                         retb.first = walk;
                         retb.second = walkrate;
@@ -1058,8 +1058,8 @@ std::vector<unsigned> MergeLinearizations(const Cluster<S>& cluster, Span<const 
             for (unsigned i : lin1) {
                 if (ret2.first[i]) {
                     walk.Set(i);
-                    if (walk == ret2.first) break;
                     walkrate += cluster[i].first;
+                    if (walkrate.size >= ret2.second.size) break;
                     if (walkrate > retb.second) {
                         retb.first = walk;
                         retb.second = walkrate;
