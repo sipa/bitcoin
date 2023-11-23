@@ -1036,7 +1036,7 @@ std::vector<unsigned> MergeLinearizations(const Cluster<S>& cluster, Span<const 
         const auto ret2 = next_chunk_fn(lin2);
         assert(ret1.first.Any());
         assert(ret2.first.Any());
-        auto retb = (ret2.second > ret1.second) ? ret2 : ret1;
+        std::pair<S, FeeFrac> retb;
         {
             S walk;
             FeeFrac walkrate;
@@ -1044,11 +1044,11 @@ std::vector<unsigned> MergeLinearizations(const Cluster<S>& cluster, Span<const 
                 if (ret1.first[i]) {
                     walk.Set(i);
                     walkrate += cluster[i].first;
-                    if (walkrate.size >= ret1.second.size) break;
-                    if (walkrate > retb.second) {
+                    if (retb.second.size == 0 || walkrate > retb.second) {
                         retb.first = walk;
                         retb.second = walkrate;
                     }
+                    if (walkrate.size >= ret1.second.size) break;
                 }
             }
         }
@@ -1059,11 +1059,11 @@ std::vector<unsigned> MergeLinearizations(const Cluster<S>& cluster, Span<const 
                 if (ret2.first[i]) {
                     walk.Set(i);
                     walkrate += cluster[i].first;
-                    if (walkrate.size >= ret2.second.size) break;
-                    if (walkrate > retb.second) {
+                    if (retb.second.size == 0 || walkrate > retb.second) {
                         retb.first = walk;
                         retb.second = walkrate;
                     }
+                    if (walkrate.size >= ret2.second.size) break;
                 }
             }
         }
