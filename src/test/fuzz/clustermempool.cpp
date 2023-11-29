@@ -1211,52 +1211,52 @@ FUZZ_TARGET(clustermempool_postlinearize_maxswaps)
 
 FUZZ_TARGET(clustermempool_merge_supremacy)
 {
+    // Verify that MergeLinearizations produces a linearization that is at least as good as both
+    // inputs. If the inputs are incomparable, verify that the result is strictly better than both
+    // inputs.
+
+    // Construct a cluster (not necessarily connected)
     Cluster<FuzzBitSet> cluster = DeserializeCluster<FuzzBitSet>(buffer);
     if (cluster.size() > 24) return;
     if (!IsMul64Compatible(cluster)) return;
     AncestorSets<FuzzBitSet> anc(cluster);
     if (!IsAcyclic(anc)) return;
 
+    // Construct a valid linearization for it and compute its diagram.
     auto lin1 = DecodeLinearization(buffer, cluster);
     assert(IsTopologicalLinearization(lin1, cluster));
     auto chunk1 = ChunkLinearization(cluster, lin1);
     VerifyChunking(chunk1, cluster);
     auto diag1 = GetLinearizationDiagram(chunk1);
 
+    // Construct a second valid linearization for it and compute its diagram.
     auto lin2 = DecodeLinearization(buffer, cluster);
     assert(IsTopologicalLinearization(lin2, cluster));
     auto chunk2 = ChunkLinearization(cluster, lin2);
     VerifyChunking(chunk2, cluster);
     auto diag2 = GetLinearizationDiagram(chunk2);
 
+    // Compare the diagrams.
     auto cmp12 = CompareDiagrams(diag1, diag2);
-    if (cmp12.has_value()) return;
 
-    auto linm = MergeLinearizations(cluster, lin1, lin2, anc);
+    // Construct the merged linearization and compute its diagram.
+    auto linm = MergeLinearizations(cluster, lin1, lin2);
     assert(IsTopologicalLinearization(linm, cluster));
     auto chunkm = ChunkLinearization(cluster, linm);
     VerifyChunking(chunkm, cluster);
     auto diagm = GetLinearizationDiagram(chunkm);
 
+    // Verify that the new diagram is at least as good as both inputs.
     auto cmpm1 = CompareDiagrams(diagm, diag1);
     auto cmpm2 = CompareDiagrams(diagm, diag2);
+    assert(cmpm1 >= 0);
+    assert(cmpm2 >= 0);
 
-    if (!cmpm1.has_value() || !cmpm2.has_value()) {
-        std::cerr << std::endl;
-        std::cerr << "CLUSTER " << cluster << std::endl;
-        std::cerr << "LIN1 " << lin1 << " " << chunk1 << std::endl;
-        std::cerr << "LIN2 " << lin2 << " " << chunk2 << std::endl;
-        std::cerr << "LINM " << linm << " " << chunkm << std::endl;
-        auto lino = LinearizeCluster(cluster, 20, 0).linearization;
-        assert(IsTopologicalLinearization(lino, cluster));
-        auto chunko = ChunkLinearization(cluster, lino);
-        VerifyChunking(chunko, cluster);
-        std::cerr << "LINO " << lino << " " << chunko << std::endl;
+    // If the inputs were incomparable, the result must be better than both inputs.
+    if (!cmp12.has_value()) {
+        assert(cmpm1 == 1);
+        assert(cmpm2 == 1);
     }
-    assert(cmpm1.has_value());
-    assert(cmpm2.has_value());
-    assert(cmpm1 == 0 || cmpm1 == 1);
-    assert(cmpm2 == 0 || cmpm2 == 1);
 }
 
 FUZZ_TARGET(clustermempool_gathering_theorem)

@@ -1013,68 +1013,108 @@ void PostLinearization(const Cluster<S>& cluster, std::vector<unsigned>& lineari
     if (swaps) *swaps = num_swaps;
 }
 
+/** Given two linearizations for the same cluster, return a new linearization that better or equal than both.
+ *
+ * The implemented algorithm is prefix-intersection merging, equivalent to:
+ * - While not all transactions are included:
+ *   - Find P1, the highest-feerate prefix of L1 (ignoring already included transactions).
+ *   - Find P2, the highest-feerate prefix of L2 (ignoring already included transactions).
+ *   - Reorder the P1 transactions in L1 according to the order they appear in in L2.
+ *   - Reorder the P2 transactions in L2 according to the order they appear in in L1.
+ *   - Find P1', the highest-feerate prefix of L1 (which will be a subset of P1).
+ *   - Find P2', the highest-feerate prefix of L2 (which will be a subset of P2).
+ *   - Include the transactions from the highest-feerate one out of P1' and P2'.
+ *
+ * Only transactions that appear in both linearizations will be in the output.
+ *
+ * For discussion, see https://delvingbitcoin.org/t/merging-incomparable-linearizations/209.
+ */
 template<typename S>
-std::vector<unsigned> MergeLinearizations(const Cluster<S>& cluster, Span<const unsigned> lin1, Span<const unsigned> lin2, const AncestorSets<S>& anc)
+std::vector<unsigned> MergeLinearizations(const Cluster<S>& cluster, Span<const unsigned> lin1, Span<const unsigned> lin2)
 {
     std::vector<unsigned> ret;
-    ret.reserve(std::max(lin1.size(), lin2.size()));
-    S todo = S::Fill(cluster.size());
+    ret.reserve(std::min(lin1.size(), lin2.size()));
+    /** Indices within cluster that are done. */
+    S done;
+    /** Indices within lin1 (not within cluster!) that are still todo. */
+    S todo1 = S::Fill(lin1.size());
+    /** Indices within lin2 (not within cluster!) that are still todo. */
+    S todo2 = S::Fill(lin2.size());
 
-    auto next_chunk_fn = [&](Span<const unsigned> lin) -> std::pair<S, FeeFrac> {
-        std::pair<S, FeeFrac> run, best;
-        for (unsigned i : lin) {
-            if (!todo[i]) continue;
-            run.first.Set(i);
-            run.second += cluster[i].first;
-            if (best.first.None() || run.second >> best.second) best = run;
+    /** Find the prefix of lin that has the highest feerate (also update todo). */
+    auto first_chunk = [&](Span<const unsigned> lin, S& todo) -> S {
+        FeeFrac sum, best_sum;
+        S set, best_set;
+        S new_todo = todo;
+        // Iterate over the remaining positions in lin (note that todo can be out of date).
+        for (unsigned i : todo) {
+            // Find the index into cluster for that position.
+            unsigned idx = lin[i];
+            // If that index has since been included, update todo, and skip it.
+            if (done[idx]) {
+                new_todo.Reset(i);
+                continue;
+            }
+            // Update running sum/set of unincluded prefixes.
+            sum += cluster[idx].first;
+            set.Set(idx);
+            // If this is a new best sum, remember it.
+            if (best_sum.IsEmpty() || sum >> best_sum) {
+                best_sum = sum;
+                best_set = set;
+            }
         }
-        return best;
+        // Remember the updated todo, and return the best set of cluster indices we found.
+        todo = new_todo;
+        return best_set;
     };
 
-    while (todo.Any()) {
-        const auto ret1 = next_chunk_fn(lin1);
-        const auto ret2 = next_chunk_fn(lin2);
-        assert(ret1.first.Any());
-        assert(ret2.first.Any());
-        std::pair<S, FeeFrac> retb;
-        {
-            S walk;
-            FeeFrac walkrate;
-            for (unsigned i : lin2) {
-                if (ret1.first[i]) {
-                    walk.Set(i);
-                    walkrate += cluster[i].first;
-                    if (retb.second.size == 0 || walkrate > retb.second) {
-                        retb.first = walk;
-                        retb.second = walkrate;
-                    }
-                    if (walkrate.size >= ret1.second.size) break;
+    /** Find the highest-feerate prefix of lin, restricted to indices in filter. */
+    auto best_subset = [&](Span<const unsigned> lin, const S& todo, const S& filter) -> std::tuple<S, S, FeeFrac> {
+        FeeFrac sum, best_sum;
+        S set, best_set, select, best_select;
+        // Iterate over the unincluded positions in lin (todo is necessarily up to date here).
+        for (unsigned i : todo) {
+            unsigned idx = lin[i];
+            // If the cluster index in that position is in the filter, process it.
+            if (filter[idx]) {
+                // Update running sum/set/select (set contains cluster indices, select lin indices).
+                sum += cluster[idx].first;
+                set.Set(idx);
+                select.Set(i);
+                // If this is a new best sum, remember it.
+                if (best_sum.IsEmpty() || sum >> best_sum) {
+                    best_sum = sum;
+                    best_set = set;
+                    best_select = select;
                 }
+                // Optimization: if all filter entries have been processed, nothing more can be added.
+                if (set == filter) break;
             }
         }
-        {
-            S walk;
-            FeeFrac walkrate;
-            for (unsigned i : lin1) {
-                if (ret2.first[i]) {
-                    walk.Set(i);
-                    walkrate += cluster[i].first;
-                    if (retb.second.size == 0 || walkrate > retb.second) {
-                        retb.first = walk;
-                        retb.second = walkrate;
-                    }
-                    if (walkrate.size >= ret2.second.size) break;
-                }
-            }
+        // Return the best lin indices, cluster indices, and resulting feerate.
+        return {best_select, best_set, best_sum};
+    };
+
+    while (todo1.Any() && todo2.Any()) {
+        // Find best prefix in both linearizations.
+        auto chunk1 = first_chunk(lin1, todo1);
+        auto chunk2 = first_chunk(lin2, todo2);
+        // Find best prefix in both linearizations restricted to the other's best prefix.
+        auto [select1, best1, feerate1] = best_subset(lin1, todo1, chunk2);
+        auto [select2, best2, feerate2] = best_subset(lin2, todo2, chunk1);
+        // Find the better one of best1 and best2, and include its transactions in the output.
+        // By using the indirection through select[12] (which contains indices into lin[12]), we
+        // can retain the (necessarily topological) ordering the transactions had in lin[12].
+        if (feerate1 >= feerate2) {
+            done |= best1;
+            for (unsigned i : select1) ret.push_back(lin1[i]);
+        } else {
+            done |= best2;
+            for (unsigned i : select2) ret.push_back(lin2[i]);
         }
-        assert(retb.first.Any());
-        size_t old_len = ret.size();
-        todo /= retb.first;
-        for (auto i : retb.first) {
-            ret.push_back(i);
-        }
-        std::sort(ret.begin() + old_len, ret.end(), [&](unsigned a, unsigned b) { return anc[a].Count() < anc[b].Count(); });
     }
+
     return ret;
 }
 
