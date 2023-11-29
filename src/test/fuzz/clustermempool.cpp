@@ -1338,3 +1338,85 @@ FUZZ_TARGET(clustermempool_gathering_theorem)
     // Require the final diagram to be at least as good as the pre-rechunked one.
     assert(CompareDiagrams(diagnew, diagpre) >= 0);
 }
+
+FUZZ_TARGET(clustermempool_minimal_nonoptimal_postancestor)
+{
+    // Construct a connected cluster.
+    Cluster<FuzzBitSet> cluster = DeserializeCluster<FuzzBitSet>(buffer);
+    for (auto& [feefrac, _parents] : cluster) {
+        feefrac.size = 1;
+        feefrac.fee = 1 + (feefrac.fee % 5);
+    }
+    if (cluster.size() > 5) return;
+    if (!IsMul64Compatible(cluster)) return;
+    AncestorSets<FuzzBitSet> anc(cluster);
+    if (!IsAcyclic(anc)) return;
+    if (!IsConnectedSubset(cluster, FuzzBitSet::Fill(cluster.size()))) return;
+
+    // Construct optimal linearization and its diagram.
+    auto lin_opt = LinearizeCluster(cluster, 20, 0).linearization;
+    auto chunk_opt = ChunkLinearization(cluster, lin_opt);
+    auto diag_opt = GetLinearizationDiagram(chunk_opt);
+
+    // Construct post-processed ancestor sort linearization and its diagram.
+    auto lin_anc = LinearizeCluster(cluster, 0, 0).linearization;
+    PostLinearization(cluster, lin_anc);
+    auto chunk_anc = ChunkLinearization(cluster, lin_anc);
+    auto diag_anc = GetLinearizationDiagram(chunk_anc);
+
+    // Compare and assert equality.
+    auto cmp = CompareDiagrams(diag_opt, diag_anc);
+    assert(cmp >= 0); // Optimal is always at least as good, duh.
+
+    if (cmp > 0) {
+        std::cerr << "CLUSTER " << cluster << std::endl;
+        std::cerr << "OPT " << lin_opt << ": " << chunk_opt << std::endl;
+        std::cerr << "ANC " << lin_anc << ": " << chunk_anc << std::endl;
+        assert(false);
+    }
+}
+
+FUZZ_TARGET(clustermempool_merge_own_postprocessing)
+{
+    // Verify that merging a linearization with its own postprocessed version is never
+    // an improvement over just the postprocessed version.
+
+    // Construct a connected cluster.
+    Cluster<FuzzBitSet> cluster = DeserializeCluster<FuzzBitSet>(buffer);
+    if (cluster.empty()) return;
+    if (cluster.size() > 10) return;
+    if (!IsMul64Compatible(cluster)) return;
+    AncestorSets<FuzzBitSet> anc(cluster);
+    if (!IsAcyclic(anc)) return;
+    if (!IsConnectedSubset(cluster, FuzzBitSet::Fill(cluster.size()))) return;
+
+    // Construct a valid linearization for it.
+    auto lin = DecodeLinearization(buffer, cluster);
+    assert(IsTopologicalLinearization(lin, cluster));
+
+    // Construct a post-processed copy of it.
+    auto lin_post = lin;
+    PostLinearization(cluster, lin_post);
+    assert(IsTopologicalLinearization(lin_post, cluster));
+    auto chunk_post = ChunkLinearization(cluster, lin_post);
+    VerifyChunking(chunk_post, cluster);
+    auto diag_post = GetLinearizationDiagram(chunk_post);
+
+    // Construct the merge of the two.
+    auto lin_merge = MergeLinearizations(cluster, lin, lin_post);
+    assert(IsTopologicalLinearization(lin_merge, cluster));
+    auto chunk_merge = ChunkLinearization(cluster, lin_merge);
+    VerifyChunking(chunk_merge, cluster);
+    auto diag_merge = GetLinearizationDiagram(chunk_merge);
+
+    auto cmp = CompareDiagrams(diag_merge, diag_post);
+    assert(cmp >= 0);
+
+    if (cmp != 0) {
+        std::cerr << "CLUSTER " << cluster << std::endl;
+        std::cerr << "LIN " << lin << std::endl;
+        std::cerr << "POST " << lin_post << " " << chunk_post << std::endl;
+        std::cerr << "MERGE " << lin_merge << ": " << chunk_merge << std::endl;
+        assert(false);
+    }
+}
