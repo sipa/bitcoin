@@ -1258,3 +1258,83 @@ FUZZ_TARGET(clustermempool_merge_supremacy)
     assert(cmpm1 == 0 || cmpm1 == 1);
     assert(cmpm2 == 0 || cmpm2 == 1);
 }
+
+FUZZ_TARGET(clustermempool_gathering_theorem)
+{
+    // Test the following:
+    //
+    // * Given a linearization L, and a subset G of "good" transactions in L.
+    // * max_chunk_feerate(L) <= min_chunk_feerate(L intersect G)
+    //
+    // Then moving G to the front does not worsen the diagram.
+    //
+    // Furthermore, the diagram obtained by starting with all chunk prefixes,
+    // and adding all good transactions to each (but not rechunking) is:
+    // * Better or equal than the original linearization's diagram
+    // * Worse or equal to the chunking of moving G to the front's diagram.
+
+    // Construct a cluster (without dependency information)
+    Cluster<FuzzBitSet> cluster;
+    while (cluster.size() <= 20) {
+        uint32_t size = DeserializeNumberBase128(buffer) & 0x3fffff;
+        if (size == 0) break;
+        uint64_t fee = DeserializeNumberBase128(buffer) & 0x7ffffffffffff;
+        cluster.resize(cluster.size() + 1);
+        cluster.back().first.size = size;
+        cluster.back().first.fee = fee;
+    }
+    if (!IsMul64Compatible(cluster)) return;
+
+    // The initial linearization of all its transactions (just use cluster order).
+    std::vector<unsigned> lin(cluster.size());
+    std::iota(lin.begin(), lin.end(), 0);
+    // The chunking and diagram of that linearization.
+    auto chunk = ChunkLinearization(cluster, lin);
+    auto diag = GetLinearizationDiagram(chunk);
+
+    // Generate some subset "good".
+    FuzzBitSet good;
+    std::vector<unsigned> lingood;
+    for (unsigned i = 0; i < cluster.size(); ++i) {
+        if (DeserializeNumberBase128(buffer) & 1) {
+            lingood.push_back(i);
+            good.Set(i);
+        }
+    }
+    // Which must be non-empty.
+    if (lingood.size() == 0) return;
+    // Its worst chunk feerate must not be below the best of the initial linearization.
+    auto goodchunk = ChunkLinearization(cluster, lingood);
+    if (goodchunk.back().first << chunk.front().first) return;
+
+    // Construct the full new linearization.
+    std::vector<unsigned> linnew;
+    for (unsigned i = 0; i < cluster.size(); ++i) {
+        if (good[i]) linnew.push_back(i);
+    }
+    for (unsigned i = 0; i < cluster.size(); ++i) {
+        if (!good[i]) linnew.push_back(i);
+    }
+    auto chunknew = ChunkLinearization(cluster, linnew);
+    auto diagnew = GetLinearizationDiagram(chunknew);
+    // Require it to be at least as good as the origin linearization.
+    assert(CompareDiagrams(diagnew, diag) >= 0);
+
+    // Construct the diagram with just the original chunks, but good added to
+    // each. Note that this isn't the same as the new diagram, because no
+    // rechunking was involved.
+    std::vector<FeeFrac> diagpre;
+    diagpre.push_back(FeeFrac{});
+    FuzzBitSet precomb = good;
+    diagpre.push_back(ComputeSetFeeFrac(cluster, precomb));
+    for (const auto& [_feefrac, chunk] : chunk) {
+        precomb |= chunk;
+        diagpre.push_back(ComputeSetFeeFrac(cluster, precomb));
+    }
+    assert(precomb == FuzzBitSet::Fill(cluster.size()));
+
+    // Require this pre-rechunked diagram to be at least as good as the original.
+    assert(CompareDiagrams(diagpre, diag) >= 0);
+    // Require the final diagram to be at least as good as the pre-rechunked one.
+    assert(CompareDiagrams(diagnew, diagpre) >= 0);
+}
