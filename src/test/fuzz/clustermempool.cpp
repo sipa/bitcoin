@@ -261,11 +261,11 @@ S DecodeAfter(Span<const unsigned char>& data, const DescendantSets<S>& descs, c
 }
 
 template<typename S>
-std::vector<unsigned> DecodeLinearization(Span<const unsigned char>& data, const Cluster<S>& cluster)
+std::vector<unsigned> DecodeLinearization(Span<const unsigned char>& data, const Cluster<S>& cluster, std::vector<unsigned> ret = {})
 {
     S done;
-    std::vector<unsigned> ret(cluster.size());
-    for (unsigned i = 0; i < cluster.size(); ++i) {
+    for (unsigned i : ret) done.Set(i);
+    while (ret.size() < cluster.size()) {
         S accept;
         for (unsigned j = 0; j < cluster.size(); ++j) {
             if (!done[j] && (done >> cluster[j].second)) accept.Set(j);
@@ -274,7 +274,7 @@ std::vector<unsigned> DecodeLinearization(Span<const unsigned char>& data, const
         unsigned idx = DeserializeNumberBase128(data) % accept.Count();
         for (auto j : accept) {
             if (idx == 0) {
-                ret[i] = j;
+                ret.push_back(j);
                 done.Set(j);
                 break;
             }
@@ -1418,5 +1418,61 @@ FUZZ_TARGET(clustermempool_merge_own_postprocessing)
         std::cerr << "POST " << lin_post << " " << chunk_post << std::endl;
         std::cerr << "MERGE " << lin_merge << ": " << chunk_merge << std::endl;
         assert(false);
+    }
+}
+
+FUZZ_TARGET(clustermempool_linearization_stripping_theorem)
+{
+    // Construct a cluster.
+    Cluster<FuzzBitSet> cluster = DeserializeCluster<FuzzBitSet>(buffer);
+    if (cluster.size() <= 1) return;
+    if (cluster.size() > 20) return;
+    if (!IsMul64Compatible(cluster)) return;
+    AncestorSets<FuzzBitSet> anc(cluster);
+    if (!IsAcyclic(anc)) return;
+
+    // Construct a valid linearization for it.
+    auto lin1 = DecodeLinearization(buffer, cluster);
+    assert(IsTopologicalLinearization(lin1, cluster));
+    auto chunk1 = ChunkLinearization(cluster, lin1);
+    VerifyChunking(chunk1, cluster);
+    auto diag1 = GetLinearizationDiagram(chunk1);
+
+    // Determine the length of a prefix to reuse.
+    unsigned prefix_len = 1 + (DeserializeNumberBase128(buffer) % (lin1.size() - 1));
+    assert(prefix_len > 0);
+    assert(prefix_len < lin1.size());
+
+    // Construct another valid linearization for it, sharing the same prefix.
+    std::vector<unsigned> lin_prefix(lin1.begin(), lin1.begin() + prefix_len);
+    auto lin2 = DecodeLinearization(buffer, cluster, std::vector<unsigned>{lin1.begin(), lin1.begin() + prefix_len});
+    assert(IsTopologicalLinearization(lin2, cluster));
+    auto chunk2 = ChunkLinearization(cluster, lin2);
+    VerifyChunking(chunk2, cluster);
+    auto diag2 = GetLinearizationDiagram(chunk2);
+
+    // Verify prefix
+    assert(lin1.size() == cluster.size());
+    assert(lin2.size() == cluster.size());
+    for (unsigned i = 0; i < prefix_len; ++i) assert(lin1[i] == lin2[i]);
+
+    // Compare
+    auto cmp_full = CompareDiagrams(diag1, diag2);
+
+    // Construct the distinct suffices of the linearizations.
+    std::vector<unsigned> lin1suf{lin1.begin() + prefix_len, lin1.end()};
+    auto chunk1suf = ChunkLinearization(cluster, lin1suf);
+    auto diag1suf = GetLinearizationDiagram(chunk1suf);
+    std::vector<unsigned> lin2suf{lin2.begin() + prefix_len, lin2.end()};
+    auto chunk2suf = ChunkLinearization(cluster, lin2suf);
+    auto diag2suf = GetLinearizationDiagram(chunk2suf);
+
+    // Compare
+    auto cmp_suf = CompareDiagrams(diag1suf, diag2suf);
+
+    if (cmp_suf.has_value()) {
+        assert(cmp_full.has_value());
+        if (*cmp_suf >= 0) assert(*cmp_full >= 0);
+        if (*cmp_suf <= 0) assert(*cmp_full <= 0);
     }
 }
