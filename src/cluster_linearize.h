@@ -161,7 +161,7 @@ public:
     void Done(const Cluster<S>& cluster, const DescendantSets<S>& desc, const S& new_done) noexcept
     {
 #if DEBUG_LINEARIZE
-        assert((m_done & new_done).None());
+        assert(!(m_done && new_done));
 #endif
         m_done |= new_done;
         for (unsigned pos : new_done) {
@@ -705,7 +705,7 @@ LinearizationResult LinearizeCluster(const Cluster<S>& cluster, unsigned optimal
         // Sanity checks.
 #if DEBUG_LINEARIZE
         assert(analysis.best_candidate_set.Any()); // Must be at least one transaction
-        assert((analysis.best_candidate_set & (done | after)).None()); // Cannot overlap with processed ones.
+        assert(!(analysis.best_candidate_set && (done | after))); // Cannot overlap with processed ones.
 #endif
 
         // Update statistics.
@@ -974,7 +974,7 @@ void PostLinearization(const Cluster<S>& cluster, std::vector<unsigned>& lineari
             // If the previous chunk has higher or equal feerate, we are done.
             if (!(data[before_work].chunk_feerate << data[work].chunk_feerate)) break;
             // Check whether there is a dependency on the previous chunk.
-            if ((data[work].parents & data[before_work].chunk).Any()) {
+            if (data[work].parents && data[before_work].chunk) {
                 // There is a dependency; merge the chunk data.
                 data[before_work].chunk_feerate += data[work].chunk_feerate;
                 data[before_work].chunk |= data[work].chunk;

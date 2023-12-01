@@ -153,7 +153,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetNaive(const Cluster<S>& cluster, con
             }
         }
         // None of the already done transactions may be included again.
-        if (((done | after) & bitset).Any()) continue;
+        if ((done | after) && bitset) continue;
         // We only consider non-empty additions.
         if (bitset.None()) continue;
         // All dependencies have to be satisfied.
@@ -201,12 +201,12 @@ CandidateSetAnalysis<S> FindBestCandidateSetExhaustive(const Cluster<S>& cluster
             // Conditions:
             // - !inc[i]: we can't add anything already included
             // - !exc[i]: we can't add anything already excluded
-            // - (exc & anc[i]).IsEmpty(): ancestry of what we include cannot have excluded transactions
+            // - !(exc && anc[i]): ancestry of what we include cannot have excluded transactions
             // - inc_none || !(done >> (inc & anc[i])): either:
             //   - we're starting from an empty set (apart from done)
             //   - if not, the ancestry of what we add must overlap with what we already have, in
             //     not yet done transactions (to guarantee (inc / done) is always connected).
-            if (!inc[i] && !exc[i] && (exc & anc[i]).None() && (inc_none || !(done >> (inc & anc[i])))) {
+            if (!inc[i] && !exc[i] && !(exc && anc[i]) && (inc_none || !(done >> (inc & anc[i])))) {
                 // First, add a queue item with i added to exc. Inc is unchanged, so feefrac is
                 // unchanged as well.
                 auto new_exc = exc;
@@ -305,7 +305,7 @@ void VerifyChunking(const std::vector<std::pair<FeeFrac, S>>& chunking, const Cl
         // Chunk is non-empty.
         assert(chunk.Any());
         // No overlapping chunks.
-        assert((done & chunk).None()); 
+        assert(!(done && chunk));
         done |= chunk;
         // Monotonically decreasing feerates.
         if (prev_feerate.has_value()) assert(!(feerate >> *prev_feerate));

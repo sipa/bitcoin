@@ -22,6 +22,7 @@
  * - Efficient search for the first set bit (First()).
  * - Efficient set subtraction: (a / b) implements "a and not b".
  * - Efficient subset/superset testing: (a >> b) and (a << b).
+ * - Efficient set overlap testing: a && b
  * - Efficient construction of set containing 0..N-1 (S::Fill).
  *
  * Other differences:
@@ -210,6 +211,8 @@ public:
     IntBitSet& operator&=(const IntBitSet& a) noexcept { m_val &= a.m_val; return *this; }
     /** Set this object's bits to be the binary AND NOT between respective bits from this and a. */
     IntBitSet& operator/=(const IntBitSet& a) noexcept { m_val &= ~a.m_val; return *this; }
+    /** Check if the intersection between two sets is non-empty. */
+    friend bool operator&&(const IntBitSet& a, const IntBitSet& b) noexcept { return a.m_val & b.m_val; }
     /** Return an object with the binary AND between respective bits from a and b. */
     friend IntBitSet operator&(const IntBitSet& a, const IntBitSet& b) noexcept { return {I(a.m_val & b.m_val)}; }
     /** Return an object with the binary OR between respective bits from a and b. */
@@ -394,6 +397,14 @@ public:
             m_val[i] &= ~a.m_val[i];
         }
         return *this;
+    }
+    /** Check whether the intersection between two sets is non-empty. */
+    friend bool operator&&(const MultiIntBitSet& a, const MultiIntBitSet& b) noexcept
+    {
+        for (unsigned i = 0; i < N; ++i) {
+            if (a.m_val[i] & b.m_val[i]) return true;
+        }
+        return false;
     }
     /** Return an object with the binary AND between respective bits from a and b. */
     friend MultiIntBitSet operator&(const MultiIntBitSet& a, const MultiIntBitSet& b) noexcept
