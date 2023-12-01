@@ -927,7 +927,7 @@ std::vector<std::pair<FeeFrac, S>> ChunkLinearization(const Cluster<S>& cluster,
 }
 
 /** Given a cluster and a linearization for it, improve the linearization such that its chunks are
- *  all connected. It also results in decent sub-chunk ordering.
+ *  all connected. It may also result in improved sub-chunk ordering.
  *
  * O(n^2) in the size of the cluster in the worst case. If the input linearization is the output
  * of PostLinearization itself, runtime is O(n). */
@@ -1027,6 +1027,9 @@ void PostLinearization(const Cluster<S>& cluster, std::vector<unsigned>& lineari
  *
  * Only transactions that appear in both linearizations will be in the output.
  *
+ * Worst-case complexity is O(n^2) in the number of transactions, but merging identical
+ * linearizations is only O(n).
+ *
  * For discussion, see https://delvingbitcoin.org/t/merging-incomparable-linearizations/209.
  */
 template<typename S>
@@ -1040,6 +1043,23 @@ std::vector<unsigned> MergeLinearizations(const Cluster<S>& cluster, Span<const 
     S todo1 = S::Fill(lin1.size());
     /** Indices within lin2 (not within cluster!) that are still todo. */
     S todo2 = S::Fill(lin2.size());
+
+    /** Find the first remaining transaction in a linearization (also update todo). */
+    auto first_tx = [&](Span<const unsigned> lin, S& todo) -> std::pair<unsigned, unsigned> {
+        S new_todo = todo;
+        for (unsigned i : todo) {
+            // Find the index into cluster for that position.
+            unsigned idx = lin[i];
+            // If that index has not been included, return it;
+            if (!done[idx]) {
+                todo = new_todo;
+                return {idx, i};
+            }
+            // Otherwise remove it from todo.
+            new_todo.Reset(i);
+        }
+        return {(unsigned)(-1), 0};
+    };
 
     /** Find the prefix of lin that has the highest feerate (also update todo). */
     auto first_chunk = [&](Span<const unsigned> lin, S& todo) -> S {
@@ -1096,22 +1116,40 @@ std::vector<unsigned> MergeLinearizations(const Cluster<S>& cluster, Span<const 
         return {best_select, best_set, best_sum};
     };
 
-    while (todo1.Any() && todo2.Any()) {
-        // Find best prefix in both linearizations.
+    while (true) {
+        // Find the first remaining transaction in both linearizations.
+        auto [tx1, pos1] = first_tx(lin1, todo1);
+        auto [tx2, pos2] = first_tx(lin2, todo2);
+        // If either has run out, we're done.
+        if (tx1 == (unsigned)(-1) || tx2 == (unsigned)(-1)) break;
+        // As an optimization, see if those transactions are identical. If so, just copy it to the
+        // output directly.
+        if (tx1 == tx2) {
+            ret.push_back(tx1);
+            done.Set(tx1);
+            todo1.Reset(pos1);
+            todo2.Reset(pos2);
+            continue;
+        }
+        // If not, find best prefix in both linearizations.
         auto chunk1 = first_chunk(lin1, todo1);
         auto chunk2 = first_chunk(lin2, todo2);
-        // Find best prefix in both linearizations restricted to the other's best prefix.
+        // Find best prefix in both linearizations, when skipping transactions not in the other
+        // linearizations' first chunk.
         auto [select1, best1, feerate1] = best_subset(lin1, todo1, chunk2);
         auto [select2, best2, feerate2] = best_subset(lin2, todo2, chunk1);
         // Find the better one of best1 and best2, and include its transactions in the output.
         // By using the indirection through select[12] (which contains indices into lin[12]), we
-        // can retain the (necessarily topological) ordering the transactions had in lin[12].
+        // can retain the (necessarily topological) ordering the transactions had in the
+        // linearization they originate from.
         if (feerate1 >= feerate2) {
             done |= best1;
             for (unsigned i : select1) ret.push_back(lin1[i]);
+            todo1 /= select1;
         } else {
             done |= best2;
             for (unsigned i : select2) ret.push_back(lin2[i]);
+            todo2 /= select2;
         }
     }
 
