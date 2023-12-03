@@ -1017,13 +1017,11 @@ void PostLinearization(const Cluster<S>& cluster, std::vector<unsigned>& lineari
  *
  * The implemented algorithm is prefix-intersection merging, equivalent to:
  * - While not all transactions are included:
- *   - Find P1, the highest-feerate prefix of L1 (ignoring already included transactions).
- *   - Find P2, the highest-feerate prefix of L2 (ignoring already included transactions).
- *   - Reorder the P1 transactions in L1 according to the order they appear in in L2.
- *   - Reorder the P2 transactions in L2 according to the order they appear in in L1.
- *   - Find P1', the highest-feerate prefix of L1 (which will be a subset of P1).
- *   - Find P2', the highest-feerate prefix of L2 (which will be a subset of P2).
- *   - Include the transactions from the highest-feerate one out of P1' and P2'.
+ *   - Find P_1, the highest-feerate prefix of L_1 (ignoring already included transactions).
+ *   - Find P_2, the highest-feerate prefix of L_2 (ignoring already included transactions).
+ *   - Let i be such that P_i is the higher-feerate of the two.
+ *   - Find C, the highest-feerate prefix of the intersection between L_{3-i} with P_i.
+ *   - Include the transactions from C in the output, and start over.
  *
  * Only transactions that appear in both linearizations will be in the output.
  *
@@ -1062,7 +1060,7 @@ std::vector<unsigned> MergeLinearizations(const Cluster<S>& cluster, Span<const 
     };
 
     /** Find the prefix of lin that has the highest feerate (also update todo). */
-    auto first_chunk = [&](Span<const unsigned> lin, S& todo) -> S {
+    auto first_chunk = [&](Span<const unsigned> lin, S& todo) -> std::pair<S, FeeFrac> {
         FeeFrac sum, best_sum;
         S set, best_set;
         S new_todo = todo;
@@ -1086,11 +1084,11 @@ std::vector<unsigned> MergeLinearizations(const Cluster<S>& cluster, Span<const 
         }
         // Remember the updated todo, and return the best set of cluster indices we found.
         todo = new_todo;
-        return best_set;
+        return {best_set, best_sum};
     };
 
     /** Find the highest-feerate prefix of lin, restricted to indices in filter. */
-    auto best_subset = [&](Span<const unsigned> lin, const S& todo, const S& filter) -> std::tuple<S, S, FeeFrac> {
+    auto best_subset = [&](Span<const unsigned> lin, const S& todo, const S& filter) -> std::pair<S, S> {
         FeeFrac sum, best_sum;
         S set, best_set, select, best_select;
         // Iterate over the unincluded positions in lin (todo is necessarily up to date here).
@@ -1112,8 +1110,8 @@ std::vector<unsigned> MergeLinearizations(const Cluster<S>& cluster, Span<const 
                 if (set == filter) break;
             }
         }
-        // Return the best lin indices, cluster indices, and resulting feerate.
-        return {best_select, best_set, best_sum};
+        // Return the best lin indices and cluster indices.
+        return {best_select, best_set};
     };
 
     while (true) {
@@ -1132,24 +1130,21 @@ std::vector<unsigned> MergeLinearizations(const Cluster<S>& cluster, Span<const 
             continue;
         }
         // If not, find best prefix in both linearizations.
-        auto chunk1 = first_chunk(lin1, todo1);
-        auto chunk2 = first_chunk(lin2, todo2);
-        // Find best prefix in both linearizations, when skipping transactions not in the other
-        // linearizations' first chunk.
-        auto [select1, best1, feerate1] = best_subset(lin1, todo1, chunk2);
-        auto [select2, best2, feerate2] = best_subset(lin2, todo2, chunk1);
-        // Find the better one of best1 and best2, and include its transactions in the output.
-        // By using the indirection through select[12] (which contains indices into lin[12]), we
-        // can retain the (necessarily topological) ordering the transactions had in the
-        // linearization they originate from.
-        if (feerate1 >= feerate2) {
-            done |= best1;
-            for (unsigned i : select1) ret.push_back(lin1[i]);
-            todo1 /= select1;
+        auto [chunk1, feerate1] = first_chunk(lin1, todo1);
+        auto [chunk2, feerate2] = first_chunk(lin2, todo2);
+        // Find best prefix of the intersection of that prefix with the other linearization,
+        // and then include that. The indirection through select is used so that the output
+        // is in the order of the linearization it was taken from (which is always topological).
+        if (feerate2 >= feerate1) {
+            auto [select, best] = best_subset(lin1, todo1, chunk2);
+            done |= best;
+            for (unsigned i : select) ret.push_back(lin1[i]);
+            todo1 /= select;
         } else {
-            done |= best2;
-            for (unsigned i : select2) ret.push_back(lin2[i]);
-            todo2 /= select2;
+            auto [select, best] = best_subset(lin2, todo2, chunk1);
+            done |= best;
+            for (unsigned i : select) ret.push_back(lin2[i]);
+            todo2 /= select;
         }
     }
 
