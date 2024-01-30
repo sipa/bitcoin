@@ -132,6 +132,7 @@ BITCOIN_CORE_H = \
   chainparamsseeds.h \
   checkqueue.h \
   clientversion.h \
+  clusterlin.h \
   coins.h \
   common/args.h \
   common/bloom.h \
