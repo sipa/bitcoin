@@ -317,6 +317,7 @@ BITCOIN_CORE_H = \
   util/rbf.h \
   util/readwritefile.h \
   util/result.h \
+  util/ringbuffer.h \
   util/serfloat.h \
   util/signalinterrupt.h \
   util/sock.h \
