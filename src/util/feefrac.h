@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 #include <compare>
+#include <functional>
 #include <vector>
 #include <span.h>
 #include <util/check.h>
@@ -153,11 +154,14 @@ struct FeeFrac
  *
  * The caller must guarantee that the sum of the FeeFracs in either of the chunks' data set do not
  * overflow (so sum fees < 2^63, and sum sizes < 2^31).
+ *
+ * The getter argument converts elements of T to a FeeFrac.
  */
-inline std::partial_ordering CompareChunks(Span<const FeeFrac> chunks0, Span<const FeeFrac> chunks1)
+template<typename T, typename Getter = std::identity>
+inline std::partial_ordering CompareChunks(const T& chunks0, const T& chunks1, Getter getter = std::identity{})
 {
     /** Array to allow indexed access to input diagrams. */
-    const std::array<Span<const FeeFrac>, 2> chunk = {chunks0, chunks1};
+    const std::array<const T*, 2> chunk = {&chunks0, &chunks1};
     /** How many elements we have processed in each input. */
     size_t next_index[2] = {0, 0};
     /** Accumulated fee/sizes in diagrams, up to next_index[i] - 1. */
@@ -165,15 +169,15 @@ inline std::partial_ordering CompareChunks(Span<const FeeFrac> chunks0, Span<con
     /** Whether the corresponding input is strictly better than the other at least in one place. */
     bool better_somewhere[2] = {false, false};
     /** Get the first unprocessed point in diagram number dia. */
-    const auto next_point = [&](int dia) { return chunk[dia][next_index[dia]] + accum[dia]; };
+    const auto next_point = [&](int dia) { return getter((*chunk[dia])[next_index[dia]]) + accum[dia]; };
     /** Get the last processed point in diagram number dia. */
     const auto prev_point = [&](int dia) { return accum[dia]; };
     /** Move to the next point in diagram number dia. */
-    const auto advance = [&](int dia) { accum[dia] += chunk[dia][next_index[dia]++]; };
+    const auto advance = [&](int dia) { accum[dia] += getter((*chunk[dia])[next_index[dia]++]); };
 
     do {
-        bool done_0 = next_index[0] == chunk[0].size();
-        bool done_1 = next_index[1] == chunk[1].size();
+        bool done_0 = next_index[0] == chunk[0]->size();
+        bool done_1 = next_index[1] == chunk[1]->size();
         if (done_0 && done_1) break;
 
         // Determine which diagram has the first unprocessed point. If a single side is finished, use the
