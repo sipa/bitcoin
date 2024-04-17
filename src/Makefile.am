@@ -735,7 +735,6 @@ libbitcoin_util_a_SOURCES = \
   util/check.cpp \
   util/error.cpp \
   util/exception.cpp \
-  util/feefrac.cpp \
   util/fees.cpp \
   util/fs.cpp \
   util/fs_helpers.cpp \
@@ -978,7 +977,6 @@ libbitcoinkernel_la_SOURCES = \
   util/batchpriority.cpp \
   util/chaintype.cpp \
   util/check.cpp \
-  util/feefrac.cpp \
   util/fs.cpp \
   util/fs_helpers.cpp \
   util/hasher.cpp \
