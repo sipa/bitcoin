@@ -233,6 +233,22 @@ public:
         }
         return true;
     }
+
+    /** Append the entries of select to list in a topologically valid order.
+     *
+     * Complexity: O(select.Count() * log(select.Count())).
+     */
+    void AppendTopo(std::vector<ClusterIndex>& list, const S& select) const noexcept
+    {
+        ClusterIndex old_len = list.size();
+        for (auto i : select) list.push_back(i);
+        std::sort(list.begin() + old_len, list.end(), [&](ClusterIndex a, ClusterIndex b) noexcept {
+            const auto a_anc_size = Ancestors(a).Count();
+            const auto b_anc_size = Ancestors(b).Count();
+            if (a_anc_size != b_anc_size) return a_anc_size < b_anc_size;
+            return a < b;
+        });
+    }
 };
 
 /** Class encapsulating the state needed to find the best remaining ancestor set. */
@@ -468,6 +484,57 @@ public:
         m_todo /= done;
     }
 };
+
+/** Improve a linearization of a cluster.
+ *
+ * @param[in]     depgraph           Dependency graph of the the cluster to be linearized.
+ * @param[in,out] iteration_limit    On input, an upper bound on the number of optimization steps
+ *                                   that will be performed in order to find a good linearization.
+ *                                   On output the number will be reduced by the number of actually
+ *                                   performed optimization steps. If that number is nonzero, the
+ *                                   linearization is optimal.
+ */
+template<typename S>
+std::vector<ClusterIndex> Linearize(const DepGraph<S>& depgraph, uint64_t& iteration_limit) noexcept
+{
+    std::vector<ClusterIndex> linearization;
+    std::vector<std::pair<S, FeeFrac>> chunks;
+
+    AncestorCandidateFinder anc_finder(depgraph);
+    SearchCandidateFinder src_finder(depgraph);
+    auto todo = S::Fill(depgraph.TxCount());
+    linearization.reserve(depgraph.TxCount());
+    bool perfect = true;
+
+    while (todo.Any()) {
+        // Initialize best to be either the best ancestor set.
+        auto best = anc_finder.FindCandidateSet();
+
+        // Invoke bounded search to update best, with up to half of our remaining iterations as
+        // limit.
+        uint64_t iterations = (iteration_limit + 1) / 2;
+        iteration_limit -= iterations;
+        best = src_finder.FindCandidateSet(iterations, best);
+        iteration_limit += iterations;
+
+        if (iterations == 0) {
+            perfect = false;
+        }
+
+        // Add to output in topological order.
+        depgraph.AppendTopo(linearization, best.first);
+
+        // Update state to reflect best is no longer to be linearization.
+        todo /= best.first;
+        anc_finder.MarkDone(best.first);
+        src_finder.MarkDone(best.first);
+    }
+
+    // If we ever hit the local limit for one candidate, the result cannot be guaranteed to be
+    // optimal. Indicate this by returning iteration_limit=0.
+    if (!perfect) iteration_limit = 0;
+    return linearization;
+}
 
 } // namespace cluster_linearize
 
