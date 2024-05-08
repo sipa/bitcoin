@@ -184,6 +184,24 @@ void SanityCheck(const DepGraph<BS>& depgraph)
     }
 }
 
+/** Given a dependency graph, and a todo set, read a topological subset of todo from reader. */
+template<typename BS>
+BS ReadTopologicalSet(const DepGraph<BS>& depgraph, const BS& todo, SpanReader& reader)
+{
+    uint64_t mask{0};
+    try {
+        reader >> VARINT(mask);
+    } catch(const std::ios_base::failure&) {}
+    BS ret;
+    for (auto i : todo) {
+        if (!ret[i]) {
+            if (mask & 1) ret |= depgraph.Ancestors(i);
+            mask >>= 1;
+        }
+    }
+    return ret & todo;
+}
+
 } // namespace
 
 FUZZ_TARGET(clusterlin_add_dependency)
@@ -278,4 +296,51 @@ FUZZ_TARGET(clusterlin_depgraph_serialization)
 
     // Verify the graph is a DAG.
     assert(depgraph.IsAcyclic());
+}
+
+FUZZ_TARGET(clusterlin_ancestor_finder)
+{
+    // Verify that AncestorCandidateFinder works as expected.
+
+    // Retrieve a depgraph from the fuzz input.
+    SpanReader reader(buffer);
+    DepGraph<TestBitSet> depgraph;
+    try {
+        reader >> Using<DepGraphFormatter>(depgraph);
+    } catch (const std::ios_base::failure&) {}
+
+    AncestorCandidateFinder anc_finder(depgraph);
+    auto todo = TestBitSet::Fill(depgraph.TxCount());
+    while (todo.Any()) {
+        // Call the ancestor finder's FindCandidateSet for what remains of the graph.
+        auto [best_anc_set, best_anc_feerate] = anc_finder.FindCandidateSet();
+        // Sanity check the result.
+        assert(best_anc_set.Any());
+        assert(best_anc_set << todo);
+        assert(depgraph.FeeRate(best_anc_set) == best_anc_feerate);
+        // Check that it is topologically valid.
+        for (auto i : best_anc_set) {
+            assert((depgraph.Ancestors(i) & todo) << best_anc_set);
+        }
+
+        // Compute all remaining ancestor sets.
+        bool found = false;
+        for (auto i : todo) {
+            auto anc_set = todo & depgraph.Ancestors(i);
+            auto anc_feerate = depgraph.FeeRate(anc_set);
+            // Store in found whether the returned ancestor set was one of them.
+            if (anc_set == best_anc_set) found = true;
+            // Verify no ancestor set has better feerate than best_anc_feerate.
+            assert(!(anc_feerate > best_anc_feerate));
+        }
+        // The set returned by anc_finder must equal one of these ancestor sets.
+        assert(found);
+
+        // Find a topologically valid subset of transactions to remove from the graph.
+        auto del_set = ReadTopologicalSet(depgraph, todo, reader);
+        // If we did not find anything, use best_anc_set itself, because we should remove something.
+        if (del_set.None()) del_set = best_anc_set;
+        todo /= del_set;
+        anc_finder.MarkDone(del_set);
+    }
 }
