@@ -226,6 +226,22 @@ public:
     }
 };
 
+/** Simple linearization algorithm built on SimpleCandidateFinder. */
+template<typename BS>
+std::vector<ClusterIndex> SimpleLinearize(const DepGraph<BS>& depgraph, uint64_t& iter_count)
+{
+    std::vector<ClusterIndex> linearization;
+    SimpleCandidateFinder finder(depgraph);
+    BS todo = BS::Fill(depgraph.TxCount());
+    while (todo.Any()) {
+        auto [subset, feerate] = finder.FindCandidateSet(iter_count);
+        depgraph.AppendTopo(linearization, subset);
+        todo /= subset;
+        finder.MarkDone(subset);
+    }
+    return linearization;
+}
+
 /** Perform a sanity/consistency check on a DepGraph. */
 template<typename BS>
 void SanityCheck(const DepGraph<BS>& depgraph)
@@ -281,6 +297,20 @@ void SanityCheck(const DepGraph<BS>& depgraph)
         reader >> Using<DepGraphFormatter>(decoded_depgraph);
         assert(depgraph == decoded_depgraph);
         assert(reader.empty());
+    }
+}
+
+/** Perform a sanity check on a linearization. */
+template<typename BS>
+void SanityCheck(const DepGraph<BS>& depgraph, Span<const ClusterIndex> linearization)
+{
+    // Check completeness.
+    assert(linearization.size() == depgraph.TxCount());
+    TestBitSet done;
+    for (auto i : linearization) {
+        // Check topology and lack of duplicates.
+        assert((depgraph.Ancestors(i) / done) == TestBitSet::Singleton(i));
+        done.Set(i);
     }
 }
 
@@ -529,5 +559,71 @@ FUZZ_TARGET(clusterlin_search_finder)
         smp_finder.MarkDone(del_set);
         exh_finder.MarkDone(del_set);
         anc_finder.MarkDone(del_set);
+    }
+}
+
+FUZZ_TARGET(clusterlin_linearize)
+{
+    // Verify the behavior of Linearize().
+
+    // Retrieve an iteration count, and a depgraph from the fuzz input.
+    SpanReader reader(buffer);
+    DepGraph<TestBitSet> depgraph;
+    uint64_t iter_count{0};
+    try {
+        reader >> VARINT(iter_count) >> Using<DepGraphFormatter>(depgraph);
+    } catch (const std::ios_base::failure&) {}
+
+    // Invoke Linearize().
+    iter_count &= 0x7ffff;
+    auto linearization = Linearize(depgraph, iter_count);
+    SanityCheck(depgraph, linearization);
+    auto chunking = ChunkLinearization(depgraph, linearization);
+
+    // If Linearize claims optimal result, run quality tests.
+    if (iter_count > 0) {
+        // It must be as good as SimpleLinearize.
+        uint64_t simple_iter_count{0x3ffff};
+        auto simple_linearization = SimpleLinearize(depgraph, simple_iter_count);
+        SanityCheck(depgraph, simple_linearization);
+        auto simple_chunking = ChunkLinearization(depgraph, simple_linearization);
+        auto cmp = CompareChunks(chunking, simple_chunking);
+        assert(cmp >= 0);
+        // If SimpleLinearize finds the optimal result too, they must be equal (if not,
+        // SimpleLinearize is broken).
+        if (simple_iter_count) assert(cmp == 0);
+
+        // Only for very small clusters, test every topologically-valid permutation.
+        if (depgraph.TxCount() <= 7) {
+            std::vector<ClusterIndex> perm_linearization;
+            perm_linearization.reserve(depgraph.TxCount());
+            TestBitSet unincluded = TestBitSet::Fill(depgraph.TxCount());
+            // Recursive lambda function for constructing valid permutations.
+            auto permute_fn = [&](auto&& permute_fn) -> void {
+                if (unincluded.Any()) {
+                    bool recursed = false;
+                    // Iterate over all transactions that can topologically be included next, and
+                    // recurse.
+                    for (auto i : unincluded) {
+                        if ((depgraph.Ancestors(i) & unincluded) == TestBitSet::Singleton(i)) {
+                            perm_linearization.push_back(i);
+                            unincluded.Reset(i);
+                            permute_fn(permute_fn);
+                            unincluded.Set(i);
+                            perm_linearization.pop_back();
+                            recursed = true;
+                        }
+                    }
+                    // There must always be at least one transaction that can be included next.
+                    assert(recursed);
+                } else {
+                    // Verify the obtained linearization is as good as the permutation.
+                    auto perm_chunking = ChunkLinearization(depgraph, perm_linearization);
+                    auto cmp = CompareChunks(chunking, perm_chunking);
+                    assert(cmp >= 0);
+                }
+            };
+            permute_fn(permute_fn);
+        }
     }
 }

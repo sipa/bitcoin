@@ -536,6 +536,25 @@ std::vector<ClusterIndex> Linearize(const DepGraph<S>& depgraph, uint64_t& itera
     return linearization;
 }
 
+/** Compute the chunks for a given linearization. */
+template<typename S>
+std::vector<FeeFrac> ChunkLinearization(const DepGraph<S>& depgraph, Span<const ClusterIndex> linearization) noexcept
+{
+    std::vector<FeeFrac> ret;
+    for (ClusterIndex i : linearization) {
+        /** The new chunk to be added, initially a singleton. */
+        auto new_chunk = depgraph.FeeRate(i);
+        // As long as the new chunk has a higher feerate than the last chunk so far, absorb it.
+        while (!ret.empty() && new_chunk >> ret.back()) {
+            new_chunk += ret.back();
+            ret.pop_back();
+        }
+        // Actually move that new chunk into the chunking.
+        ret.push_back(std::move(new_chunk));
+    }
+    return ret;
+}
+
 } // namespace cluster_linearize
 
 #endif
