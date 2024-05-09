@@ -347,6 +347,37 @@ BS ReadTopologicalSet(const DepGraph<BS>& depgraph, const BS& todo, SpanReader& 
     return ret & todo;
 }
 
+/** Given a dependency graph, construct any valid linearization for it, reading from a SpanReader. */
+template<typename BS>
+std::vector<ClusterIndex> ReadLinearization(const DepGraph<BS>& depgraph, SpanReader& reader)
+{
+    std::vector<ClusterIndex> linearization;
+    TestBitSet todo = TestBitSet::Fill(depgraph.TxCount());
+    for (ClusterIndex i = 0; i < depgraph.TxCount(); ++i) {
+        TestBitSet potential_next;
+        for (auto j : todo) {
+            if ((depgraph.Ancestors(j) & todo) == TestBitSet::Singleton(j)) {
+                potential_next.Set(j);
+            }
+        }
+        assert(potential_next.Any());
+        uint64_t idx;
+        try {
+            reader >> VARINT(idx);
+        } catch (const std::ios_base::failure&) {}
+        idx %= potential_next.Count();
+        for (auto j : potential_next) {
+            if (idx == 0) {
+                linearization.push_back(j);
+                todo.Reset(j);
+                break;
+            }
+            --idx;
+        }
+    }
+    return linearization;
+}
+
 } // namespace
 
 FUZZ_TARGET(clusterlin_add_dependency)
@@ -614,11 +645,31 @@ FUZZ_TARGET(clusterlin_linearize)
     } catch (const std::ios_base::failure&) {}
     MakeConnected(depgraph);
 
+    // Optionally construct an old linearization for it.
+    std::vector<ClusterIndex> old_linearization;
+    {
+        uint8_t have_old_linearization;
+        try {
+            reader >> have_old_linearization;
+        } catch(const std::ios_base::failure&) {}
+        if (have_old_linearization & 1) {
+            old_linearization = ReadLinearization(depgraph, reader);
+            SanityCheck(depgraph, old_linearization);
+        }
+    }
+
     // Invoke Linearize().
     iter_count &= 0x7ffff;
-    auto linearization = Linearize(depgraph, iter_count, rng_seed);
+    auto linearization = Linearize(depgraph, iter_count, rng_seed, old_linearization);
     SanityCheck(depgraph, linearization);
     auto chunking = ChunkLinearization(depgraph, linearization);
+
+    // Linearization must always be as good as the old one, if provided.
+    if (!old_linearization.empty()) {
+        auto old_chunking = ChunkLinearization(depgraph, old_linearization);
+        auto cmp = CompareChunks(chunking, old_chunking);
+        assert(cmp >= 0);
+    }
 
     // If Linearize claims optimal result, run quality tests.
     if (iter_count > 0) {
