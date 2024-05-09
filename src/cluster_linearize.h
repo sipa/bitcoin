@@ -492,23 +492,26 @@ public:
             /** Set of undecided transactions. This must be a subset of m_todo, and have no overlap
              *  with inc. The set (inc | und) must be topologically valid. */
             S und;
+            /** (Only when inc is not empty) The subset with the best feerate of any superset of
+             *  inc that is also a subset of (inc | und), without requiring it to be topologically
+             *  valid. If the real best such feerate does not exceed best.second, then this value
+             *  is not guaranteed to be accurate. */
+            S pot;
             /** Equal to m_depgraph.FeeRate(inc). */
             FeeFrac inc_feerate;
-            /** (Only when inc is not empty) The best feerate of any superset of inc that is also a
-             *  subset of (inc | und), without requiring it to be topologically valid. It forms a
-             *  conservative upper bound on how good a set this work item can give rise to. If the
-             *  real best such feerate does not exceed best.second, then this value is not
-             *  guaranteed to be accurate. */
+            /** Equal to m_depgraph.FeeRate(pot). It forms a conservative upper bound on how good
+             *  a set this work item can give rise to. */
             FeeFrac pot_feerate;
             /** Construct a new work item. */
-            WorkItem(S&& i, S&& u, FeeFrac&& i_f, FeeFrac&& p_f) noexcept :
-                inc(std::move(i)), und(std::move(u)),
+            WorkItem(S&& i, S&& u, S&& p, FeeFrac&& i_f, FeeFrac&& p_f) noexcept :
+                inc(std::move(i)), und(std::move(u)), pot(std::move(p)),
                 inc_feerate(std::move(i_f)), pot_feerate(std::move(p_f)) {}
             /** Swap two WorkItems. */
             void Swap(WorkItem& other) noexcept
             {
                 swap(inc, other.inc);
                 swap(und, other.und);
+                swap(pot, other.pot);
                 swap(inc_feerate, other.inc_feerate);
                 swap(pot_feerate, other.pot_feerate);
             }
@@ -533,23 +536,34 @@ public:
          *
          * - inc: the "inc" value for the new work item
          * - und: the "und" value for the new work item
+         * - pot: a subset of the "pot" value for the new work item (but a superset of inc).
+         *        It does not need to be the full pot value; missing pot transactions will be added
+         *        to it by add_fn.
          * - inc_feerate: equal to m_depgraph.FeeRate(inc)
+         * - pot_feerate: equal to m_depgraph.FeeRate(pot)
+         * - grow_inc: whether to attempt moving transactions from und to inc, if it can be proven
+         *             that they must be a part of the best topologically valid superset of inc and
+         *             subset of (inc | und). Transactions that are missing from pot are always
+         *             considered, regardless of grow_inc. It only makes sense to enable this if
+         *             transactions were added to inc.
          */
-        auto add_fn = [&](S inc, S und, FeeFrac inc_feerate) noexcept {
+        auto add_fn = [&](S inc, S und, S pot, FeeFrac inc_feerate, FeeFrac pot_feerate, bool grow_inc) noexcept {
             Assume(inc << m_todo);
             Assume(und << m_todo);
             Assume(!(inc && und));
+            Assume(pot >> inc);
+            Assume(pot << (inc | und));
+            Assume(pot.None() == inc.None());
 
-            S pot = inc;
-            FeeFrac pot_feerate = inc_feerate;
             if (!inc_feerate.IsEmpty()) {
                 /** Which transactions to consider adding to inc. */
-                S consider_inc;
+                S consider_inc = grow_inc ? pot / inc : S{};
                 // Add entries to pot (and pot_feerate). We iterate over all undecided transactions
-                // whose feerate is higher than best_feerate. While undecided transactions of lower
-                // feerate may improve pot still, if they do, the resulting pot_feerate cannot
-                // possibly exceed best.second (resulting in the item being skipped in split_fn).
-                for (auto pos : imp & und) {
+                // whose feerate is higher than best_feerate, and aren't already part of pot. While
+                // undecided transactions of lower feerate may improve pot still, if they do, the
+                // resulting pot_feerate cannot possibly exceed best.second (resulting in the item
+                // being skipped in split_fn).
+                for (auto pos : (imp & und) / pot) {
                     // Determine if adding transaction pos to pot (ignoring topology) would improve it. If
                     // not, we're done updating pot. This relies on the fact that m_depgraph, and
                     // thus the set iterated over, is in decreasing individual feerate order.
@@ -604,7 +618,7 @@ public:
 
             // Actually construct new work item on the queue.
             Assume(queue.size() < queue.capacity());
-            queue.emplace_back(std::move(inc), std::move(und), std::move(inc_feerate), std::move(pot_feerate));
+            queue.emplace_back(std::move(inc), std::move(und), std::move(pot), std::move(inc_feerate), std::move(pot_feerate));
         };
 
         /** Internal process function. It takes an existing work item, and splits it in two: one
@@ -614,8 +628,10 @@ public:
             // Any queue element must have undecided transactions left, otherwise there is nothing
             // to explore anymore.
             Assume(elem.und.Any());
-            // The included and undecided set are all subsets of m_todo.
-            Assume((m_todo >> elem.inc) && (m_todo >> elem.und));
+            // The potential set must include the included set, and be a subset of (und | inc).
+            Assume((elem.pot >> elem.inc) && (elem.pot << (elem.und | elem.inc)));
+            // The potential, undecided, and (implicitly) included set are all subsets of m_todo.
+            Assume((m_todo >> elem.pot) && (m_todo >> elem.und));
             // Included transactions cannot be undecided.
             Assume(!(elem.inc && elem.und));
             // If pot is empty, then so is inc.
@@ -670,14 +686,20 @@ public:
             const auto& desc = m_depgraph.Descendants(split);
             add_fn(/*inc=*/elem.inc,
                    /*und=*/elem.und / desc,
-                   /*inc_feefrac=*/elem.inc_feerate);
+                   /*pot=*/elem.pot / desc,
+                   /*inc_feefrac=*/elem.inc_feerate,
+                   /*pot_feefrac=*/elem.pot_feerate - m_depgraph.FeeRate(elem.pot & desc),
+                   /*grow_inc=*/false);
 
             // Add a work item corresponding to including the split transaction.
             const auto anc = m_depgraph.Ancestors(split) & m_todo;
             const auto new_inc = elem.inc | anc;
             add_fn(/*inc=*/new_inc,
                    /*und=*/elem.und / anc,
-                   /*inc_feefrac=*/elem.inc_feerate + m_depgraph.FeeRate(anc / elem.inc));
+                   /*pot=*/elem.pot | anc,
+                   /*inc_feefrac=*/elem.inc_feerate + m_depgraph.FeeRate(anc / elem.inc),
+                   /*pot_feefrac=*/elem.pot_feerate + m_depgraph.FeeRate(anc / elem.pot),
+                   /*grow_inc=*/true);
 
             // Account for the performed split.
             --iteration_limit;
@@ -692,7 +714,10 @@ public:
             auto component = m_depgraph.FindConnectedComponent(to_cover);
             add_fn(/*inc=*/S{},
                    /*und=*/component,
-                   /*inc_feefrac=*/FeeFrac{});
+                   /*pot=*/S{},
+                   /*inc_feefrac=*/FeeFrac{},
+                   /*pot_feefrac=*/FeeFrac{},
+                   /*grow_inc=*/false);
             to_cover /= component;
         } while (to_cover.Any());
 
