@@ -494,15 +494,21 @@ public:
             S und;
             /** Equal to m_depgraph.FeeRate(inc). */
             FeeFrac inc_feerate;
+            /** (Only when inc is not empty) The best feerate of any superset of inc that is also a
+             *  subset of (inc | und), without requiring it to be topologically valid. It forms a
+             *  conservative upper bound on how good a set this work item can give rise to. */
+            FeeFrac pot_feerate;
             /** Construct a new work item. */
-            WorkItem(S&& i, S&& u, FeeFrac&& i_f) noexcept :
-                inc(std::move(i)), und(std::move(u)), inc_feerate(std::move(i_f)) {}
+            WorkItem(S&& i, S&& u, FeeFrac&& i_f, FeeFrac&& p_f) noexcept :
+                inc(std::move(i)), und(std::move(u)),
+                inc_feerate(std::move(i_f)), pot_feerate(std::move(p_f)) {}
             /** Swap two WorkItems. */
             void Swap(WorkItem& other) noexcept
             {
                 swap(inc, other.inc);
                 swap(und, other.und);
                 swap(inc_feerate, other.inc_feerate);
+                swap(pot_feerate, other.pot_feerate);
             }
         };
 
@@ -524,19 +530,38 @@ public:
             Assume(und << m_todo);
             Assume(!(inc && und));
 
+            S pot = inc;
+            FeeFrac pot_feerate = inc_feerate;
             if (!inc_feerate.IsEmpty()) {
+                // Add entries to pot (and pot_feerate). We iterate over all undecided transactions.
+                for (auto pos : und) {
+                    // Determine if adding transaction pos to pot (ignoring topology) would improve it. If
+                    // not, we're done updating pot. This relies on the fact that m_depgraph, and thus
+                    // und, is in decreasing individual feerate order.
+                    if (!(m_depgraph.FeeRate(pos) >> pot_feerate)) break;
+                    pot_feerate += m_depgraph.FeeRate(pos);
+                    pot.Set(pos);
+                }
+
                 // If inc_feerate is better than best_feerate, remember inc as our new best.
                 if (inc_feerate > best.second) {
                     best = {inc, inc_feerate};
                 }
-            }
 
-            // Make sure there are undecided transactions left to split on.
-            if (und.None()) return;
+                // If no potential transactions exist beyond the already included ones, no improvement
+                // is possible anymore.
+                if (pot == inc) return;
+                // At this point und must be non-empty. If it were empty then pot would equal inc.
+                Assume(und.Any());
+            } else {
+                // If inc is empty, we just make sure there are undecided transactions left to
+                // split on.
+                if (und.None()) return;
+            }
 
             // Actually construct new work item on the queue.
             Assume(queue.size() < queue.capacity());
-            queue.emplace_back(std::move(inc), std::move(und), std::move(inc_feerate));
+            queue.emplace_back(std::move(inc), std::move(und), std::move(inc_feerate), std::move(pot_feerate));
         };
 
         /** Internal process function. It takes an existing work item, and splits it in two: one
@@ -550,10 +575,20 @@ public:
             Assume((m_todo >> elem.inc) && (m_todo >> elem.und));
             // Included transactions cannot be undecided.
             Assume(!(elem.inc && elem.und));
+            // If pot is empty, then so is inc.
+            Assume(elem.inc_feerate.IsEmpty() == elem.pot_feerate.IsEmpty());
             // We must have a non-empty best.
             Assume(!best.second.IsEmpty());
 
             const ClusterIndex first = elem.und.First();
+            if (!elem.inc_feerate.IsEmpty()) {
+                // We can ignore any queue item whose potential feerate isn't better than the best
+                // seen so far.
+                if (elem.pot_feerate <= best.second) return;
+            } else {
+                // In case inc is empty use a simpler alternative check.
+                if (m_depgraph.FeeRate(first) <= best.second) return;
+            }
 
             // Add a work item corresponding to excluding the first undecided transaction.
             const auto& desc = m_depgraph.Descendants(first);
