@@ -13,6 +13,7 @@
 #include <utility>
 
 #include <util/feefrac.h>
+#include <util/ringbuffer.h>
 
 namespace cluster_linearize {
 
@@ -432,7 +433,8 @@ public:
         };
 
         /** The queue of work items. */
-        std::vector<WorkItem> queue;
+        RingBuffer<WorkItem> queue;
+        queue.reserve(std::max<size_t>(256, 2 * m_todo.Count()));
 
         /** Local copy of the iteration limit. */
         uint64_t iteration_limit = iterations_left;
@@ -459,6 +461,7 @@ public:
             if (und.None()) return;
 
             // Actually construct new work item on the queue.
+            Assume(queue.size() < queue.capacity());
             queue.emplace_back(std::move(inc), std::move(und), std::move(inc_feerate));
         };
 
@@ -509,10 +512,36 @@ public:
         } while (to_cover.Any());
 
         // Work processing loop.
+        //
+        // New work items are always added at the back of the queue, but items to process use a
+        // hybrid approach where they can be taken from the front or the back.
+        //
+        // Depth-first search (DFS) corresponds to always taking from the back of the queue. This
+        // is very memory-efficient (linear in the number of transactions). Breadth-first search
+        // (BFS) corresponds to always taking from the front, which potentially uses more memory
+        // (up to exponential in the transaction count), but seems to work better in practice.
+        //
+        // The approach here combines the two: use BFS until the queue grows too large, at which
+        // point we temporarily switch to DFS until the size shrinks again.
         while (!queue.empty()) {
+            // See if processing the first queue item (BFS) is possible without exceeding the queue
+            // capacity(), assuming we process the last queue items (DFS) after that.
+            const auto queuesize_for_front = queue.capacity() - queue.front().und.Count();
+            Assume(queuesize_for_front >= 1);
+
+            // Process entries from the end of the queue (DFS exploration) until it shrinks below
+            // queuesize_for_front.
+            while (queue.size() > queuesize_for_front) {
+                if (!iteration_limit) break;
+                auto elem = queue.back();
+                queue.pop_back();
+                split_fn(std::move(elem));
+            }
+
+            // Process one entry from the front of the queue (BFS exploration)
             if (!iteration_limit) break;
-            auto elem = queue.back();
-            queue.pop_back();
+            auto elem = queue.front();
+            queue.pop_front();
             split_fn(std::move(elem));
         }
 
