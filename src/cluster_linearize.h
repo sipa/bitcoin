@@ -303,6 +303,12 @@ struct SetInfo
         return {transactions | txn, feerate + depgraph.FeeRate(txn - transactions)};
     }
 
+    /** Construct a new SetInfo equal to this, with some transactions removed. */
+    [[nodiscard]] SetInfo Remove(const DepGraph<SetType>& depgraph, const SetType& txn) const noexcept
+    {
+        return {transactions - txn, feerate - depgraph.FeeRate(txn & transactions)};
+    }
+
     /** Swap two SetInfo objects. */
     friend void swap(SetInfo& a, SetInfo& b) noexcept
     {
@@ -672,19 +678,18 @@ public:
             /** Set of undecided transactions. This must be a subset of m_todo, and have no overlap
              *  with inc. The set (inc | und) must be topologically valid. */
             SetType und;
-            /** (Only when inc is not empty) The best feerate of any superset of inc that is also a
-             *  subset of (inc | und), without requiring it to be topologically valid. It forms a
-             *  conservative upper bound on how good a set this work item can give rise to.
-             *  Transactions whose feerate is below best's are ignored when determining this value,
-             *  which means it may technically be an underestimate, but if so, this work item
-             *  cannot result in something that beats best anyway. */
-            FeeFrac pot_feerate;
+            /** (Only when inc is not empty) The subset with the best feerate of any superset of
+             *  inc that is also a subset of (inc | und), without requiring it to be topologically
+             *  valid. Its feerate forms a conservative upper bound on how good a set this work
+             *  item can give rise to. If the real best such feerate does not exceed best's, then
+             *  this value is not guaranteed to be accurate. */
+            SetInfo<SetType> pot;
 
             /** Construct a new work item. */
-            WorkItem(SetInfo<SetType>&& i, SetType&& u, FeeFrac&& p_f) noexcept :
-                inc(std::move(i)), und(std::move(u)), pot_feerate(std::move(p_f))
+            WorkItem(SetInfo<SetType>&& i, SetType&& u, SetInfo<SetType>&& p) noexcept :
+                inc(std::move(i)), und(std::move(u)), pot(std::move(p))
             {
-                Assume(pot_feerate.IsEmpty() == inc.feerate.IsEmpty());
+                Assume(pot.feerate.IsEmpty() == inc.feerate.IsEmpty());
             }
 
             /** Swap two WorkItems. */
@@ -692,7 +697,7 @@ public:
             {
                 swap(inc, other.inc);
                 swap(und, other.und);
-                swap(pot_feerate, other.pot_feerate);
+                swap(pot, other.pot);
             }
         };
 
@@ -714,7 +719,7 @@ public:
             if (best.feerate.IsEmpty()) best = SetInfo(m_sorted_depgraph, component);
             queue.emplace_back(/*inc=*/SetInfo<SetType>{},
                                /*und=*/std::move(component),
-                               /*pot_feerate=*/FeeFrac{});
+                               /*pot=*/SetInfo<SetType>{});
         } while (to_cover.Any());
 
         /** Local copy of the iteration limit. */
@@ -734,17 +739,17 @@ public:
          *
          * - inc: the "inc" value for the new work item (must be topological).
          * - und: the "und" value for the new work item ((inc | und) must be topological).
+         * - pot: a subset of the "pot" value for the new work item (but a superset of inc).
+         *        It does not need to be the full pot value; missing pot transactions will be added
+         *        to it by add_fn.
          */
-        auto add_fn = [&](SetInfo<SetType> inc, SetType und) noexcept {
-            /** SetInfo object with the set whose feerate will become the new work item's
-             *  pot_feerate. It starts off equal to inc. */
-            auto pot = inc;
+        auto add_fn = [&](SetInfo<SetType> inc, SetType und, SetInfo<SetType> pot) noexcept {
             if (!inc.feerate.IsEmpty()) {
                 // Add entries to pot. We iterate over all undecided transactions whose feerate is
-                // higher than best. While undecided transactions of lower feerate may improve pot,
-                // the resulting pot feerate cannot possibly exceed best's (and this item will be
-                // skipped in split_fn anyway).
-                for (auto pos : imp & und) {
+                // higher than best, and aren't already part of pot. While undecided transactions
+                // of lower feerate may improve, the resulting pot feerate cannot possibly exceed
+                // best's (and this item will be skipped in split_fn anyway).
+                for (auto pos : (imp & und) - pot.transactions) {
                     // Determine if adding transaction pos to pot (ignoring topology) would improve
                     // it. If not, we're done updating pot. This relies on the fact that
                     // m_sorted_depgraph, and thus the transactions iterated over, are in decreasing
@@ -804,7 +809,7 @@ public:
             Assume(queue.size() < queue.capacity());
             queue.emplace_back(/*inc=*/std::move(inc),
                                /*und=*/std::move(und),
-                               /*pot_feerate=*/std::move(pot.feerate));
+                               /*pot=*/std::move(pot));
         };
 
         /** Internal process function. It takes an existing work item, and splits it in two: one
@@ -814,12 +819,15 @@ public:
             // Any queue element must have undecided transactions left, otherwise there is nothing
             // to explore anymore.
             Assume(elem.und.Any());
-            // The included and undecided set are all subsets of m_todo.
-            Assume(elem.inc.transactions.IsSubsetOf(m_todo) && elem.und.IsSubsetOf(m_todo));
+            // The potential set must include the included set, and be a subset of (und | inc).
+            Assume(elem.pot.transactions.IsSupersetOf(elem.inc.transactions));
+            Assume(elem.pot.transactions.IsSubsetOf(elem.und | elem.inc.transactions));
+            // The potential, undecided, and (implicitly) included set are all subsets of m_todo.
+            Assume(elem.pot.transactions.IsSubsetOf(m_todo) && elem.und.IsSubsetOf(m_todo));
             // Included transactions cannot be undecided.
             Assume(!elem.inc.transactions.Overlaps(elem.und));
             // If pot is empty, then so is inc.
-            Assume(elem.inc.feerate.IsEmpty() == elem.pot_feerate.IsEmpty());
+            Assume(elem.inc.feerate.IsEmpty() == elem.pot.feerate.IsEmpty());
 
             const ClusterIndex first = elem.und.First();
             if (!elem.inc.feerate.IsEmpty()) {
@@ -828,7 +836,7 @@ public:
                 if (!elem.und.Overlaps(imp)) return;
                 // We can ignore any queue item whose potential feerate isn't better than the best
                 // seen so far.
-                if (elem.pot_feerate <= best.feerate) return;
+                if (elem.pot.feerate <= best.feerate) return;
             } else {
                 // In case inc is empty use a simpler alternative check.
                 if (m_sorted_depgraph.FeeRate(first) <= best.feerate) return;
@@ -873,12 +881,14 @@ public:
             // Add a work item corresponding to exclusion of the split transaction.
             const auto& desc = m_sorted_depgraph.Descendants(split);
             add_fn(/*inc=*/elem.inc,
-                   /*und=*/elem.und - desc);
+                   /*und=*/elem.und - desc,
+                   /*pot=*/elem.pot.Remove(m_sorted_depgraph, desc));
 
             // Add a work item corresponding to inclusion of the split transaction.
             const auto anc = m_sorted_depgraph.Ancestors(split) & m_todo;
             add_fn(/*inc=*/elem.inc.Add(m_sorted_depgraph, anc),
-                   /*und=*/elem.und - anc);
+                   /*und=*/elem.und - anc,
+                   /*pot=*/elem.pot.Add(m_sorted_depgraph, anc));
 
             // Account for the performed split.
             --iterations_left;
