@@ -592,6 +592,12 @@ FUZZ_TARGET(clusterlin_search_finder)
         // components are searched separately.
         uint64_t iterations = init_iteration_limit - iteration_limit;
         assert(iterations <= (uint64_t{1} << (todo.Count() - 1)));
+        // Additionally, test that no more than sqrt(2^N+4) iterations are required. This is just
+        // an empirical bound that seems to hold, without proof. Still, add a test for it so we
+        // can learn about counterexamples if they exist.
+        if (todo.Count() <= 63) {
+            Assume(iterations * iterations <= (uint64_t{1} << todo.Count()) + 4);
+        }
 
         // Perform quality checks only if SearchCandidateFinder claims an optimal result.
         if (iteration_limit > 0) {

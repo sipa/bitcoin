@@ -543,6 +543,8 @@ public:
             S pot = inc;
             FeeFrac pot_feerate = inc_feerate;
             if (!inc_feerate.IsEmpty()) {
+                /** Which transactions to consider adding to inc. */
+                S consider_inc;
                 // Add entries to pot (and pot_feerate). We iterate over all undecided transactions
                 // whose feerate is higher than best_feerate. While undecided transactions of lower
                 // feerate may improve pot still, if they do, the resulting pot_feerate cannot
@@ -554,7 +556,29 @@ public:
                     if (!(m_depgraph.FeeRate(pos) >> pot_feerate)) break;
                     pot_feerate += m_depgraph.FeeRate(pos);
                     pot.Set(pos);
+                    consider_inc.Set(pos);
                 }
+
+                // The "jump ahead" optimization: whenever pot has a topologically-valid subset,
+                // that subset can be added to inc. Any subset of (pot / inc) has the property that
+                // its feerate exceeds that of any set compatible with this work item (superset of
+                // inc, subset of (inc | und)). Thus, if T is a topological subset of pot, and B is
+                // the best topologically-valid set compatible with this work item, and (T / B) is
+                // non-empty, then (T | B) is better than B and also topological. This is in
+                // contradiction with the assumption that B is best. Thus, (T / B) must be empty,
+                // or T must be a subset of B.
+                //
+                // See https://delvingbitcoin.org/t/how-to-linearize-your-cluster/303 section 2.4.
+                const S init_inc = inc;
+                for (auto pos : consider_inc) {
+                    // If the transaction's ancestors are a subset of pot, we can add it together
+                    // with its ancestors to inc.
+                    auto anc_todo = m_depgraph.Ancestors(pos) & m_todo;
+                    if (pot >> anc_todo) inc |= anc_todo;
+                }
+                // Finally update und and inc_feerate to account for the added transactions.
+                und /= inc;
+                inc_feerate += m_depgraph.FeeRate(inc / init_inc);
 
                 // If inc_feerate is better than best_feerate, remember inc as our new best.
                 if (inc_feerate > best.second) {
