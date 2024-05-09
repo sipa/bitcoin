@@ -496,7 +496,9 @@ public:
             FeeFrac inc_feerate;
             /** (Only when inc is not empty) The best feerate of any superset of inc that is also a
              *  subset of (inc | und), without requiring it to be topologically valid. It forms a
-             *  conservative upper bound on how good a set this work item can give rise to. */
+             *  conservative upper bound on how good a set this work item can give rise to. If the
+             *  real best such feerate does not exceed best.second, then this value is not
+             *  guaranteed to be accurate. */
             FeeFrac pot_feerate;
             /** Construct a new work item. */
             WorkItem(S&& i, S&& u, FeeFrac&& i_f, FeeFrac&& p_f) noexcept :
@@ -516,6 +518,14 @@ public:
         RingBuffer<WorkItem> queue;
         queue.reserve(std::max<size_t>(256, 2 * m_todo.Count()));
 
+        /** The set of transactions in m_todo which have feerate > best_feerate. */
+        S imp = m_todo;
+        while (imp.Any()) {
+            ClusterIndex check = imp.Last();
+            if (m_depgraph.FeeRate(check) >> best.second) break;
+            imp.Reset(check);
+        }
+
         /** Local copy of the iteration limit. */
         uint64_t iteration_limit = iterations_left;
 
@@ -533,11 +543,14 @@ public:
             S pot = inc;
             FeeFrac pot_feerate = inc_feerate;
             if (!inc_feerate.IsEmpty()) {
-                // Add entries to pot (and pot_feerate). We iterate over all undecided transactions.
-                for (auto pos : und) {
+                // Add entries to pot (and pot_feerate). We iterate over all undecided transactions
+                // whose feerate is higher than best_feerate. While undecided transactions of lower
+                // feerate may improve pot still, if they do, the resulting pot_feerate cannot
+                // possibly exceed best.second (resulting in the item being skipped in split_fn).
+                for (auto pos : imp & und) {
                     // Determine if adding transaction pos to pot (ignoring topology) would improve it. If
-                    // not, we're done updating pot. This relies on the fact that m_depgraph, and thus
-                    // und, is in decreasing individual feerate order.
+                    // not, we're done updating pot. This relies on the fact that m_depgraph, and
+                    // thus the set iterated over, is in decreasing individual feerate order.
                     if (!(m_depgraph.FeeRate(pos) >> pot_feerate)) break;
                     pot_feerate += m_depgraph.FeeRate(pos);
                     pot.Set(pos);
@@ -546,6 +559,12 @@ public:
                 // If inc_feerate is better than best_feerate, remember inc as our new best.
                 if (inc_feerate > best.second) {
                     best = {inc, inc_feerate};
+                    // See if we can remove any entries from imp now.
+                    while (imp.Any()) {
+                        ClusterIndex check = imp.Last();
+                        if (m_depgraph.FeeRate(check) >> best.second) break;
+                        imp.Reset(check);
+                    }
                 }
 
                 // If no potential transactions exist beyond the already included ones, no improvement
