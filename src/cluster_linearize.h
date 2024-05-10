@@ -12,6 +12,7 @@
 #include <vector>
 #include <utility>
 
+#include <random.h>
 #include <util/feefrac.h>
 #include <util/ringbuffer.h>
 
@@ -369,6 +370,8 @@ public:
 template<typename S>
 class SearchCandidateFinder
 {
+    /** Internal RNG. */
+    InsecureRandomContext m_rng;
     /** Internal dependency graph for the cluster. */
     const DepGraph<S>& m_depgraph;
     /** Which transactions are left to do (sorted indices). */
@@ -378,10 +381,12 @@ public:
     /** Construct a candidate finder for a graph.
      *
      * @param[in] depgraph   Dependency graph for the to-be-linearized cluster.
+     * @param[in] rng_seed   A random seed to control the search order.
      *
      * Complexity: O(1).
      */
-    SearchCandidateFinder(const DepGraph<S>& depgraph LIFETIMEBOUND) noexcept :
+    SearchCandidateFinder(const DepGraph<S>& depgraph LIFETIMEBOUND, uint64_t rng_seed) noexcept :
+        m_rng(rng_seed),
         m_depgraph(depgraph),
         m_todo(S::Fill(depgraph.TxCount())) {}
 
@@ -430,6 +435,13 @@ public:
             /** Construct a new work item. */
             WorkItem(S&& i, S&& u, FeeFrac&& i_f) noexcept :
                 inc(std::move(i)), und(std::move(u)), inc_feerate(std::move(i_f)) {}
+            /** Swap two WorkItems. */
+            void Swap(WorkItem& other) noexcept
+            {
+                swap(inc, other.inc);
+                swap(und, other.und);
+                swap(inc_feerate, other.inc_feerate);
+            }
         };
 
         /** The queue of work items. */
@@ -521,9 +533,12 @@ public:
         // (BFS) corresponds to always taking from the front, which potentially uses more memory
         // (up to exponential in the transaction count), but seems to work better in practice.
         //
-        // The approach here combines the two: use BFS until the queue grows too large, at which
-        // point we temporarily switch to DFS until the size shrinks again.
+        // The approach here combines the two: use BFS (plus random swapping) until the queue grows
+        // too large, at which point we temporarily switch to DFS until the size shrinks again.
         while (!queue.empty()) {
+            // Randomly swap the first two items to randomize the search order.
+            if (queue.size() > 1 && m_rng.randbool()) queue[0].Swap(queue[1]);
+
             // See if processing the first queue item (BFS) is possible without exceeding the queue
             // capacity(), assuming we process the last queue items (DFS) after that.
             const auto queuesize_for_front = queue.capacity() - queue.front().und.Count();
@@ -569,15 +584,16 @@ public:
  *                                   On output the number will be reduced by the number of actually
  *                                   performed optimization steps. If that number is nonzero, the
  *                                   linearization is optimal.
+ * @param[in]     rng_seed           A random number seed to control search order.
  */
 template<typename S>
-std::vector<ClusterIndex> Linearize(const DepGraph<S>& depgraph, uint64_t& iteration_limit) noexcept
+std::vector<ClusterIndex> Linearize(const DepGraph<S>& depgraph, uint64_t& iteration_limit, uint64_t rng_seed) noexcept
 {
     std::vector<ClusterIndex> linearization;
     std::vector<std::pair<S, FeeFrac>> chunks;
 
     AncestorCandidateFinder anc_finder(depgraph);
-    SearchCandidateFinder src_finder(depgraph);
+    SearchCandidateFinder src_finder(depgraph, rng_seed);
     auto todo = S::Fill(depgraph.TxCount());
     linearization.reserve(depgraph.TxCount());
     bool perfect = true;
