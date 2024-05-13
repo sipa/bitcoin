@@ -495,10 +495,18 @@ public:
             --iteration_limit;
         };
 
-        // Create an initial entry for all of m_todo.
-        add_fn(/*inc=*/S{},
-               /*und=*/m_todo,
-               /*inc_feefrac=*/FeeFrac{});
+        // Create initial entries per connected component of m_todo. While clusters themselves are
+        // generally connected, this is not necessarily try after some parts have already been
+        // removed from m_todo. Without this, effort can be wasted on searching "inc" sets that
+        // span multiple components.
+        auto to_cover = m_todo;
+        do {
+            auto component = m_depgraph.FindConnectedComponent(to_cover);
+            add_fn(/*inc=*/S{},
+                   /*und=*/component,
+                   /*inc_feefrac=*/FeeFrac{});
+            to_cover /= component;
+        } while (to_cover.Any());
 
         // Work processing loop.
         while (!queue.empty()) {

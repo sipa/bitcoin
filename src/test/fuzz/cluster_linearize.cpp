@@ -554,10 +554,12 @@ FUZZ_TARGET(clusterlin_search_finder)
             assert((depgraph.Ancestors(i) & todo) << found_set);
         }
 
-        // At most 2^N-1 iterations can be required: the number of non-empty subsets a graph with N
-        // transactions has.
+        // At most 2^(N-1) iterations can be required: the maximum number of topological subsets a
+        // (connected) cluster with N transactions can have. Even when the cluster is no longer
+        // connected after removing certain transactions, this holds, because the connected
+        // components are searched separately.
         uint64_t iterations = init_iteration_limit - iteration_limit;
-        assert(iterations <= ((uint64_t{1} << todo.Count()) - 1));
+        assert(iterations <= (uint64_t{1} << (todo.Count() - 1)));
 
         // Perform quality checks only if SearchCandidateFinder claims an optimal result.
         if (iteration_limit > 0) {
