@@ -115,6 +115,27 @@ public:
         }
     }
 
+    /** Construct a DepGraph object given another DepGraph and a mapping from old to new.
+     *
+     * Complexity: O(N^2) where N=depgraph.TxCount().
+     */
+    DepGraph(const DepGraph<S>& depgraph, Span<const ClusterIndex> mapping) noexcept : entries(depgraph.TxCount())
+    {
+        // Fill in fee, size, ancestors.
+        for (ClusterIndex i = 0; i < depgraph.TxCount(); ++i) {
+            const auto& input = depgraph.entries[i];
+            auto& output = entries[mapping[i]];
+            output.feerate = input.feerate;
+            for (auto j : input.ancestors) output.ancestors.Set(mapping[j]);
+        }
+        // Fill in descendant information.
+        for (ClusterIndex i = 0; i < entries.size(); ++i) {
+            for (auto j : entries[i].ancestors) {
+                entries[j].descendants.Set(i);
+            }
+        }
+    }
+
     /** Get the number of transactions in the graph. Complexity: O(1). */
     auto TxCount() const noexcept { return entries.size(); }
     /** Get the feerate of a given transaction i. Complexity: O(1). */
@@ -372,10 +393,31 @@ class SearchCandidateFinder
 {
     /** Internal RNG. */
     InsecureRandomContext m_rng;
-    /** Internal dependency graph for the cluster. */
-    const DepGraph<S>& m_depgraph;
-    /** Which transactions are left to do (sorted indices). */
+    /** m_sorted_to_original[i] is the original position that sorted transaction position i had. */
+    std::vector<ClusterIndex> m_sorted_to_original;
+    /** m_original_to_sorted[i] is the sorted position original transaction position i has. */
+    std::vector<ClusterIndex> m_original_to_sorted;
+    /** Internal dependency graph for the cluster (with transactions in decreasing individual
+     *  feerate order). */
+    DepGraph<S> m_depgraph;
+    /** Which transactions are left to do (indices in m_depgraph's sorted order). */
     S m_todo;
+
+    /** Given a set of transactions with sorted indices, get their original indices. */
+    S SortedToOriginal(const S& arg) const noexcept
+    {
+        S ret;
+        for (auto pos : arg) ret.Set(m_sorted_to_original[pos]);
+        return ret;
+    }
+
+    /** Given a set of transactions with original indices, get their sorted indices. */
+    S OriginalToSorted(const S& arg) const noexcept
+    {
+        S ret;
+        for (auto pos : arg) ret.Set(m_original_to_sorted[pos]);
+        return ret;
+    }
 
 public:
     /** Construct a candidate finder for a graph.
@@ -383,12 +425,29 @@ public:
      * @param[in] depgraph   Dependency graph for the to-be-linearized cluster.
      * @param[in] rng_seed   A random seed to control the search order.
      *
-     * Complexity: O(1).
+     * Complexity: O(N^2) where N=depgraph.Count().
      */
-    SearchCandidateFinder(const DepGraph<S>& depgraph LIFETIMEBOUND, uint64_t rng_seed) noexcept :
+    SearchCandidateFinder(const DepGraph<S>& depgraph, uint64_t rng_seed) noexcept :
         m_rng(rng_seed),
-        m_depgraph(depgraph),
-        m_todo(S::Fill(depgraph.TxCount())) {}
+        m_sorted_to_original(depgraph.TxCount()),
+        m_original_to_sorted(depgraph.TxCount())
+    {
+        // Determine reordering mapping, by sorting by decreasing feerate.
+        std::iota(m_sorted_to_original.begin(), m_sorted_to_original.end(), ClusterIndex{0});
+        std::sort(m_sorted_to_original.begin(), m_sorted_to_original.end(), [&](auto a, auto b) {
+            auto feerate_cmp = depgraph.FeeRate(a) <=> depgraph.FeeRate(b);
+            if (feerate_cmp == 0) return a < b;
+            return feerate_cmp > 0;
+        });
+        // Compute reverse mapping.
+        for (ClusterIndex i = 0; i < depgraph.TxCount(); ++i) {
+            m_original_to_sorted[m_sorted_to_original[i]] = i;
+        }
+        // Compute reordered dependency graph.
+        m_depgraph = DepGraph(depgraph, m_original_to_sorted);
+        // Set todo to the entire graph.
+        m_todo = S::Fill(depgraph.TxCount());
+    }
 
     /** Find a high-feerate topologically-valid subset of what remains of the cluster.
      *
@@ -416,6 +475,9 @@ public:
             // Set best to the entire remainder if not provided.
             best.first = m_todo;
             best.second = m_depgraph.FeeRate(m_todo);
+        } else {
+            // Otherwise convert to internal sorted indices.
+            best.first = OriginalToSorted(best.first);
         }
         Assume(!best.second.IsEmpty());
         Assume(best.first.Any());
@@ -562,8 +624,8 @@ public:
 
         // Return what remains of the iteration limit.
         iterations_left = iteration_limit;
-        // Return the found best set.
-        return best;
+        // Return the found best set, converted to the original transaction indices.
+        return {SortedToOriginal(best.first), best.second};
     }
 
     /** Remove a subset of transactions from the cluster being linearized.
@@ -572,7 +634,7 @@ public:
      */
     void MarkDone(const S& done) noexcept
     {
-        m_todo /= done;
+        m_todo /= OriginalToSorted(done);
     }
 };
 
