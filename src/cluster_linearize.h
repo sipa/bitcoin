@@ -213,6 +213,45 @@ public:
         return true;
     }
 
+    /** Find some connected component within the subset "left" of this graph.
+     *
+     * Complexity: O(ret.Count()).
+     */
+    S FindConnectedComponent(const S& left) const noexcept
+    {
+        if (left.None()) return left;
+        auto first = left.First();
+        S ret = Descendants(first) | Ancestors(first);
+        ret &= left;
+        S to_add = ret;
+        to_add.Reset(first);
+        do {
+            S old = ret;
+            for (auto add : to_add) {
+                ret |= Descendants(add);
+                ret |= Ancestors(add);
+            }
+            ret &= left;
+            to_add = ret / old;
+        } while (to_add.Any());
+        return ret;
+    }
+
+    /** Determine if a subset is connected.
+     *
+     * Complexity: O(subset.Count()).
+     */
+    bool IsConnected(const S& subset) const noexcept
+    {
+        return FindConnectedComponent(subset) == subset;
+    }
+
+    /** Determine if this entire graph is connected.
+     *
+     * Complexity: O(TxCount()).
+     */
+    bool IsConnected() const noexcept { return IsConnected(S::Fill(TxCount())); }
+
     /** Test whether adding a dependency between parent and child is valid and meaningful.
      *
      * Complexity: O(N^2) where N=TxCount().
