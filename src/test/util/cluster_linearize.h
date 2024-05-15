@@ -186,13 +186,14 @@ struct DepGraphFormatter
         /** The dependency graph which we deserialize into first, with transactions in
          *  topological serialization order, not original cluster order. */
         DepGraph<SetType> topo_depgraph;
-        /** Mapping from cluster order to serialization order, used later to reconstruct the
+        /** Mapping from serialization order to cluster order, used later to reconstruct the
          *  cluster order. */
         std::vector<ClusterIndex> reordering;
 
         // Read transactions in topological order.
         try {
-            while (true) {
+            bool done = false;
+            while (!done) {
                 // Read size. Size 0 signifies the end of the DepGraph.
                 int32_t size;
                 s >> VARINT_MODE(size, VarIntMode::NONNEGATIVE_SIGNED);
@@ -207,50 +208,42 @@ struct DepGraphFormatter
                 auto fee = UnsignedToSigned(coded_fee);
                 // Extend topo_depgraph with the new transaction (at the end).
                 auto topo_idx = topo_depgraph.AddTransaction({fee, size});
-                reordering.push_back(topo_idx);
+                ClusterIndex insert_distance = 0;
                 // Read dependency information.
-                uint64_t diff = 0; //!< How many potential parents we have to skip.
-                s >> VARINT(diff);
-                for (ClusterIndex dep_dist = 0; dep_dist < topo_idx; ++dep_dist) {
-                    /** Which topo_depgraph index we are currently considering as parent of topo_idx. */
-                    ClusterIndex dep_topo_idx = topo_idx - 1 - dep_dist;
-                    // Ignore transactions which are already known ancestors of topo_idx.
-                    if (topo_depgraph.Descendants(dep_topo_idx)[topo_idx]) continue;
-                    if (diff == 0) {
-                        // When the skip counter has reached 0, add an actual dependency.
-                        topo_depgraph.AddDependency(dep_topo_idx, topo_idx);
-                        // And read the number of skips after it.
-                        s >> VARINT(diff);
-                    } else {
-                        // Otherwise, dep_topo_idx is not a parent. Decrement and continue.
-                        --diff;
+                try {
+                    uint64_t diff = 0; //!< How many potential parents we have to skip.
+                    s >> VARINT(diff);
+                    for (ClusterIndex dep_dist = 0; dep_dist < topo_idx; ++dep_dist) {
+                        /** Which topo_depgraph index we are currently considering as parent of topo_idx. */
+                        ClusterIndex dep_topo_idx = topo_idx - 1 - dep_dist;
+                        // Ignore transactions which are already known ancestors of topo_idx.
+                        if (topo_depgraph.Descendants(dep_topo_idx)[topo_idx]) continue;
+                        if (diff == 0) {
+                            // When the skip counter has reached 0, add an actual dependency.
+                            topo_depgraph.AddDependency(dep_topo_idx, topo_idx);
+                            // And read the number of skips after it.
+                            s >> VARINT(diff);
+                        } else {
+                            // Otherwise, dep_topo_idx is not a parent. Decrement and continue.
+                            --diff;
+                        }
                     }
+                    // If we reach this point, we can interpret the remaining skip value as how far
+                    // from the end of reordering topo_idx should be placed (wrapping around).
+                    insert_distance = diff % (reordering.size() + 1);
+                } catch (const std::ios_base::failure&) {
+                    done = true;
                 }
-                // If we reach this point, we can interpret the remaining skip value as how far from the
-                // end of reordering topo_idx should be placed (wrapping around), so move it to its
-                // correct location. The preliminary reordering.push_back(topo_idx) above was to make
-                // sure that if a deserialization exception occurs, topo_idx still appears somewhere.
-                reordering.pop_back();
-                reordering.insert(reordering.end() - (diff % (reordering.size() + 1)), topo_idx);
+                // Update reordering to reflect this new transaction's insertion.
+                for (auto& pos : reordering) {
+                    pos += (pos >= reordering.size() - insert_distance);
+                }
+                reordering.push_back(reordering.size() - insert_distance);
             }
         } catch (const std::ios_base::failure&) {}
 
         // Construct the original cluster order depgraph.
-        depgraph = {};
-        // Add transactions to depgraph in the original cluster order.
-        for (auto topo_idx : reordering) {
-            depgraph.AddTransaction(topo_depgraph.FeeRate(topo_idx));
-        }
-        // Translate dependencies from topological to cluster order.
-        for (ClusterIndex idx = 0; idx < reordering.size(); ++idx) {
-            ClusterIndex topo_idx = reordering[idx];
-            for (ClusterIndex dep_idx = 0; dep_idx < reordering.size(); ++dep_idx) {
-                ClusterIndex dep_topo_idx = reordering[dep_idx];
-                if (topo_depgraph.Ancestors(topo_idx)[dep_topo_idx]) {
-                    depgraph.AddDependency(dep_idx, idx);
-                }
-            }
-        }
+        depgraph = DepGraph(topo_depgraph, reordering);
     }
 };
 
