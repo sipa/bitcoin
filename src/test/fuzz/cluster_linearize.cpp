@@ -15,6 +15,8 @@
 #include <vector>
 #include <utility>
 
+#include <iostream>
+
 using namespace cluster_linearize;
 
 namespace {
@@ -83,6 +85,107 @@ bool CanAddDependency(const DepGraph<S>& depgraph, ClusterIndex parent, ClusterI
         }
     }
     return true;
+}
+
+[[maybe_unused]] std::ostream& operator<<(std::ostream& o, const FeeFrac& data)
+{
+    if (data.IsEmpty()) {
+        o << "()";
+    } else {
+        o << "(" << data.fee << "/" << data.size << "=" << ((double)data.fee / data.size) << ")";
+    }
+    return o;
+}
+
+[[maybe_unused]] std::ostream& operator<<(std::ostream& o, Span<const ClusterIndex> data)
+{
+    o << '{';
+    bool first = true;
+    for (unsigned i : data) {
+        if (first) {
+            first = false;
+        } else {
+            o << ',';
+        }
+        o << i;
+    }
+    o << '}';
+    return o;
+}
+
+[[maybe_unused]] std::ostream& operator<<(std::ostream& o, Span<const unsigned char> data)
+{
+    o << '{';
+    bool first = true;
+    for (unsigned i : data) {
+        if (first) {
+            first = false;
+        } else {
+            o << ',';
+        }
+        o << i;
+    }
+    o << '}';
+    return o;
+}
+
+template<typename I>
+std::ostream& operator<<(std::ostream& s, const bitset_detail::IntBitSet<I>& bs)
+{
+    s << "[";
+    size_t cnt = 0;
+    for (size_t i = 0; i < bs.Size(); ++i) {
+        if (bs[i]) {
+            if (cnt) s << ",";
+            ++cnt;
+            s << i;
+        }
+    }
+    s << "]";
+    return s;
+}
+
+template<typename I, unsigned N>
+std::ostream& operator<<(std::ostream& s, const bitset_detail::MultiIntBitSet<I, N>& bs)
+{
+    s << "[";
+    size_t cnt = 0;
+    for (size_t i = 0; i < bs.Size(); ++i) {
+        if (bs[i]) {
+            if (cnt) s << ",";
+            ++cnt;
+            s << i;
+        }
+    }
+    s << "]";
+    return s;
+}
+
+/** String serialization for debug output of Cluster. */
+template<typename S>
+std::ostream& operator<<(std::ostream& o, const Cluster<S>& cluster)
+{
+    o << "Cluster{";
+    for (size_t i = 0; i < cluster.size(); ++i) {
+        if (i) o << ",";
+        o << i << ":" << cluster[i].first << cluster[i].second;
+    }
+    o << "}";
+    return o;
+}
+
+template<typename S>
+std::ostream& operator<<(std::ostream& o, const DepGraph<S>& txgraph)
+{
+    o << "DepGraph{";
+    for (size_t i = 0; i < txgraph.TxCount(); ++i) {
+        if (i) o << ",";
+        o << i << ":" << txgraph.FeeRate(i);
+        S pars = GetReducedParents(txgraph, i);
+        o << pars;
+    }
+    o << "}";
+    return o;
 }
 
 /** A formatter for a bespoke serialization for *acyclic* DepGraph objects. */
