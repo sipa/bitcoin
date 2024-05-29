@@ -518,6 +518,24 @@ BS ReadTopologicalSet(const DepGraph<BS>& depgraph, const BS& todo, SpanReader& 
     return ret & todo;
 }
 
+/** Given a dependency graph, and a todo set, read an anti-topological subset of todo from reader. */
+template<typename BS>
+BS ReadAntiTopologicalSet(const DepGraph<BS>& depgraph, const BS& todo, SpanReader& reader)
+{
+    uint64_t mask{0};
+    try {
+        reader >> VARINT(mask);
+    } catch(const std::ios_base::failure&) {}
+    BS ret;
+    for (auto i : todo) {
+        if (!ret[i]) {
+            if (mask & 1) ret |= depgraph.Descendants(i);
+            mask >>= 1;
+        }
+    }
+    return ret & todo;
+}
+
 /** Compute the chunks for a given linearization. */
 template<typename S>
 std::vector<FeeFrac> ChunkLinearization(const DepGraph<S>& depgraph, Span<const ClusterIndex> linearization) noexcept
@@ -529,6 +547,26 @@ std::vector<FeeFrac> ChunkLinearization(const DepGraph<S>& depgraph, Span<const 
         // As long as the new chunk has a higher feerate than the last chunk so far, absorb it.
         while (!ret.empty() && new_chunk >> ret.back()) {
             new_chunk += ret.back();
+            ret.pop_back();
+        }
+        // Actually move that new chunk into the chunking.
+        ret.push_back(std::move(new_chunk));
+    }
+    return ret;
+}
+
+/** Compute the chunk (set, feerate) for a given linearization. */
+template<typename S>
+std::vector<std::pair<S, FeeFrac>> ChunkPairLinearization(const DepGraph<S>& depgraph, Span<const ClusterIndex> linearization) noexcept
+{
+    std::vector<std::pair<S, FeeFrac>> ret;
+    for (ClusterIndex i : linearization) {
+        /** The new chunk to be added, initially a singleton. */
+        std::pair<S, FeeFrac> new_chunk{S::Singleton(i), depgraph.FeeRate(i)};
+        // As long as the new chunk has a higher feerate than the last chunk so far, absorb it.
+        while (!ret.empty() && new_chunk.second >> ret.back().second) {
+            new_chunk.first |= ret.back().first;
+            new_chunk.second += ret.back().second;
             ret.pop_back();
         }
         // Actually move that new chunk into the chunking.
@@ -1076,4 +1114,108 @@ FUZZ_TARGET(clusterlin_merge)
     assert(cmp1 >= 0);
     auto cmp2 = CompareChunks(chunking_merged, chunking2);
     assert(cmp2 >= 0);
+}
+
+FUZZ_TARGET(clusterlin_package_rbf_chunk_feerate_theorem)
+{
+    // Given a cluster G1, a corresponding optimal linearization L1, and a new cluster G2 obtained
+    // by replacing some anti-topological set C with another anti-topological set A, and an
+    // optimal linearization L2 for G2. In this case, the highest chunk feerate in L2 for any
+    // transaction in A is at least as high as the highest chunk feerate in L1 for any transaction
+    // in C.
+
+    // Construct an arbitrary "merged" graph from the fuzz input.
+    SpanReader reader(buffer);
+    DepGraph<TestBitSet> depgraph_merged;
+    try {
+        reader >> Using<DepGraphFormatter>(depgraph_merged);
+    } catch (const std::ios_base::failure&) {}
+    if (depgraph_merged.TxCount() < 3) return;
+    MakeConnected(depgraph_merged);
+    auto all = TestBitSet::Fill(depgraph_merged.TxCount());
+
+    // Read two anti-topological sets (one for added transactions, one for conflicts).
+    auto merged_added = ReadAntiTopologicalSet(depgraph_merged, all, reader);
+    auto merged_conflicts = ReadAntiTopologicalSet(depgraph_merged, all, reader);
+    if (merged_added.IsSubsetOf(merged_conflicts)) return;
+    if (merged_conflicts.IsSubsetOf(merged_added)) return;
+
+    // Construct the old graph by removing all added transactions from the merged graph.
+    auto merged_old = TestBitSet::Fill(depgraph_merged.TxCount()) - merged_added;
+    DepGraph<TestBitSet> depgraph_old;
+    TestBitSet old_conflicts;
+    {
+        std::vector<ClusterIndex> merged_to_old(depgraph_merged.TxCount());
+        for (auto i : merged_old) {
+            auto idx = depgraph_old.AddTransaction(depgraph_merged.FeeRate(i));
+            merged_to_old[i] = idx;
+            if (merged_conflicts[i]) old_conflicts.Set(idx);
+        }
+        for (auto i : merged_old) {
+            for (auto j : merged_old & depgraph_merged.Ancestors(i)) {
+                depgraph_old.AddDependency(merged_to_old[j], merged_to_old[i]);
+            }
+        }
+    }
+
+    // Construct the new graph by removing all conflicting transactions from the merged graph.
+    auto merged_new = TestBitSet::Fill(depgraph_merged.TxCount()) - merged_conflicts;
+    DepGraph<TestBitSet> depgraph_new;
+    TestBitSet new_added;
+    {
+        std::vector<ClusterIndex> merged_to_new(depgraph_merged.TxCount());
+        for (auto i : merged_new) {
+            auto idx = depgraph_new.AddTransaction(depgraph_merged.FeeRate(i));
+            merged_to_new[i] = idx;
+            if (merged_added[i]) new_added.Set(idx);
+        }
+        for (auto i : merged_new) {
+            for (auto j : merged_new & depgraph_merged.Ancestors(i)) {
+                depgraph_new.AddDependency(merged_to_new[j], merged_to_new[i]);
+            }
+        }
+    }
+
+    // Compute optimal linearizations for both.
+    uint64_t iters_old = 100000;
+    auto lin_old = Linearize(depgraph_old, iters_old, 0);
+    assert(iters_old > 0);
+    uint64_t iters_new = 100000;
+    auto lin_new = Linearize(depgraph_new, iters_new, 0);
+    assert(iters_new > 0);
+
+    // Compare diagrams, and bail out if new is not better.
+    auto old_chunking = ChunkLinearization(depgraph_old, lin_old);
+    auto new_chunking = ChunkLinearization(depgraph_new, lin_new);
+    auto cmp = CompareChunks(new_chunking, old_chunking);
+    if (!(cmp >= 0)) return;
+
+    // Compute chunk pairs for both linearizations.
+    auto old_chunk_pairs = ChunkPairLinearization(depgraph_old, lin_old);
+    auto new_chunk_pairs = ChunkPairLinearization(depgraph_new, lin_new);
+
+    // Find the highest feerate of any old diagram chunk that has a conflict.
+    std::optional<FeeFrac> best_conflict;
+    for (const auto& [chunk, chunk_feerate] : old_chunk_pairs) {
+        if (chunk.Overlaps(old_conflicts)) {
+            if (!best_conflict.has_value() || chunk_feerate >> *best_conflict) {
+                best_conflict = chunk_feerate;
+            }
+        }
+    }
+    assert(best_conflict.has_value());
+
+    // Find the highest feerate of any new diagram chunk that has an added transaction.
+    std::optional<FeeFrac> best_added;
+    for (const auto& [chunk, chunk_feerate] : new_chunk_pairs) {
+        if (chunk.Overlaps(new_added)) {
+            if (!best_added.has_value() || chunk_feerate >> *best_added) {
+                best_added = chunk_feerate;
+            }
+        }
+    }
+    assert(best_added.has_value());
+
+    // Verify that the best added chunk feerate is at least the best conflicting chunk feerate.
+    assert(!(*best_added << *best_conflict));
 }
