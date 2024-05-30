@@ -1219,3 +1219,209 @@ FUZZ_TARGET(clusterlin_package_rbf_chunk_feerate_theorem)
     // Verify that the best added chunk feerate is at least the best conflicting chunk feerate.
     assert(!(*best_added << *best_conflict));
 }
+
+#include <iostream>
+
+namespace {
+
+enum class FancyStyle {
+    ABSTRACT_MERGE_POSTLIN,
+    IMPROVE_MERGE_POSTLIN,
+    CONCRETE_MERGE,
+};
+
+template<FancyStyle Style>
+void ClusterLinFancyRBFTheorem(Span<const uint8_t> buffer)
+{
+    // Construct an arbitrary graph and an index for the added transaction from the fuzz input.
+    SpanReader reader(buffer);
+    DepGraph<TestBitSet> depgraph_merged;
+    uint64_t add_code{0};
+    try {
+        reader >> Using<DepGraphFormatter>(depgraph_merged) >> VARINT(add_code);
+    } catch (const std::ios_base::failure&) {}
+    if (depgraph_merged.TxCount() < 3) return;
+    MakeConnected(depgraph_merged);
+
+    // Find a leaf transaction to function as the added one.
+    TestBitSet leaves;
+    for (ClusterIndex i = 0; i < depgraph_merged.TxCount(); ++i) {
+        if (depgraph_merged.Descendants(i).Count() == 1) leaves.Set(i);
+    }
+    add_code %= leaves.Count();
+    ClusterIndex merged_add_idx{0};
+    for (auto i : leaves) {
+        if (add_code == 0) {
+            merged_add_idx = i;
+            break;
+        }
+        --add_code;
+    }
+
+    // Find the conflict set as an anti-topological subset of the entire graph excluding the
+    // ancestors of add (if any such transaction is a conflict, add cannot be added).
+    auto merged_conflicts = ReadAntiTopologicalSet(
+        depgraph_merged,
+        TestBitSet::Fill(depgraph_merged.TxCount()) - depgraph_merged.Ancestors(merged_add_idx),
+        reader);
+    if (merged_conflicts.None()) return;
+    if (depgraph_merged.TxCount() <= merged_conflicts.Count() + 1) return;
+
+    // Construct the old graph by removing the added transaction from the merged graph.
+    auto merged_old = TestBitSet::Fill(depgraph_merged.TxCount());
+    merged_old.Reset(merged_add_idx);
+    DepGraph<TestBitSet> depgraph_old;
+    TestBitSet old_conflicts;
+    std::vector<ClusterIndex> merged_to_old(depgraph_merged.TxCount());
+    std::vector<ClusterIndex> old_to_merged;
+    {
+        for (auto i : merged_old) {
+            auto idx = depgraph_old.AddTransaction(depgraph_merged.FeeRate(i));
+            merged_to_old[i] = idx;
+            old_to_merged.push_back(i);
+            if (merged_conflicts[i]) old_conflicts.Set(idx);
+        }
+        for (auto i : merged_old) {
+            for (auto j : merged_old & depgraph_merged.Ancestors(i)) {
+                depgraph_old.AddDependency(merged_to_old[j], merged_to_old[i]);
+            }
+        }
+    }
+
+    // Construct the new graph by removing all conflicting transactions from the merged graph.
+    auto merged_new = TestBitSet::Fill(depgraph_merged.TxCount()) - merged_conflicts;
+    DepGraph<TestBitSet> depgraph_new;
+    ClusterIndex new_add_idx{0};
+    std::vector<ClusterIndex> merged_to_new(depgraph_merged.TxCount());
+    std::vector<ClusterIndex> new_to_merged;
+    {
+        for (auto i : merged_new) {
+            auto idx = depgraph_new.AddTransaction(depgraph_merged.FeeRate(i));
+            merged_to_new[i] = idx;
+            new_to_merged.push_back(i);
+            if (merged_add_idx == i) new_add_idx = idx;
+        }
+        for (auto i : merged_new) {
+            for (auto j : merged_new & depgraph_merged.Ancestors(i)) {
+                depgraph_new.AddDependency(merged_to_new[j], merged_to_new[i]);
+            }
+        }
+    }
+
+    // Read an old linearzation and post-linearize it.
+    auto old_lin1 = ReadLinearization(depgraph_old, reader);
+
+    // Construct new_lin1, the linearization of depgraph_new obtained by stripping conflicts and
+    // adding add_idx.
+    std::vector<ClusterIndex> new_lin1;
+    for (auto i : old_lin1) {
+        if (!old_conflicts[i]) new_lin1.push_back(merged_to_new[old_to_merged[i]]);
+    }
+    new_lin1.push_back(new_add_idx);
+    SanityCheck(depgraph_new, new_lin1);
+
+    // Read a new post-linearized new_lin2, which needs to be at least as good as new_lin1,
+    // representing the result of LIMO on new_lin1.
+    auto new_lin2 = ReadLinearization(depgraph_new, reader);
+    auto new_chunking1 = ChunkLinearization(depgraph_new, new_lin1);
+    auto new_chunking2 = ChunkLinearization(depgraph_new, new_lin2);
+    if (!(CompareChunks(new_chunking2, new_chunking1) >= 0)) return;
+
+    // Construct old_lin2, the linearization of depgraph_old obtained by removing add_idx and
+    // concatenating conflicts back to new_lin2. This represents the "backport" of the
+    // new_lin2 linearization to the old graph.
+    std::vector<ClusterIndex> old_lin2;
+    for (auto i : new_lin2) {
+        if (i != new_add_idx) old_lin2.push_back(merged_to_old[new_to_merged[i]]);
+    }
+    for (auto i : old_lin1) {
+        if (old_conflicts[i]) old_lin2.push_back(i);
+    }
+    SanityCheck(depgraph_old, old_lin2);
+
+    // Read another post-linearized linearization which needs to be as good as old1 and old2,
+    // representing the merge of the old linearization, and the backported old linearization.
+    std::vector<ClusterIndex> old_lin3;
+    if constexpr (Style == FancyStyle::IMPROVE_MERGE_POSTLIN) {
+        PostLinearize(depgraph_old, old_lin2);
+        old_lin3 = ReadLinearization(depgraph_old, reader);
+    } else if constexpr (Style == FancyStyle::ABSTRACT_MERGE_POSTLIN) {
+        PostLinearize(depgraph_old, old_lin2);
+        DepGraph<TestBitSet> depgraph_imp;
+        for (ClusterIndex i = 0; i < depgraph_old.TxCount(); ++i) {
+            depgraph_imp.AddTransaction(depgraph_old.FeeRate(i));
+        }
+        for (ClusterIndex i = 0; i < depgraph_old.TxCount(); ++i) {
+            TestBitSet before_lin1, before_lin2;
+            for (auto j : old_lin1) {
+                if (j == i) break;
+                before_lin1.Set(j);
+            }
+            for (auto j : old_lin2) {
+                if (j == i) break;
+                before_lin2.Set(j);
+            }
+            for (auto j : before_lin1 & before_lin2) {
+                depgraph_imp.AddDependency(j, i);
+            }
+        }
+        old_lin3 = ReadLinearization(depgraph_imp, reader);
+        SanityCheck(depgraph_old, old_lin3);
+    } else if constexpr (Style == FancyStyle::CONCRETE_MERGE) {
+        old_lin3 = MergeLinearizations(depgraph_old, old_lin1, old_lin2);
+    } else {
+        assert(false);
+    }
+    auto old_chunking3 = ChunkLinearization(depgraph_old, old_lin3);
+    if constexpr (Style == FancyStyle::IMPROVE_MERGE_POSTLIN || Style == FancyStyle::ABSTRACT_MERGE_POSTLIN) {
+        auto old_chunking1 = ChunkLinearization(depgraph_old, old_lin1);
+        auto old_chunking2 = ChunkLinearization(depgraph_old, old_lin2);
+        if (!(CompareChunks(old_chunking3, old_chunking1) >= 0)) return;
+        if (!(CompareChunks(old_chunking3, old_chunking2) >= 0)) return;
+    }
+
+    // Now require that the LIMO'ed new linearization is as good as the merged old linearization.
+    if (!(CompareChunks(new_chunking2, old_chunking3) >= 0)) return;
+
+    // Determine chunk feerate of add in new_lin2.
+    auto new_chunk2_pairs = ChunkPairLinearization(depgraph_new, new_lin2);
+    FeeFrac new_lin2_add_feerate;
+    for (const auto& [chunk_set, chunk_feerate] : new_chunk2_pairs) {
+        if (chunk_set[new_add_idx]) new_lin2_add_feerate = chunk_feerate;
+    }
+
+    // Determine chunk feerates of conflicts in old_lin3, and compare with new_lin2_add_feerate.
+    auto old_chunk3_pairs = ChunkPairLinearization(depgraph_old, old_lin3);
+    for (const auto& [chunk_set, chunk_feerate] : old_chunk3_pairs) {
+        if (chunk_set.Overlaps(old_conflicts)) assert(!(new_lin2_add_feerate << chunk_feerate));
+    }
+
+    static std::map<std::pair<unsigned, unsigned>, uint64_t> REACH;
+    static uint64_t TOTAL{0};
+    std::pair<unsigned, unsigned> key(depgraph_merged.TxCount(), merged_conflicts.Count());
+    const uint64_t cur = ++REACH[key];
+    if ((cur & (cur - 1)) == 0) {
+        std::cerr << "G=" << key.first << " C=" << key.second << ": " << cur << "\n";
+    }
+    const uint64_t total = ++TOTAL;
+    if ((total & (total - 1)) == 0) {
+        std::cerr << "T=" << TOTAL << "\n";
+    }
+}
+
+} // namespace
+
+FUZZ_TARGET(clusterlin_fancy_rbf_theorem_concrete_merge)
+{
+    ClusterLinFancyRBFTheorem<FancyStyle::CONCRETE_MERGE>(buffer);
+}
+
+FUZZ_TARGET(clusterlin_fancy_rbf_theorem_improve_merge_postlin)
+{
+    ClusterLinFancyRBFTheorem<FancyStyle::IMPROVE_MERGE_POSTLIN>(buffer);
+}
+
+FUZZ_TARGET(clusterlin_fancy_rbf_theorem_abstract_merge_postlin)
+{
+    ClusterLinFancyRBFTheorem<FancyStyle::ABSTRACT_MERGE_POSTLIN>(buffer);
+}
