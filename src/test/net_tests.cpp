@@ -1090,7 +1090,7 @@ public:
             }
             // Enqueue a message to be sent by the transport to us.
             if (!m_msg_to_send.empty() && (!progress || InsecureRandBool())) {
-                if (m_transport.SetMessageToSend(m_msg_to_send.front(), m_msg_to_send.front().m_type)) {
+                if (m_transport.SetMessageToSend(m_msg_to_send.front().data, m_msg_to_send.front().m_type)) {
                     m_msg_to_send.pop_front();
                     progress = true;
                 }
@@ -1120,7 +1120,8 @@ public:
     /** Send V1 version message header to the transport. */
     void SendV1Version(const MessageStartChars& magic)
     {
-        CMessageHeader hdr(magic, "version", 126 + InsecureRandRange(11));
+        const static uint8_t VERSION[12] = {'v', 'e', 'r', 's', 'i', 'o', 'n'};
+        CMessageHeader hdr(magic, VERSION, 126 + InsecureRandRange(11));
         DataStream ser{};
         ser << hdr;
         m_to_send.insert(m_to_send.end(), UCharCast(ser.data()), UCharCast(ser.data() + ser.size()));
@@ -1159,7 +1160,9 @@ public:
     {
         CSerializedNetMsg msg;
         msg.m_type = std::move(m_type);
-        msg.data = std::move(payload);
+        msg.data.resize(CMessageHeader::COMMAND_SIZE + payload.size());
+        std::copy(m_type.begin(), m_type.end(), msg.data.begin());
+        std::copy(payload.begin(), payload.end(), msg.data.begin() + CMessageHeader::COMMAND_SIZE);
         m_msg_to_send.push_back(std::move(msg));
     }
 

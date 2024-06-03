@@ -810,7 +810,7 @@ CNetMessage V1Transport::GetReceivedMessage(const std::chrono::microseconds time
     return msg;
 }
 
-bool V1Transport::SetMessageToSend(CSerializedNetMsg& msg, const std::string& label) noexcept
+bool V1Transport::SetMessageToSend(std::vector<uint8_t>& msg, const std::string& label) noexcept
 {
     AssertLockNotHeld(m_send_mutex);
     // Determine whether a new message can be set.
@@ -818,10 +818,12 @@ bool V1Transport::SetMessageToSend(CSerializedNetMsg& msg, const std::string& la
     if (m_sending_header || m_bytes_sent < m_data_to_send.size()) return false;
 
     // create dbl-sha256 checksum
-    uint256 hash = Hash(msg.data);
+    Assume(msg.size() >= CMessageHeader::COMMAND_SIZE);
+    uint256 hash;
+    CHash256().Write(Span{msg}.subspan(CMessageHeader::COMMAND_SIZE)).Finalize(hash);
 
     // create header
-    CMessageHeader hdr(m_magic_bytes, msg.m_type.c_str(), msg.data.size());
+    CMessageHeader hdr(m_magic_bytes, Span{msg}.first(CMessageHeader::COMMAND_SIZE), msg.size() - 12);
     memcpy(hdr.pchChecksum, hash.begin(), CMessageHeader::CHECKSUM_SIZE);
 
     // serialize header
@@ -829,7 +831,7 @@ bool V1Transport::SetMessageToSend(CSerializedNetMsg& msg, const std::string& la
     VectorWriter{m_header_to_send, 0, hdr};
 
     // update state
-    m_data_to_send = std::move(msg.data);
+    m_data_to_send = std::move(msg);
     m_send_label = label;
     m_sending_header = true;
     m_bytes_sent = 0;
@@ -865,7 +867,7 @@ void V1Transport::MarkBytesSent(size_t bytes_sent) noexcept
     if (m_sending_header && m_bytes_sent == m_header_to_send.size()) {
         // We're done sending a message's header. Switch to sending its data bytes.
         m_sending_header = false;
-        m_bytes_sent = 0;
+        m_bytes_sent = CMessageHeader::COMMAND_SIZE;
     } else if (!m_sending_header && m_bytes_sent == m_data_to_send.size()) {
         // We're done sending a message's data. Wipe the data vector to reduce memory consumption.
         ClearShrink(m_data_to_send);
@@ -927,7 +929,7 @@ const std::array<std::string, 33> V2_MESSAGE_IDS = {
 
 class V2MessageMap
 {
-    std::unordered_map<std::string, uint8_t> m_map;
+    std::map<std::string_view, uint8_t> m_map;
 
 public:
     V2MessageMap() noexcept
@@ -937,8 +939,13 @@ public:
         }
     }
 
-    std::optional<uint8_t> operator()(const std::string& message_name) const noexcept
+    std::optional<uint8_t> operator()(std::string_view message_name) const noexcept
     {
+        // Remove trailing zeros.
+        while (!message_name.empty() && message_name.back() == 0) {
+            message_name.remove_suffix(1);
+        }
+
         auto it = m_map.find(message_name);
         if (it == m_map.end()) return std::nullopt;
         return it->second;
@@ -1442,7 +1449,7 @@ CNetMessage V2Transport::GetReceivedMessage(std::chrono::microseconds time, bool
         msg.m_recv.resize(contents.size());
         std::copy(contents.begin(), contents.end(), UCharCast(msg.m_recv.data()));
     } else {
-        LogPrint(BCLog::NET, "V2 transport error: invalid message type (%u bytes contents), peer=%d\n", m_recv_decode_buffer.size(), m_nodeid);
+        LogPrint(BCLog::NET, "V2 transport error: invalid message type (%u bytes contents, first byte=%u), peer=%d\n", m_recv_decode_buffer.size(), m_recv_decode_buffer[0], m_nodeid);
         reject_message = true;
     }
     ClearShrink(m_recv_decode_buffer);
@@ -1451,7 +1458,7 @@ CNetMessage V2Transport::GetReceivedMessage(std::chrono::microseconds time, bool
     return msg;
 }
 
-bool V2Transport::SetMessageToSend(CSerializedNetMsg& msg, const std::string& label) noexcept
+bool V2Transport::SetMessageToSend(std::vector<uint8_t>& msg, const std::string& label) noexcept
 {
     AssertLockNotHeld(m_send_mutex);
     LOCK(m_send_mutex);
@@ -1462,24 +1469,24 @@ bool V2Transport::SetMessageToSend(CSerializedNetMsg& msg, const std::string& la
     if (!(m_send_state == SendState::READY && m_send_buffer.empty())) return false;
     // Construct contents (encoding message type + payload).
     std::vector<uint8_t> contents;
-    auto short_message_id = V2_MESSAGE_MAP(msg.m_type);
+    assert(msg.size() >= CMessageHeader::COMMAND_SIZE);
+    auto short_message_id = V2_MESSAGE_MAP(std::string_view{(const char*)msg.data(), CMessageHeader::COMMAND_SIZE});
     if (short_message_id) {
-        contents.resize(1 + msg.data.size());
+        contents.resize(1 + msg.size() - CMessageHeader::COMMAND_SIZE);
         contents[0] = *short_message_id;
-        std::copy(msg.data.begin(), msg.data.end(), contents.begin() + 1);
+        std::copy(msg.begin() + CMessageHeader::COMMAND_SIZE, msg.end(), contents.begin() + 1);
     } else {
         // Initialize with zeroes, and then write the message type string starting at offset 1.
         // This means contents[0] and the unused positions in contents[1..13] remain 0x00.
-        contents.resize(1 + CMessageHeader::COMMAND_SIZE + msg.data.size(), 0);
-        std::copy(msg.m_type.begin(), msg.m_type.end(), contents.data() + 1);
-        std::copy(msg.data.begin(), msg.data.end(), contents.begin() + 1 + CMessageHeader::COMMAND_SIZE);
+        contents.resize(1 + msg.size(), 0);
+        std::copy(msg.begin(), msg.end(), contents.begin() + 1);
     }
     // Construct ciphertext in send buffer.
     m_send_buffer.resize(contents.size() + BIP324Cipher::EXPANSION);
     m_cipher.Encrypt(MakeByteSpan(contents), {}, false, MakeWritableByteSpan(m_send_buffer));
     m_send_label = label;
     // Release memory
-    ClearShrink(msg.data);
+    ClearShrink(msg);
     return true;
 }
 
@@ -1582,7 +1589,7 @@ std::pair<size_t, bool> CConnman::SocketSendData(CNode& node) const
             // there is an existing message still being sent, or (for v2 transports) when the
             // handshake has not yet completed.
             size_t memusage = it->GetMemoryUsage();
-            if (node.m_transport->SetMessageToSend(*it, it->m_type)) {
+            if (node.m_transport->SetMessageToSend(it->data, it->m_type)) {
                 // Update memory usage of send buffer (as *it will be deleted).
                 node.m_send_memusage -= memusage;
                 ++it;
@@ -3799,8 +3806,8 @@ void CConnman::PushMessage(CNode* pnode, CSerializedNetMsg&& msg)
         pnode->m_addr_name.c_str(),
         pnode->ConnectionTypeAsString().c_str(),
         msg.m_type.c_str(),
-        msg.data.size(),
-        msg.data.data()
+        msg.data.size() - CMessageHeader::COMMAND_SIZE,
+        msg.data.data() + CMessageHeader::COMMAND_SIZE
     );
 
     size_t nBytesSent = 0;

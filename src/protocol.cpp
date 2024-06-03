@@ -7,13 +7,12 @@
 
 #include <common/system.h>
 
-CMessageHeader::CMessageHeader(const MessageStartChars& pchMessageStartIn, const char* pszCommand, unsigned int nMessageSizeIn)
+CMessageHeader::CMessageHeader(const MessageStartChars& pchMessageStartIn, Span<const uint8_t> command, unsigned int nMessageSizeIn)
     : pchMessageStart{pchMessageStartIn}
 {
     // Copy the command name
-    size_t i = 0;
-    for (; i < COMMAND_SIZE && pszCommand[i] != 0; ++i) pchCommand[i] = pszCommand[i];
-    assert(pszCommand[i] == 0); // Assert that the command name passed in is not longer than COMMAND_SIZE
+    assert(command.size() <= 12);
+    std::copy(command.begin(), command.end(), pchCommand);
 
     nMessageSize = nMessageSizeIn;
 }

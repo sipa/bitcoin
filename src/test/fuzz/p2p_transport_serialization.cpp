@@ -88,7 +88,7 @@ FUZZ_TARGET(p2p_transport_serialization, .init = initialize_p2p_transport_serial
 
             std::vector<unsigned char> header;
             auto msg2 = NetMsg::Make(msg.m_type, Span{msg.m_recv});
-            bool queued = send_transport.SetMessageToSend(msg2, msg2.m_type);
+            bool queued = send_transport.SetMessageToSend(msg2.data, msg2.m_type);
             assert(queued);
             std::optional<bool> known_more;
             while (true) {
@@ -208,7 +208,7 @@ void SimulationTest(Transport& initiator, Transport& responder, R& rng, FuzzedDa
         if (expected[side].size() >= 16) return;
         // Try to send (a copy of) the message in next_msg[side].
         CSerializedNetMsg msg = next_msg[side].Copy();
-        bool queued = transports[side]->SetMessageToSend(msg, msg.m_type);
+        bool queued = transports[side]->SetMessageToSend(msg.data, msg.m_type);
         // Update expected more data.
         expect_more[side] = expect_more_next[side];
         expect_more_next[side] = std::nullopt;

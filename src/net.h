@@ -127,7 +127,9 @@ struct CSerializedNetMsg {
         return copy;
     }
 
+    /** Data to be handed to the transport. Its first 12 bytes encode the message type. */
     std::vector<unsigned char> data;
+    /** The message type (just for reporting purposes, set as label in SetMessageToSend). */
     std::string m_type;
 
     /** Compute total memory usage of this object (own memory + any dynamic memory). */
@@ -293,7 +295,7 @@ public:
      * possibly moved-from) and true is returned. The label is an arbitrary string that will be
      * reported back by GetBytesToSend.
      */
-    virtual bool SetMessageToSend(CSerializedNetMsg& msg, const std::string& label) noexcept = 0;
+    virtual bool SetMessageToSend(std::vector<uint8_t>& msg, const std::string& label) noexcept = 0;
 
     /** Return type for GetBytesToSend, consisting of:
      *  - Span<const uint8_t> to_send: span of bytes to be sent over the wire (possibly empty).
@@ -439,7 +441,7 @@ public:
 
     CNetMessage GetReceivedMessage(std::chrono::microseconds time, bool& reject_message) override EXCLUSIVE_LOCKS_REQUIRED(!m_recv_mutex);
 
-    bool SetMessageToSend(CSerializedNetMsg& msg, const std::string& label) noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
+    bool SetMessageToSend(std::vector<uint8_t>& msg, const std::string& label) noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
     BytesToSend GetBytesToSend(bool have_next_message) const noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
     void MarkBytesSent(size_t bytes_sent) noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
     size_t GetSendMemoryUsage() const noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
@@ -649,7 +651,7 @@ public:
     CNetMessage GetReceivedMessage(std::chrono::microseconds time, bool& reject_message) noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_recv_mutex);
 
     // Send side functions.
-    bool SetMessageToSend(CSerializedNetMsg& msg, const std::string& label) noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
+    bool SetMessageToSend(std::vector<uint8_t>& msg, const std::string& label) noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
     BytesToSend GetBytesToSend(bool have_next_message) const noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
     void MarkBytesSent(size_t bytes_sent) noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
     size_t GetSendMemoryUsage() const noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
