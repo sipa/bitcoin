@@ -815,7 +815,7 @@ bool V1Transport::SetMessageToSend(CSerializedNetMsg& msg, const std::string& la
     AssertLockNotHeld(m_send_mutex);
     // Determine whether a new message can be set.
     LOCK(m_send_mutex);
-    if (m_sending_header || m_bytes_sent < m_message_to_send.data.size()) return false;
+    if (m_sending_header || m_bytes_sent < m_data_to_send.size()) return false;
 
     // create dbl-sha256 checksum
     uint256 hash = Hash(msg.data);
@@ -829,7 +829,7 @@ bool V1Transport::SetMessageToSend(CSerializedNetMsg& msg, const std::string& la
     VectorWriter{m_header_to_send, 0, hdr};
 
     // update state
-    m_message_to_send = std::move(msg);
+    m_data_to_send = std::move(msg.data);
     m_send_label = label;
     m_sending_header = true;
     m_bytes_sent = 0;
@@ -844,11 +844,11 @@ Transport::BytesToSend V1Transport::GetBytesToSend(bool have_next_message) const
         return {Span{m_header_to_send}.subspan(m_bytes_sent),
                 // We have more to send after the header if the message has payload, or if there
                 // is a next message after that.
-                have_next_message || !m_message_to_send.data.empty(),
+                have_next_message || !m_data_to_send.empty(),
                 m_send_label
                };
     } else {
-        return {Span{m_message_to_send.data}.subspan(m_bytes_sent),
+        return {Span{m_data_to_send}.subspan(m_bytes_sent),
                 // We only have more to send after this message's payload if there is another
                 // message.
                 have_next_message,
@@ -866,9 +866,9 @@ void V1Transport::MarkBytesSent(size_t bytes_sent) noexcept
         // We're done sending a message's header. Switch to sending its data bytes.
         m_sending_header = false;
         m_bytes_sent = 0;
-    } else if (!m_sending_header && m_bytes_sent == m_message_to_send.data.size()) {
+    } else if (!m_sending_header && m_bytes_sent == m_data_to_send.size()) {
         // We're done sending a message's data. Wipe the data vector to reduce memory consumption.
-        ClearShrink(m_message_to_send.data);
+        ClearShrink(m_data_to_send);
         m_bytes_sent = 0;
     }
 }
@@ -877,8 +877,8 @@ size_t V1Transport::GetSendMemoryUsage() const noexcept
 {
     AssertLockNotHeld(m_send_mutex);
     LOCK(m_send_mutex);
-    // Don't count sending-side fields besides m_message_to_send, as they're all small and bounded.
-    return m_message_to_send.GetMemoryUsage();
+    // Don't count sending-side fields besides m_data_to_send, as they're all small and bounded.
+    return memusage::DynamicUsage(m_data_to_send);
 }
 
 namespace {

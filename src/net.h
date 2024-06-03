@@ -405,12 +405,12 @@ private:
     /** The header of the message currently being sent. */
     std::vector<uint8_t> m_header_to_send GUARDED_BY(m_send_mutex);
     /** The data of the message currently being sent. */
-    CSerializedNetMsg m_message_to_send GUARDED_BY(m_send_mutex);
+    std::vector<uint8_t> m_data_to_send GUARDED_BY(m_send_mutex);
     /** Label for the message currently being sent. */
     std::string m_send_label GUARDED_BY(m_send_mutex);
     /** Whether we're currently sending header bytes or message bytes. */
     bool m_sending_header GUARDED_BY(m_send_mutex) {false};
-    /** How many bytes have been sent so far (from m_header_to_send, or from m_message_to_send.data). */
+    /** How many bytes have been sent so far (from m_header_to_send, or from m_data_to_send). */
     size_t m_bytes_sent GUARDED_BY(m_send_mutex) {0};
 
 public:
