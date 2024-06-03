@@ -290,21 +290,22 @@ public:
      *
      * If no message can currently be set (perhaps because the previous one is not yet done being
      * sent), returns false, and msg will be unmodified. Otherwise msg is enqueued (and
-     * possibly moved-from) and true is returned.
+     * possibly moved-from) and true is returned. The label is an arbitrary string that will be
+     * reported back by GetBytesToSend.
      */
-    virtual bool SetMessageToSend(CSerializedNetMsg& msg) noexcept = 0;
+    virtual bool SetMessageToSend(CSerializedNetMsg& msg, const std::string& label) noexcept = 0;
 
     /** Return type for GetBytesToSend, consisting of:
      *  - Span<const uint8_t> to_send: span of bytes to be sent over the wire (possibly empty).
      *  - bool more: whether there will be more bytes to be sent after the ones in to_send are
      *    all sent (as signaled by MarkBytesSent()).
-     *  - const std::string& m_type: message type on behalf of which this is being sent
-     *    ("" for bytes that are not on behalf of any message).
+     *  - const std::string& label: label set by SetMessageToSend for the message on behalf of
+     *    which these bytes are being sent; "" for bytes that are not on behalf of any message.
      */
     using BytesToSend = std::tuple<
         Span<const uint8_t> /*to_send*/,
         bool /*more*/,
-        const std::string& /*m_type*/
+        const std::string& /*label*/
     >;
 
     /** Get bytes to send on the wire, if any, along with other information about it.
@@ -338,7 +339,7 @@ public:
      * @return a BytesToSend object. The to_send member returned acts as a stream which is only
      *         ever appended to. This means that with the exception of MarkBytesSent (which pops
      *         bytes off the front of later to_sends), operations on the transport can only append
-     *         to what is being returned. Also note that m_type and to_send refer to data that is
+     *         to what is being returned. Also note that label and to_send refer to data that is
      *         internal to the transport, and calling any non-const function on this object may
      *         invalidate them.
      */
@@ -405,6 +406,8 @@ private:
     std::vector<uint8_t> m_header_to_send GUARDED_BY(m_send_mutex);
     /** The data of the message currently being sent. */
     CSerializedNetMsg m_message_to_send GUARDED_BY(m_send_mutex);
+    /** Label for the message currently being sent. */
+    std::string m_send_label GUARDED_BY(m_send_mutex);
     /** Whether we're currently sending header bytes or message bytes. */
     bool m_sending_header GUARDED_BY(m_send_mutex) {false};
     /** How many bytes have been sent so far (from m_header_to_send, or from m_message_to_send.data). */
@@ -436,7 +439,7 @@ public:
 
     CNetMessage GetReceivedMessage(std::chrono::microseconds time, bool& reject_message) override EXCLUSIVE_LOCKS_REQUIRED(!m_recv_mutex);
 
-    bool SetMessageToSend(CSerializedNetMsg& msg) noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
+    bool SetMessageToSend(CSerializedNetMsg& msg, const std::string& label) noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
     BytesToSend GetBytesToSend(bool have_next_message) const noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
     void MarkBytesSent(size_t bytes_sent) noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
     size_t GetSendMemoryUsage() const noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
@@ -601,8 +604,8 @@ private:
     uint32_t m_send_pos GUARDED_BY(m_send_mutex) {0};
     /** The garbage sent, or to be sent (MAYBE_V1 and AWAITING_KEY state only). */
     std::vector<uint8_t> m_send_garbage GUARDED_BY(m_send_mutex);
-    /** Type of the message being sent. */
-    std::string m_send_type GUARDED_BY(m_send_mutex);
+    /** Label of the message being sent. */
+    std::string m_send_label GUARDED_BY(m_send_mutex);
     /** Current sender state. */
     SendState m_send_state GUARDED_BY(m_send_mutex);
     /** Whether we've sent at least 24 bytes (which would trigger disconnect for V1 peers). */
@@ -646,7 +649,7 @@ public:
     CNetMessage GetReceivedMessage(std::chrono::microseconds time, bool& reject_message) noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_recv_mutex);
 
     // Send side functions.
-    bool SetMessageToSend(CSerializedNetMsg& msg) noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
+    bool SetMessageToSend(CSerializedNetMsg& msg, const std::string& label) noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
     BytesToSend GetBytesToSend(bool have_next_message) const noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
     void MarkBytesSent(size_t bytes_sent) noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
     size_t GetSendMemoryUsage() const noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
@@ -670,7 +673,8 @@ class CNode
 {
 public:
     /** Transport serializer/deserializer. The receive side functions are only called under cs_vRecv, while
-     * the sending side functions are only called under cs_vSend. */
+     * the sending side functions are only called under cs_vSend. On messages to be sent, the label is set
+     * equal to the message type. */
     const std::unique_ptr<Transport> m_transport;
 
     const NetPermissionFlags m_permission_flags;

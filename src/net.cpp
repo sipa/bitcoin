@@ -810,7 +810,7 @@ CNetMessage V1Transport::GetReceivedMessage(const std::chrono::microseconds time
     return msg;
 }
 
-bool V1Transport::SetMessageToSend(CSerializedNetMsg& msg) noexcept
+bool V1Transport::SetMessageToSend(CSerializedNetMsg& msg, const std::string& label) noexcept
 {
     AssertLockNotHeld(m_send_mutex);
     // Determine whether a new message can be set.
@@ -830,6 +830,7 @@ bool V1Transport::SetMessageToSend(CSerializedNetMsg& msg) noexcept
 
     // update state
     m_message_to_send = std::move(msg);
+    m_send_label = label;
     m_sending_header = true;
     m_bytes_sent = 0;
     return true;
@@ -844,14 +845,14 @@ Transport::BytesToSend V1Transport::GetBytesToSend(bool have_next_message) const
                 // We have more to send after the header if the message has payload, or if there
                 // is a next message after that.
                 have_next_message || !m_message_to_send.data.empty(),
-                m_message_to_send.m_type
+                m_send_label
                };
     } else {
         return {Span{m_message_to_send.data}.subspan(m_bytes_sent),
                 // We only have more to send after this message's payload if there is another
                 // message.
                 have_next_message,
-                m_message_to_send.m_type
+                m_send_label
                };
     }
 }
@@ -1450,11 +1451,11 @@ CNetMessage V2Transport::GetReceivedMessage(std::chrono::microseconds time, bool
     return msg;
 }
 
-bool V2Transport::SetMessageToSend(CSerializedNetMsg& msg) noexcept
+bool V2Transport::SetMessageToSend(CSerializedNetMsg& msg, const std::string& label) noexcept
 {
     AssertLockNotHeld(m_send_mutex);
     LOCK(m_send_mutex);
-    if (m_send_state == SendState::V1) return m_v1_fallback.SetMessageToSend(msg);
+    if (m_send_state == SendState::V1) return m_v1_fallback.SetMessageToSend(msg, label);
     // We only allow adding a new message to be sent when in the READY state (so the packet cipher
     // is available) and the send buffer is empty. This limits the number of messages in the send
     // buffer to just one, and leaves the responsibility for queueing them up to the caller.
@@ -1476,7 +1477,7 @@ bool V2Transport::SetMessageToSend(CSerializedNetMsg& msg) noexcept
     // Construct ciphertext in send buffer.
     m_send_buffer.resize(contents.size() + BIP324Cipher::EXPANSION);
     m_cipher.Encrypt(MakeByteSpan(contents), {}, false, MakeWritableByteSpan(m_send_buffer));
-    m_send_type = msg.m_type;
+    m_send_label = label;
     // Release memory
     ClearShrink(msg.data);
     return true;
@@ -1495,7 +1496,7 @@ Transport::BytesToSend V2Transport::GetBytesToSend(bool have_next_message) const
         // We only have more to send after the current m_send_buffer if there is a (next)
         // message to be sent, and we're capable of sending packets. */
         have_next_message && m_send_state == SendState::READY,
-        m_send_type
+        m_send_label
     };
 }
 
@@ -1581,7 +1582,7 @@ std::pair<size_t, bool> CConnman::SocketSendData(CNode& node) const
             // there is an existing message still being sent, or (for v2 transports) when the
             // handshake has not yet completed.
             size_t memusage = it->GetMemoryUsage();
-            if (node.m_transport->SetMessageToSend(*it)) {
+            if (node.m_transport->SetMessageToSend(*it, it->m_type)) {
                 // Update memory usage of send buffer (as *it will be deleted).
                 node.m_send_memusage -= memusage;
                 ++it;

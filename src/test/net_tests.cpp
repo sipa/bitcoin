@@ -1090,7 +1090,7 @@ public:
             }
             // Enqueue a message to be sent by the transport to us.
             if (!m_msg_to_send.empty() && (!progress || InsecureRandBool())) {
-                if (m_transport.SetMessageToSend(m_msg_to_send.front())) {
+                if (m_transport.SetMessageToSend(m_msg_to_send.front(), m_msg_to_send.front().m_type)) {
                     m_msg_to_send.pop_front();
                     progress = true;
                 }

@@ -89,7 +89,7 @@ void ConnmanTestMsg::FlushSendBuffer(CNode& node) const
 
 bool ConnmanTestMsg::ReceiveMsgFrom(CNode& node, CSerializedNetMsg&& ser_msg) const
 {
-    bool queued = node.m_transport->SetMessageToSend(ser_msg);
+    bool queued = node.m_transport->SetMessageToSend(ser_msg, ser_msg.m_type);
     assert(queued);
     bool complete{false};
     while (true) {
