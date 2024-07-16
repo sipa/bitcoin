@@ -184,6 +184,7 @@ public:
     inline bool IsDirty() const noexcept { return m_flags & DIRTY; }
     inline bool IsFresh() const noexcept { return m_flags & FRESH; }
     inline CoinsCachePair* Next() const noexcept { return m_next; }
+    inline CoinsCachePair* Prev() const noexcept { return m_prev; }
 
     //! Only use this for initializing the linked list sentinel
     inline void SelfRef(CoinsCachePair& self) noexcept
