@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <functional>
 #include <span>
+#include <span.h>
 #include <string_view>
 
 /**
@@ -43,5 +44,7 @@ void FuzzFrameworkRegisterTarget(std::string_view name, TypeTestOneInput target,
         }                                                                             \
     } const static g_##name##_before_main;                                            \
     void name##_fuzz_target(FuzzBufferType buffer)
+
+bool FuzzSave(Span<const uint8_t> input) noexcept;
 
 #endif // BITCOIN_TEST_FUZZ_FUZZ_H
