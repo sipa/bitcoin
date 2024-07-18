@@ -578,7 +578,7 @@ public:
  * over the set of topologically-valid subsets of that remainder, with a limit on how many
  * combinations are tried.
  */
-template<typename SetType>
+template<typename SetType, bool FullJump = false>
 class SearchCandidateFinder
 {
     /** Internal RNG. */
@@ -777,17 +777,19 @@ public:
                 // or T must be a subset of B.
                 //
                 // See https://delvingbitcoin.org/t/how-to-linearize-your-cluster/303 section 2.4.
-                const auto init_inc = inc.transactions;
-                for (auto pos : consider_inc) {
-                    // If the transaction's ancestors are a subset of pot, we can add it together
-                    // with its ancestors to inc. Just update the transactions here; the feerate
-                    // update happens below.
-                    auto anc_todo = m_depgraph.Ancestors(pos) & m_todo;
-                    if (anc_todo.IsSubsetOf(pot.transactions)) inc.transactions |= anc_todo;
+                if (reconsider_pot) {
+                    const auto init_inc = inc.transactions;
+                    for (auto pos : consider_inc) {
+                        // If the transaction's ancestors are a subset of pot, we can add it together
+                        // with its ancestors to inc. Just update the transactions here; the feerate
+                        // update happens below.
+                        auto anc_todo = m_depgraph.Ancestors(pos) & m_todo;
+                        if (anc_todo.IsSubsetOf(pot.transactions)) inc.transactions |= anc_todo;
+                    }
+                    // Finally update und and inc's feerate to account for the added transactions.
+                    und -= inc.transactions;
+                    inc.feerate += m_depgraph.FeeRate(inc.transactions - init_inc);
                 }
-                // Finally update und and inc's feerate to account for the added transactions.
-                und -= inc.transactions;
-                inc.feerate += m_depgraph.FeeRate(inc.transactions - init_inc);
 
                 // If inc's feerate is better than best's, remember it as our new best.
                 if (inc.feerate > best.feerate) {
@@ -850,6 +852,7 @@ public:
                 // In case inc is empty use a simpler alternative check.
                 if (m_depgraph.FeeRate(first) <= best.feerate) return;
             }
+            if (!elem.und.Overlaps(imp)) return;
 
             // Decide which transaction to split on. Splitting is how new work items are added, and
             // how progress is made. One split transaction is chosen among the queue item's
@@ -884,15 +887,15 @@ public:
                     split_counts = counts;
                 }
             }
-            // Since there was at least one transaction in select, we must always find one.
-            Assume(split_counts.has_value());
+
+            Assume(elem.und[split]);
 
             // Add a work item corresponding to exclusion of the split transaction.
             const auto& desc = m_depgraph.Descendants(split);
             add_fn(/*inc=*/elem.inc,
                    /*und=*/elem.und - desc,
                    /*pot=*/elem.pot.Remove(m_depgraph, desc),
-                   /*reconsider_pot=*/false);
+                   /*reconsider_pot=*/FullJump);
 
             // Add a work item corresponding to inclusion of the split transaction.
             const auto anc = m_depgraph.Ancestors(split) & m_todo;

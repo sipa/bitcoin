@@ -16,6 +16,8 @@
 #include <vector>
 #include <utility>
 
+#include <iostream>
+
 using namespace cluster_linearize;
 
 namespace {
@@ -726,6 +728,65 @@ FUZZ_TARGET(clusterlin_linearization_chunking)
     }
 
     assert(chunking.NumChunksLeft() == 0);
+}
+
+namespace {
+
+template<bool FullJump>
+void SearchMaximize(Span<const uint8_t> buffer) noexcept
+{
+    SpanReader reader(buffer);
+    DepGraph<TestBitSet> depgraph;
+    try {
+        reader >> Using<DepGraphFormatter>(depgraph);
+    } catch (const std::ios_base::failure&) {}
+    if (depgraph.TxCount() < 3 || depgraph.TxCount() > 16) return;
+    MakeConnected(depgraph);
+
+    uint64_t max_iters = 0;
+    for (uint64_t rng_seed = 0; rng_seed < 16; ++rng_seed) {
+        SearchCandidateFinder<TestBitSet, FullJump> finder(depgraph, rng_seed);
+        auto [candidate, iters] = finder.FindCandidateSet(100000, {});
+        if (iters > max_iters) max_iters = iters;
+    }
+
+    static std::pair<uint64_t, int64_t> BEST[40];
+
+    std::pair<uint64_t, int64_t> data{max_iters, -int64_t(buffer.size())};
+    if (data > BEST[depgraph.TxCount()]) {
+        bool show = data.first > BEST[depgraph.TxCount()].first;
+        FuzzSave(buffer);
+        std::vector<uint8_t> reser;
+        VectorWriter writer(reser, 0);
+        writer << Using<DepGraphFormatter>(depgraph);
+        reser.pop_back();
+        FuzzSave(reser);
+        data.second = std::max(data.second, -int64_t(reser.size()));
+
+        BEST[depgraph.TxCount()] = data;
+
+        if (show || true) {
+            std::cerr << "MAX";
+            for (unsigned n = 0; n < 40; ++n) {
+                if (BEST[n].first) {
+                    std::cerr << " " << n << ":" << BEST[n].first << "(" << -BEST[n].second << ")";
+                }
+            }
+            std::cerr << "\n";
+        }
+    }
+}
+
+} // namespace
+
+FUZZ_TARGET(clusterlin_search_maximize)
+{
+    SearchMaximize<false>(buffer);
+}
+
+FUZZ_TARGET(clusterlin_search_maximize_fulljump)
+{
+    SearchMaximize<true>(buffer);
 }
 
 FUZZ_TARGET(clusterlin_linearize)
