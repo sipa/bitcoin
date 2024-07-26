@@ -144,6 +144,43 @@ struct FeeFrac
         std::swap(a.fee, b.fee);
         std::swap(a.size, b.size);
     }
+
+    /** Compute, at this object's feerate, how much fee does at_size correspond to.
+     *
+     * This effectively corresponds to evaluating (this->fee * at_size) / this->size, with the
+     * result rounded down (even for negative feerates).
+     *
+     * Requires this->size > 0, at_size >= 0, and that the correct result fits in a int64_t. This
+     * is guaranteed to be the case when 0 <= at_size <= this->size.
+     */
+    int64_t Evaluate(int32_t at_size) const noexcept
+    {
+        Assume(at_size >= 0);
+        Assume(size > 0);
+        if (fee >= 0 && fee < 0x200000000) [[likely]] {
+            // Common case where (this->fee * at_size) is guaranteed to fit in a uint64_t.
+            return (uint64_t(fee) * at_size) / uint32_t(size);
+        } else {
+            // If not, use a custom 96-bit division.
+
+            // Write (this->fee * at_size) as (low32 + high64 * 2**32), so the result can be stated
+            // as (low32 + high64 * 2**32) / this->size.
+            auto [high64, low32] = MulFallback(fee, at_size);
+            // Compute high64 / this->size, so the result becomes
+            // (low32 + (high64 - high64_div * size) * 2**32) / this->size + (high64_div * 2**32).
+            int64_t high64_div = high64 / size;
+            // Evaluate the parenthesized expression above, so the result becomes
+            // low64 / this->size + (high64_div * 2**32)
+            int64_t low64 = ((high64 - high64_div * size) << 32) + low32;
+            // Evaluate the division so the result becomes low64_div + high64_div * 2**32. We need
+            // this division to round down however, while the / operator rounds towards zero. In
+            // case low64 is negative and not a multiple of size, we thus need a correction.
+            int64_t low64_div = low64 / size;
+            low64_div -= (low64 % size) < 0;
+            // Evaluate and return the result
+            return (high64_div << 32) + low64_div;
+        }
+    }
 };
 
 /** Compare the feerate diagrams implied by the provided sorted chunks data.

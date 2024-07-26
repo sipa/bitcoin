@@ -2,6 +2,7 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <arith_uint256.h>
 #include <util/feefrac.h>
 #include <test/fuzz/FuzzedDataProvider.h>
 #include <test/fuzz/fuzz.h>
@@ -120,4 +121,64 @@ FUZZ_TARGET(feefrac)
     assert((fr1 >= fr2) == std::is_gteq(cmp_total));
     assert((fr1 == fr2) == std::is_eq(cmp_total));
     assert((fr1 != fr2) == std::is_neq(cmp_total));
+}
+
+FUZZ_TARGET(feefrac_evaluate)
+{
+    // Construct a feefrac (with positive size), and a non-negative size to evaluate at.
+    FuzzedDataProvider provider(buffer.data(), buffer.size());
+    auto frac_fee = provider.ConsumeIntegral<int64_t>();
+    auto frac_size = provider.ConsumeIntegralInRange<int32_t>(1, 0x7fffffff);
+    auto at_size = provider.ConsumeIntegralInRange<int32_t>(0, 0x7fffffff);
+    FeeFrac feefrac{frac_fee, frac_size};
+
+    // Simple case: frac_fee or at_size is 0.
+    if (frac_fee == 0 || at_size == 0) {
+        assert(feefrac.Evaluate(at_size) == 0);
+    }
+
+    // Simple case: at_size is 1.
+    if (at_size == 1) {
+        auto result = feefrac.Evaluate(at_size);
+        if (frac_fee < 0) {
+            assert(result == frac_fee / frac_size - !!(frac_fee % frac_size));
+        } else {
+            assert(result == frac_fee / frac_size);
+        }
+    }
+
+    // Simple case: at_size == frac_size.
+    if (at_size == frac_size) {
+        assert(feefrac.Evaluate(at_size) == frac_fee);
+    }
+
+    // Compute 2**63 + floor((frac_fee * at_size) / frac_size) using arith_uint256.
+    // - Start by computing frac_fee % 2**64.
+    arith_uint256 arith{uint64_t(frac_fee)};
+    // - Subtract 2**64 if frac_fee is negative, so arith == frac_fee (mod 2^256).
+    if (frac_fee < 0) arith -= arith_uint256{1} << 64;
+    // - Multiply by at_size, so we get arith == frac_fee * at_size (mod 2^256).
+    arith *= at_size;
+    // - Add 2**63 * frac_size, so arith == frac_fee * at_size + 2**63 * frac_size.
+    arith += arith_uint256{uint64_t(frac_size)} << 63;
+    // - Divide by frac_size, so arith = floor((frac_fee * at_size) / frac_size) + 2**63.
+    arith /= frac_size;
+    // Check if Evaluate can be called.
+    if (arith.bits() <= 64) {
+        // arith (= expected_result + 2**63) < 2**64, so -2**63 <= expected_result < 2**63, in
+        // other words, expected_result fits in an int64_t, and Evaluate can be called.
+        int64_t result = feefrac.Evaluate(at_size);
+        /** The expected result modulo 2**63. */
+        int64_t mod63 = arith.GetLow64() & 0x7fffffffffffffff;
+        if (arith.bits() == 64) {
+            // expected_result + 2**63 >= 2**63, so expected result is non-negative.
+            assert(result == mod63);
+        } else {
+            // expected_result + 2**63 < 2**63, so expected result is negative.
+            assert(result == mod63 + std::numeric_limits<int64_t>::min());
+        }
+    } else {
+        // The result must fit in a int64_t if 0 <= at_size <= frac_size.
+        assert(at_size > frac_size);
+    }
 }
