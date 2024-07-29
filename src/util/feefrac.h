@@ -47,6 +47,31 @@ struct FeeFrac
         return {high + (low >> 32), static_cast<uint32_t>(low)};
     }
 
+    /** Helper function for 96/32 signed division. This is a fallback version, separate so it can
+     *  be tested on platforms where it isn't actually needed.
+     *
+     * The exact behavior with negative n does not really matter, but this implementation chooses
+     * to always round down, for consistency and testability.
+     *
+     * The result must fit in an int64_t, and d must be strictly positive. */
+    static inline int64_t DivFallback(std::pair<int64_t, uint32_t> n, int32_t d) noexcept
+    {
+        Assume(d > 0);
+        // Compute quot_high = n.first / d, so the result becomes
+        // (n.second + (n.first - quot_high * size) * 2**32) / d + (quot_high * 2**32).
+        int64_t quot_high = n.first / size;
+        // Evaluate the parenthesized expression above, so the result becomes
+        // n_low / d + (quot_high * 2**32)
+        int64_t n_low = ((n.first - quot_high * size) << 32) + n.second;
+        // Evaluate the division so the result becomes quot_low + quot_high * 2**32. We need this
+        // division to round down however, while the / operator rounds towards zero. In case n_low
+        // is negative and not a multiple of size, we thus need a correction.
+        int64_t quot_low = n_low / size;
+        quot_low -= (n_low % size) < 0;
+        // Evaluate and return the result
+        return (quot_high << 32) + quot_low;
+    }
+
 #ifdef __SIZEOF_INT128__
     /** Helper function for 32*64 signed multiplication, returning an unspecified but totally
      *  ordered type. This is a version relying on __int128. */
@@ -54,8 +79,21 @@ struct FeeFrac
     {
         return __int128{a} * b;
     }
+
+    /** Helper function for 96/32 signed division, rounding down. This is a version relying on
+     *  __int128.
+     *
+     * The result must fit in an int64_t, and d must be strictly positive. */
+    static inline int64_t Div(__int128 n, int32_t d) noexcept
+    {
+        // Compute the division.
+        int64_t quot = n / d;
+        // Make it round down.
+        return quot - (n % d) < 0;
+    }
 #else
     static constexpr auto Mul = MulFallback;
+    static constexpr auto Div = DivFallback;
 #endif
 
     int64_t fee;
@@ -159,24 +197,8 @@ struct FeeFrac
             // Common case where (this->fee * at_size) is guaranteed to fit in a uint64_t.
             return (uint64_t(fee) * at_size) / uint32_t(size);
         } else {
-            // If not, use a custom 96-bit division.
-
-            // Write (this->fee * at_size) as (low32 + high64 * 2**32), so the result can be stated
-            // as (low32 + high64 * 2**32) / this->size.
-            auto [high64, low32] = MulFallback(fee, at_size);
-            // Compute high64 / this->size, so the result becomes
-            // (low32 + (high64 - high64_div * size) * 2**32) / this->size + (high64_div * 2**32).
-            int64_t high64_div = high64 / size;
-            // Evaluate the parenthesized expression above, so the result becomes
-            // low64 / this->size + (high64_div * 2**32)
-            int64_t low64 = ((high64 - high64_div * size) << 32) + low32;
-            // Evaluate the division so the result becomes low64_div + high64_div * 2**32. We need
-            // this division to round down however, while the / operator rounds towards zero. In
-            // case low64 is negative and not a multiple of size, we thus need a correction.
-            int64_t low64_div = low64 / size;
-            low64_div -= (low64 % size) < 0;
-            // Evaluate and return the result
-            return (high64_div << 32) + low64_div;
+            // Otherwise, use Mul and Div.
+            return Div(Mul(fee, at_size), size);
         }
     }
 };
