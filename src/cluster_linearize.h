@@ -742,9 +742,20 @@ public:
          * - pot: a subset of the "pot" value for the new work item (but a superset of inc).
          *        It does not need to be the full pot value; missing pot transactions will be added
          *        to it by add_fn.
+         * - reconsider_pot: this function will automatically add topologically-valid subsets of
+         *                   pot to inc (the jump ahead optimization). If reconsider_pot is true,
+         *                   the search for such subsets will include the transactions in the pot
+         *                   argument to the function. If reconsider_pot is false, only transactions
+         *                   that were missing from the pot argument will be considered. If no new
+         *                   transactions were added to inc since the last split (i.e., when this
+         *                   function is called for an exclusion) then there is no need to
+         *                   set this to true.
          */
-        auto add_fn = [&](SetInfo<SetType> inc, SetType und, SetInfo<SetType> pot) noexcept {
+        auto add_fn = [&](SetInfo<SetType> inc, SetType und, SetInfo<SetType> pot, bool reconsider_pot) noexcept {
             if (!inc.feerate.IsEmpty()) {
+                /** Which transactions to consider adding to inc. */
+                SetType consider_inc;
+                if (reconsider_pot) consider_inc = pot.transactions - inc.transactions;
                 // Add entries to pot. We iterate over all undecided transactions whose feerate is
                 // higher than best, and aren't already part of pot. While undecided transactions
                 // of lower feerate may improve, the resulting pot feerate cannot possibly exceed
@@ -756,6 +767,7 @@ public:
                     // individual feerate order.
                     if (!(m_sorted_depgraph.FeeRate(pos) >> pot.feerate)) break;
                     pot.Set(m_sorted_depgraph, pos);
+                    consider_inc.Set(pos);
                 }
 
                 // The "jump ahead" optimization: whenever pot has a topologically-valid subset,
@@ -769,7 +781,7 @@ public:
                 //
                 // See https://delvingbitcoin.org/t/how-to-linearize-your-cluster/303 section 2.4.
                 const auto init_inc = inc.transactions;
-                for (auto pos : pot.transactions - inc.transactions) {
+                for (auto pos : consider_inc) {
                     // If the transaction's ancestors are a subset of pot, we can add it together
                     // with its ancestors to inc. Just update the transactions here; the feerate
                     // update happens below.
@@ -882,13 +894,15 @@ public:
             const auto& desc = m_sorted_depgraph.Descendants(split);
             add_fn(/*inc=*/elem.inc,
                    /*und=*/elem.und - desc,
-                   /*pot=*/elem.pot.Remove(m_sorted_depgraph, desc));
+                   /*pot=*/elem.pot.Remove(m_sorted_depgraph, desc),
+                   /*reconsider_pot=*/false);
 
             // Add a work item corresponding to inclusion of the split transaction.
             const auto anc = m_sorted_depgraph.Ancestors(split) & m_todo;
             add_fn(/*inc=*/elem.inc.Add(m_sorted_depgraph, anc),
                    /*und=*/elem.und - anc,
-                   /*pot=*/elem.pot.Add(m_sorted_depgraph, anc));
+                   /*pot=*/elem.pot.Add(m_sorted_depgraph, anc),
+                   /*reconsider_pot=*/true);
 
             // Account for the performed split.
             --iterations_left;
