@@ -1093,6 +1093,174 @@ FUZZ_TARGET(clusterlin_postlinearize_moved_leaf)
     assert(cmp >= 0);
 }
 
+FUZZ_TARGET(clusterlin_fix_linearization)
+{
+    // Verify expected properties of FixLinearization() on arbitrary linearizations.
+
+    // Retrieve a depgraph from the fuzz input.
+    SpanReader reader(buffer);
+    DepGraph<TestBitSet> depgraph;
+    try {
+        reader >> Using<DepGraphFormatter>(depgraph);
+    } catch (const std::ios_base::failure&) {}
+
+    // Construct an arbitrary linearization (not necessarily valid for depgraph).
+    TestBitSet todo = depgraph.Positions();
+    bool valid = true;
+    std::vector<ClusterIndex> linearization;
+    while (todo.Any()) {
+        uint64_t val{0};
+        try {
+            reader >> VARINT(val);
+        } catch (const std::ios_base::failure&) {}
+        val %= todo.Count();
+        for (auto i : todo) {
+            if (val == 0) {
+                linearization.push_back(i);
+                todo.Reset(i);
+                if (todo.Overlaps(depgraph.Ancestors(i))) valid = false;
+                break;
+            }
+            --val;
+        }
+    }
+    assert(linearization.size() == depgraph.TxCount());
+
+    auto lin_fix = linearization;
+    FixLinearization(depgraph, lin_fix);
+    SanityCheck(depgraph, lin_fix);
+    if (valid) assert(lin_fix == linearization);
+
+    auto lin_fix_rev = linearization;
+    FixLinearizationRev(depgraph, lin_fix_rev);
+    SanityCheck(depgraph, lin_fix_rev);
+}
+
+FUZZ_TARGET(clusterlin_fix_linearization_cool)
+{
+    // Retrieve a depgraph from the fuzz input.
+    SpanReader reader(buffer);
+    DepGraph<TestBitSet> depgraph;
+    try {
+        reader >> Using<DepGraphFormatter>(depgraph);
+    } catch (const std::ios_base::failure&) {}
+    if (depgraph.TxCount() == 0) return;
+
+    // Retrieve a linearization from the fuzz input.
+    std::vector<ClusterIndex> linearization;
+    linearization = ReadLinearization(depgraph, reader);
+
+    // Construct depgraph + linearization without last transaction.
+    auto depgraph_without = depgraph;
+    depgraph_without.RemoveTransactions(TestBitSet::Singleton(linearization.back()));
+    auto linearization_without = linearization;
+    linearization_without.pop_back();
+    SanityCheck(depgraph_without, linearization_without);
+
+    // Construct full depgraph again, but without the last transactions' dependencies.
+    auto depgraph_readded = depgraph_without;
+    TestBitSet holes;
+    while (true) {
+        auto idx = depgraph_readded.AddTransaction(depgraph.FeeRate(linearization.back()));
+        if (idx == linearization.back()) {
+            depgraph_readded.RemoveTransactions(holes);
+            break;
+        } else {
+            // If the re-added transaction has an index different from what we want, continue,
+            // remembering that we need to turn this one back into a hole later.
+            holes.Set(idx);
+        }
+    }
+    SanityCheck(depgraph_readded, linearization);
+
+    // Build up components pairs of graph with just that component + its linearization).
+    std::vector<std::pair<DepGraph<TestBitSet>, std::vector<ClusterIndex>>> components;
+    auto todo = depgraph_without.Positions();
+    while (todo.Any()) {
+        auto comp = depgraph_without.FindConnectedComponent(todo);
+        assert(comp.Any());
+        todo -= comp;
+        auto comp_graph = depgraph_without;
+        comp_graph.RemoveTransactions(depgraph_without.Positions() - comp);
+        std::vector<ClusterIndex> comp_lin;
+        for (auto i : linearization_without) {
+            if (comp[i]) comp_lin.push_back(i);
+        }
+        PostLinearize(comp_graph, comp_lin);
+        auto [opt_lin, optimal] = Linearize(comp_graph, 100000, 0, comp_lin);
+        if (!optimal) return;
+        components.emplace_back(std::move(comp_graph), opt_lin);
+    }
+    auto comp_graph = depgraph;
+    comp_graph.RemoveTransactions(depgraph_without.Positions());
+    components.emplace_back(std::move(comp_graph), std::vector<ClusterIndex>{linearization.back()});
+    SanityCheck(components.back().first, components.back().second);
+
+    // Old approach: merge sort the chunks (excluding last transaction), append last transaction, add dependencies, postlinearize.
+    std::vector<ClusterIndex> old_lin;
+    {
+        std::vector<LinearizationChunking<TestBitSet>> chunkings;
+        for (size_t i = 0; i < components.size() - 1; ++i) {
+            chunkings.emplace_back(components[i].first, components[i].second);
+        }
+        while (old_lin.size() != linearization.size() - 1) {
+            SetInfo<TestBitSet> best;
+            size_t best_component = -1;
+            for (size_t i = 0; i < chunkings.size(); ++i) {
+                if (chunkings[i].NumChunksLeft()) {
+                    auto chunk = chunkings[i].GetChunk(0);
+                    if (best.feerate.IsEmpty() || chunk.feerate >> best.feerate) {
+                        best = chunk;
+                        best_component = i;
+                    }
+                }
+            }
+            chunkings[best_component].MarkDone(best.transactions);
+            for (auto i : components[best_component].second) {
+                if (best.transactions[i]) old_lin.push_back(i);
+            }
+        }
+        old_lin.push_back(linearization.back());
+    }
+    SanityCheck(depgraph, old_lin);
+    for (size_t i = 0; i < old_lin.size(); ++i) PostLinearize(depgraph, old_lin);
+
+    // New approach: merge sort the chunks (including last transaction), add dependencies, fix linearization, postlinearize.
+    std::vector<ClusterIndex> new_lin;
+    {
+        std::vector<LinearizationChunking<TestBitSet>> chunkings;
+        for (size_t i = 0; i < components.size(); ++i) {
+            chunkings.emplace_back(components[i].first, components[i].second);
+        }
+        while (new_lin.size() != linearization.size()) {
+            SetInfo<TestBitSet> best;
+            size_t best_component = -1;
+            for (size_t i = 0; i < chunkings.size(); ++i) {
+                if (chunkings[i].NumChunksLeft()) {
+                    auto chunk = chunkings[i].GetChunk(0);
+                    if (best.feerate.IsEmpty() || chunk.feerate >> best.feerate) {
+                        best = chunk;
+                        best_component = i;
+                    }
+                }
+            }
+            chunkings[best_component].MarkDone(best.transactions);
+            for (auto i : components[best_component].second) {
+                if (best.transactions[i]) new_lin.push_back(i);
+            }
+        }
+    }
+    FixLinearizationRev(depgraph, new_lin);
+    SanityCheck(depgraph, new_lin);
+    for (size_t i = 0; i < old_lin.size(); ++i) PostLinearize(depgraph, new_lin);
+
+    auto old_chunking = ChunkLinearization(depgraph, old_lin);
+    auto new_chunking = ChunkLinearization(depgraph, new_lin);
+    auto cmp = CompareChunks(new_chunking, old_chunking);
+    assert(cmp >= 0);
+//    assert(cmp == 0);
+}
+
 FUZZ_TARGET(clusterlin_merge)
 {
     // Construct an arbitrary graph from the fuzz input.

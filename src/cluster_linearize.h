@@ -1294,6 +1294,43 @@ void PostLinearize(const DepGraph<SetType>& depgraph, Span<ClusterIndex> lineari
     }
 }
 
+template<typename SetType>
+void FixLinearization(const DepGraph<SetType>& depgraph, Span<ClusterIndex> linearization) noexcept
+{
+    SetType done;
+    for (ClusterIndex i = 0; i < linearization.size(); ++i) {
+        ClusterIndex j = i;
+        ClusterIndex lin_j = linearization[j];
+        SetType swap_with = done & depgraph.Descendants(lin_j);
+        while (swap_with.Any()) {
+            auto to_swap = linearization[j - 1];
+            swap_with.Reset(to_swap);
+            linearization[j--] = to_swap;
+        }
+        linearization[j] = lin_j;
+        done.Set(lin_j);
+    }
+}
+
+template<typename SetType>
+void FixLinearizationRev(const DepGraph<SetType>& depgraph, Span<ClusterIndex> linearization) noexcept
+{
+    SetType done;
+    const auto len = linearization.size();
+    for (ClusterIndex i = 0; i < len; ++i) {
+        ClusterIndex j = i;
+        ClusterIndex lin_j = linearization[len - 1 - j];
+        SetType swap_with = done & depgraph.Ancestors(lin_j);
+        while (swap_with.Any()) {
+            auto to_swap = linearization[len - 1 - (j - 1)];
+            swap_with.Reset(to_swap);
+            linearization[len - 1 - (j--)] = to_swap;
+        }
+        linearization[len - 1 - j] = lin_j;
+        done.Set(lin_j);
+    }
+}
+
 /** Merge two linearizations for the same cluster into one that is as good as both.
  *
  * Complexity: O(N^2) where N=depgraph.TxCount(); O(N) if both inputs are identical.
