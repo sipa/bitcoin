@@ -618,6 +618,54 @@ public:
     }
 };
 
+template<typename SetType>
+class SimplexCandidateFinder
+{
+    const DepGraph<SetType>& m_depgraph;
+    SetType m_todo;
+
+public:
+    SimplexCandidateFinder(const DepGraph<SetType>& depgraph LIFETIMEBOUND) noexcept :
+        m_depgraph(depgraph),
+        m_todo{depgraph.Positions()} {}
+
+    void MarkDone(SetType select) noexcept
+    {
+        m_todo -= select;
+    }
+
+    bool AllDone() const noexcept
+    {
+        return m_todo.None();
+    }
+
+    std::pair<SetInfo<SetType>, uint64_t> FindCandidateSet(uint64_t max_iterations, SetInfo<SetType> best) const noexcept
+    {
+        uint64_t iterations{0};
+
+        using TxIdx = ClusterIndex;
+        using DepIdx = uint32_t;
+        using LinksIdx = uint32_t;
+
+        std::vector<DepIdx> parents;
+        std::vector<DepIdx> children;
+
+        struct DepData
+        {
+            TxIdx parent, child;
+        };
+
+        struct TxData
+        {
+            SetType deps;
+            LinksIdx links_offset;
+            LinksIdx links_count;
+            
+            
+        };
+    }
+};
+
 /** Class encapsulating the state needed to perform search for good candidate sets.
  *
  * It is initialized for an entire DepGraph, and parts of the graph can be dropped by calling
