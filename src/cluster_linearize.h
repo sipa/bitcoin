@@ -621,11 +621,13 @@ public:
 template<typename SetType>
 class SimplexCandidateFinder
 {
+    InsecureRandomContex m_rng;
     const DepGraph<SetType>& m_depgraph;
     SetType m_todo;
 
 public:
-    SimplexCandidateFinder(const DepGraph<SetType>& depgraph LIFETIMEBOUND) noexcept :
+    SimplexCandidateFinder(const DepGraph<SetType>& depgraph LIFETIMEBOUND, uint64_t rng_seed) noexcept :
+        m_rng(rng_seed),
         m_depgraph(depgraph),
         m_todo{depgraph.Positions()} {}
 
@@ -639,30 +641,95 @@ public:
         return m_todo.None();
     }
 
-    std::pair<SetInfo<SetType>, uint64_t> FindCandidateSet(uint64_t max_iterations, SetInfo<SetType> best) const noexcept
+    std::pair<SetInfo<SetType>, uint64_t> FindCandidateSet(uint64_t max_iterations) const noexcept
     {
         uint64_t iterations{0};
+        Assume(!AllDone());
 
         using TxIdx = ClusterIndex;
         using DepIdx = uint32_t;
         using LinksIdx = uint32_t;
 
-        std::vector<DepIdx> parents;
-        std::vector<DepIdx> children;
-
         struct DepData
         {
+            unsigned free : 1;
             TxIdx parent, child;
+
+            // Only if free.
+            TxIdx representative;
+            SetInfo<SetData> top_setinfo;
         };
 
         struct TxData
         {
-            SetType deps;
-            LinksIdx links_offset;
-            LinksIdx links_count;
-            
-            
+            SetType parents;
+            std::vector<DepIdx> links;
+            TxIdx representative;
+            unsigned todo : 1;
+
+            // Only if this is a representative.
+            unsigned rep_free : 1;
+            SetInfo<SetData> rep_setinfo;
         };
+
+        std::vector<uint32_t> free;
+        static constexpr uint32_t DEP_FREE_MASK = 0x80000000;
+        std::vector<TxData> txdata(m_depgraph.PositionRange());
+        std::vector<DepData> depdata;
+        TxIdx solution = TxIdx(-1);
+        for (auto i : m_depgraph) {
+            auto& txentry = txdata[i];
+            txentry.parents = m_depgraph.GetReducedParents();
+            for (auto j : txentry.parents) {
+                txdata[i].links.push_back(depdata.size());
+                txdata[j].links.push_back(depdata.size());
+                auto new_dep = depdata.emplace_back();
+                new_dep.free = 0;
+                new_dep.parent = j;
+                new_dep.child = i;
+            }
+            txentry.representative = i;
+            if (solution == TxIdx(-1) && txentry.parents.None()) {
+                solution = i;
+                txentry.rep_free = 0;
+            } else {
+                txentry.rep_free = 1;
+                txentry.rep_setinfo = SetInfo(m_depgraph, i);
+                free.push_back(i);
+            }
+        }
+
+        while (iterations < max_iterations) {
+            std::shuffle(free.begin(), free.end(), m_rng);
+            bool made_step{false};
+            auto& sol_entry = txdata[solution];
+            for (size_t free_pos = 0; free_pos < free.size(); ++free_pos) {
+                auto free_val = free[free_pos];
+                if (free_val & DEP_FREE_MASK) {
+                    auto& dep_entry = depdata[free_val ^ DEP_FREE_MASK];
+                    auto& tx_entry = txdata[dep_entry.representative];
+                    // Make free dependency basic (split up glued components).
+                    if (dep_entry.representative == solution) {
+                        // Splitting currently included component, which means increasing (top - bottom).
+                        if (!(dep_entry.top_setinfo.feerate >> tx_entry.rep_setinfo.feerate)) continue;
+                    } else {
+                        // Splitting currently excluded component.
+                        if (dep_entry.top_setinfo.transactions[dep_entry.representative]) {
+                            // Splitting component that is excluded due to free variable in top.
+                            auto bot_feerate = tx_entry.setinfo.feerate - dep_entry.top_setinfo.feerate;
+                            if (!(bot_feerate << sol_entry.rep_setinfo.feerate)) continue
+                        } else {
+                            // Splitting component that is excluded due to free variable in bottom.
+                            if (!(dep_entry.top_setinfo.feerate >> tx_entry.rep_setinfo.feerate)) continue;
+                        }
+                    }
+                    
+                } else {
+                    // Make free transaction basic (switch solution component).
+                }
+            }
+        }
+
     }
 };
 
