@@ -618,6 +618,11 @@ public:
     }
 };
 
+__int128 CalcDerivative(const FeeFrac& good, const FeeFrac& bad) noexcept
+{
+    return __int128{good.fee} * bad.size - __int128{bad.fee} * good.size;
+}
+
 template<typename SetType>
 class SimplexCandidateFinder
 {
@@ -701,17 +706,18 @@ public:
 
         while (iterations < max_iterations) {
             std::shuffle(free.begin(), free.end(), m_rng);
-            bool made_step{false};
-            auto& sol_entry = txdata[solution];
+            auto best_free = uint32_t(-1);
+            __int128 best_free_score{0};
             for (size_t free_pos = 0; free_pos < free.size(); ++free_pos) {
                 auto free_val = free[free_pos];
+                __int128 score;
                 if (free_val & DEP_FREE_MASK) {
                     auto& dep_entry = depdata[free_val ^ DEP_FREE_MASK];
                     auto& tx_entry = txdata[dep_entry.representative];
                     // Make free dependency basic (split up glued components).
                     if (dep_entry.representative == solution) {
                         // Splitting currently included component, which means increasing (top - bottom).
-                        if (!(dep_entry.top_setinfo.feerate >> tx_entry.rep_setinfo.feerate)) continue;
+                        score = CalcDerivative(dep_entry.top_setinfo.feerate, tx_entry.rep_setinfo.feerate);
                     } else {
                         // Splitting currently excluded component.
                         if (dep_entry.top_setinfo.transactions[dep_entry.representative]) {
