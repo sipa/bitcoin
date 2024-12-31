@@ -665,6 +665,27 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
     std::vector<DepIdx> shuffled_deps;
     tx_data.resize(depgraph.PositionRange());
 
+    auto debug_fn = [&]() noexcept {
+        std::cerr << "STATE:\n";
+        for (auto i : depgraph.Positions()) {
+            std::cerr << " - tx " << i << ": fee=" << depgraph.FeeRate(i).fee << " size=" << depgraph.FeeRate(i).size << " rep=" << tx_data[i].part_rep << "\n";
+            std::cerr << "   - parents:";
+            for (auto j : tx_data[i].parent_links) {
+                std::cerr << " dep=" << j;
+            }
+            std::cerr << "\n";
+            std::cerr << "   - children:";
+            for (auto j : tx_data[i].child_links) {
+                std::cerr << " dep=" << j;
+            }
+            std::cerr << "\n";
+        }
+        for (DepIdx dep = 0; dep < dep_data.size(); ++dep) {
+            
+            std::cerr << " - dep " << dep << (": parent=" << dep_data[dep].parent << 
+        }
+    };
+
     std::cerr << "\nSTART\n";
     for (auto i : depgraph.Positions()) {
         auto& txentry = tx_data[i];
