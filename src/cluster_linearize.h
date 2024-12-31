@@ -618,126 +618,117 @@ public:
     }
 };
 
-__int128 CalcDerivative(const FeeFrac& good, const FeeFrac& bad) noexcept
-{
-    return __int128{good.fee} * bad.size - __int128{bad.fee} * good.size;
-}
-
 template<typename SetType>
-class SimplexCandidateFinder
+std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<SetType>& depgraph, uint64_t rng_seed) noexcept
 {
-    InsecureRandomContex m_rng;
-    const DepGraph<SetType>& m_depgraph;
-    SetType m_todo;
+    InsecureRandomContext rng(rng_seed);
+    using TxIdx = ClusterIndex;
+    using DepIdx = uint32_t;
 
-public:
-    SimplexCandidateFinder(const DepGraph<SetType>& depgraph LIFETIMEBOUND, uint64_t rng_seed) noexcept :
-        m_rng(rng_seed),
-        m_depgraph(depgraph),
-        m_todo{depgraph.Positions()} {}
-
-    void MarkDone(SetType select) noexcept
+    struct DepData
     {
-        m_todo -= select;
+        unsigned active : 1;
+        TxIdx parent, child;
+
+        // Only if active.
+        TxIdx part_rep;
+        SetInfo<SetType> top_setinfo;
+    };
+
+    struct TxData
+    {
+        SetType parents;
+        std::vector<DepIdx> links;
+        TxIdx part_rep;
+
+        // Only if this transaction is representative of a partition.
+        SetInfo<SetType> part_setinfo;
+    };
+
+    static constexpr uint32_t DEP_MASK = 0x80000000;
+    std::vector<DepData> dep_data;
+    std::vector<TxData> tx_data;
+    std::vector<uint32_t> active;
+    tx_data.reserve(depgraph.PositionRange());
+
+    for (auto i : depgraph.Positions()) {
+        auto& txentry = tx_data[i];
+        txentry.parents = depgraph.GetReducedParents(i);
+        txentry.part_rep = i;
+        txentry.part_setinfo = SetInfo(depgraph, i);
+        active.push_back(i);
     }
-
-    bool AllDone() const noexcept
-    {
-        return m_todo.None();
-    }
-
-    std::pair<SetInfo<SetType>, uint64_t> FindCandidateSet(uint64_t max_iterations) const noexcept
-    {
-        uint64_t iterations{0};
-        Assume(!AllDone());
-
-        using TxIdx = ClusterIndex;
-        using DepIdx = uint32_t;
-        using LinksIdx = uint32_t;
-
-        struct DepData
-        {
-            unsigned free : 1;
-            TxIdx parent, child;
-
-            // Only if free.
-            TxIdx representative;
-            SetInfo<SetData> top_setinfo;
-        };
-
-        struct TxData
-        {
-            SetType parents;
-            std::vector<DepIdx> links;
-            TxIdx representative;
-            unsigned todo : 1;
-
-            // Only if this is a representative.
-            unsigned rep_free : 1;
-            SetInfo<SetData> rep_setinfo;
-        };
-
-        std::vector<uint32_t> free;
-        static constexpr uint32_t DEP_FREE_MASK = 0x80000000;
-        std::vector<TxData> txdata(m_depgraph.PositionRange());
-        std::vector<DepData> depdata;
-        TxIdx solution = TxIdx(-1);
-        for (auto i : m_depgraph) {
-            auto& txentry = txdata[i];
-            txentry.parents = m_depgraph.GetReducedParents();
-            for (auto j : txentry.parents) {
-                txdata[i].links.push_back(depdata.size());
-                txdata[j].links.push_back(depdata.size());
-                auto new_dep = depdata.emplace_back();
-                new_dep.free = 0;
-                new_dep.parent = j;
-                new_dep.child = i;
-            }
-            txentry.representative = i;
-            if (solution == TxIdx(-1) && txentry.parents.None()) {
-                solution = i;
-                txentry.rep_free = 0;
-            } else {
-                txentry.rep_free = 1;
-                txentry.rep_setinfo = SetInfo(m_depgraph, i);
-                free.push_back(i);
-            }
+    for (auto i : active) {
+        for (auto j : tx_data[i].parents) {
+            tx_data[i].links.push_back(dep_data.size());
+            tx_data[j].links.push_back(dep_data.size());
+            auto new_dep = dep_data.emplace_back();
+            new_dep.active = 0;
+            new_dep.parent = j;
+            new_dep.child = i;
         }
+    }
+    for (auto i : active) {
+        std::shuffle(tx_data[i].links.begin(), tx_data[i].links.end(), rng);
+    }
 
-        while (iterations < max_iterations) {
-            std::shuffle(free.begin(), free.end(), m_rng);
-            auto best_free = uint32_t(-1);
-            __int128 best_free_score{0};
-            for (size_t free_pos = 0; free_pos < free.size(); ++free_pos) {
-                auto free_val = free[free_pos];
-                __int128 score;
-                if (free_val & DEP_FREE_MASK) {
-                    auto& dep_entry = depdata[free_val ^ DEP_FREE_MASK];
-                    auto& tx_entry = txdata[dep_entry.representative];
-                    // Make free dependency basic (split up glued components).
-                    if (dep_entry.representative == solution) {
-                        // Splitting currently included component, which means increasing (top - bottom).
-                        score = CalcDerivative(dep_entry.top_setinfo.feerate, tx_entry.rep_setinfo.feerate);
-                    } else {
-                        // Splitting currently excluded component.
-                        if (dep_entry.top_setinfo.transactions[dep_entry.representative]) {
-                            // Splitting component that is excluded due to free variable in top.
-                            auto bot_feerate = tx_entry.setinfo.feerate - dep_entry.top_setinfo.feerate;
-                            if (!(bot_feerate << sol_entry.rep_setinfo.feerate)) continue
-                        } else {
-                            // Splitting component that is excluded due to free variable in bottom.
-                            if (!(dep_entry.top_setinfo.feerate >> tx_entry.rep_setinfo.feerate)) continue;
+    size_t active_cand = active.size();
+    while (active_cand > 0) {
+        size_t pick = rng.randrange(active_cand);
+        std::optional<DepIdx> improvement;
+        auto active_code = active[pick];
+        if (active_code & DEP_MASK) {
+            // Investigate whether making dependency (active_code ^ DEP_MASK) inactive is an improvement.
+            auto& dep_entry = dep_data[active_code ^ DEP_MASK];
+            Assume(dep_entry.active);
+            auto& part_entry = tx_data[dep_entry.part_rep];
+            Assume(part_entry.part_rep == dep_entry.part_rep);
+            Assume(part_entry.part_setinfo.transactions[dep_entry.parent]);
+            Assume(part_entry.part_setinfo.transactions[dep_entry.child]);
+            if (!(dep_entry.top_setinfo.feerate << part_entry.part_setinfo.feerate)) {
+                improvement = active_code ^ DEP_MASK;
+            }
+        } else {
+            // Investigate whether transaction (active_code) has a dependency on another component, which we
+            // should make active (merging the components).
+            auto& tx_entry = tx_data[active_code];
+            auto& part_entry = tx_data[tx_entry.part_rep];
+            Assume(part_entry.part_rep == tx_entry.part_rep);
+            Assume(part_entry.part_setinfo.transactions[active_code]);
+            for (auto dep_idx : part_entry.links) {
+                auto& dep_entry = dep_data[dep_idx];
+                if (dep_entry.second == active_code) {
+                    auto& par_tx_entry = tx_data[dep_second.first];
+                    if (par_tx_entry.part_rep != tx_entry.part_rep) {
+                        auto& par_part_entry = tx_data[par_tx_entry.part_rep];
+                        Assume(par_part_entry.part_rep == par_tx_entry.part_rep);
+                        if (part_entry.part_setinfo.feerate >> par_part_entry.part_setinfo.feerate) {
+                            improvement = dep_idx;
+                            break;
                         }
                     }
-                    
-                } else {
-                    // Make free transaction basic (switch solution component).
                 }
             }
         }
+        if (!improvement.has_value()) {
+            if (pick != active_cand - 1) {
+                std::swap(active[pick], active[active_cand - 1]);
+            }
+            --active_cand;
+            continue;
+        }
 
+       if (active_code & DEP_MASK) {
+           
+       } else {
+       }
+
+        active_cand = active.size();
     }
-};
+
+    std::vector<ClusterIndex> ret;
+    return {std::move(ret), 0};
+}
 
 /** Class encapsulating the state needed to perform search for good candidate sets.
  *
