@@ -1118,3 +1118,16 @@ FUZZ_TARGET(clusterlin_merge)
     auto cmp2 = CompareChunks(chunking_merged, chunking2);
     assert(cmp2 >= 0);
 }
+
+FUZZ_TARGET(clusterlin_simplex)
+{
+    // Construct an arbitrary graph from the fuzz input.
+    SpanReader reader(buffer);
+    DepGraph<TestBitSet> depgraph;
+    uint64_t rng_seed;
+    try {
+        reader >> rng_seed >> Using<DepGraphFormatter>(depgraph);
+    } catch (const std::ios_base::failure&) {}
+
+    auto [lin, iters] = SimplexLinearize(depgraph, rng_seed);
+}
