@@ -637,8 +637,7 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
 
     struct TxData
     {
-        SetType parents;
-        std::vector<DepIdx> links;
+        std::vector<DepIdx> parent_links, child_links;
         TxIdx part_rep;
 
         // Only if this transaction is representative of a partition.
@@ -653,24 +652,49 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
 
     for (auto i : depgraph.Positions()) {
         auto& txentry = tx_data[i];
-        txentry.parents = depgraph.GetReducedParents(i);
         txentry.part_rep = i;
         txentry.part_setinfo = SetInfo(depgraph, i);
         active.push_back(i);
     }
-    for (auto i : active) {
-        for (auto j : tx_data[i].parents) {
-            tx_data[i].links.push_back(dep_data.size());
-            tx_data[j].links.push_back(dep_data.size());
+    for (auto i : depgraph.Positions()) {
+        for (auto j : depgraph.GetReducedParents(i)) {
+            tx_data[i].parent_links.push_back(dep_data.size());
+            tx_data[j].child_links.push_back(dep_data.size());
             auto new_dep = dep_data.emplace_back();
             new_dep.active = 0;
             new_dep.parent = j;
             new_dep.child = i;
         }
     }
-    for (auto i : active) {
-        std::shuffle(tx_data[i].links.begin(), tx_data[i].links.end(), rng);
-    }
+
+    auto walk_fn = [&](TxIdx start, auto visit_tx_fn, auto visit_dep_fn) noexcept {
+        SetType todo = SetType::Singleton(start);
+        SetType done;
+        while (true) {
+            for (auto i : todo) {
+                done.Set(i);
+                visit_tx_fn(i);
+                for (auto dep_idx : tx_data[i].parent_links) {
+                    auto& dep_entry = dep_data[dep_idx];
+                    Assume(dep_entry.child == i);
+                    if (dep_entry.active) {
+                        visit_dep_fn(dep_idx, false);
+                        todo.Set(dep_entry.parent);
+                    }
+                }
+                for (auto dep_idx : tx_data[i].child_links) {
+                    auto& dep_entry = dep_data[dep_idx];
+                    Assume(dep_entry.parent == i);
+                    if (dep_entry.active) {
+                        visit_dep_fn(dep_idx, true);
+                        todo.Set(dep_entry.child);
+                    }
+                }
+            }
+            todo -= done;
+            if (todo.None()) break;
+        }
+    };
 
     size_t active_cand = active.size();
     while (active_cand > 0) {
@@ -695,9 +719,15 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
             auto& part_entry = tx_data[tx_entry.part_rep];
             Assume(part_entry.part_rep == tx_entry.part_rep);
             Assume(part_entry.part_setinfo.transactions[active_code]);
-            for (auto dep_idx : part_entry.links) {
+            for (unsigned link_pos = 0; link_pos < part_entry@s.links.size(); ++link_pos) {
+                auto link_pick = rng.randrange(part_entry.parent_links.size() - link_pos);
+                if (link_pick != part_entry.parent_links.size() - 1) {
+                    std::swap(part_entry.parent_links[link_pick], part_entry.parent_links.back());
+                }
+                auto dep_idx = part_entry.parent_links[link_pick];
                 auto& dep_entry = dep_data[dep_idx];
-                if (dep_entry.second == active_code) {
+                Assume(dep_entry.child == 
+                if (!dep_entry.active && dep_entry.second == active_code) {
                     auto& par_tx_entry = tx_data[dep_second.first];
                     if (par_tx_entry.part_rep != tx_entry.part_rep) {
                         auto& par_part_entry = tx_data[par_tx_entry.part_rep];
