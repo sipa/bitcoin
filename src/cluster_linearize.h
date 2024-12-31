@@ -17,6 +17,8 @@
 #include <util/feefrac.h>
 #include <util/vecdeque.h>
 
+#include <iostream>
+
 namespace cluster_linearize {
 
 /** Data type to represent transaction indices in clusters. */
@@ -351,6 +353,20 @@ struct SetInfo
         return *this;
     }
 
+    SetInfo& operator-=(const SetInfo& other) noexcept
+    {
+        Assume(transactions.IsSupersetOf(other.transactions));
+        transactions -= other.transactions;
+        feerate -= other.feerate;
+        return *this;
+    }
+
+    SetInfo operator-(const SetInfo& other) const noexcept
+    {
+        Assume(other.transactions.IsSubsetOf(transactions));
+        return {transactions - other.transactions, feerate - other.feerate};
+    }
+
     /** Construct a new SetInfo equal to this, with more transactions added (which may overlap
      *  with the existing transactions in the SetInfo). */
     [[nodiscard]] SetInfo Add(const DepGraph<SetType>& depgraph, const SetType& txn) const noexcept
@@ -631,7 +647,6 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
         TxIdx parent, child;
 
         // Only if active.
-        TxIdx part_rep;
         SetInfo<SetType> top_setinfo;
     };
 
@@ -639,33 +654,39 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
     {
         std::vector<DepIdx> parent_links, child_links;
         TxIdx part_rep;
+        TxIdx unmet_deps;
 
         // Only if this transaction is representative of a partition.
         SetInfo<SetType> part_setinfo;
     };
 
-    static constexpr uint32_t DEP_MASK = 0x80000000;
     std::vector<DepData> dep_data;
     std::vector<TxData> tx_data;
-    std::vector<uint32_t> active;
-    tx_data.reserve(depgraph.PositionRange());
+    std::vector<DepIdx> shuffled_deps;
+    tx_data.resize(depgraph.PositionRange());
 
+    std::cerr << "\nSTART\n";
     for (auto i : depgraph.Positions()) {
         auto& txentry = tx_data[i];
         txentry.part_rep = i;
         txentry.part_setinfo = SetInfo(depgraph, i);
-        active.push_back(i);
+        txentry.unmet_deps = 0;
     }
     for (auto i : depgraph.Positions()) {
+        std::cerr << "- add tx " << i << "\n";
         for (auto j : depgraph.GetReducedParents(i)) {
+            std::cerr << " - add dep " << (dep_data.size()) << ": par=" << j << " chl=" << i << "\n";
             tx_data[i].parent_links.push_back(dep_data.size());
+            tx_data[i].unmet_deps += 1;
             tx_data[j].child_links.push_back(dep_data.size());
-            auto new_dep = dep_data.emplace_back();
+            shuffled_deps.push_back(dep_data.size());
+            auto& new_dep = dep_data.emplace_back();
             new_dep.active = 0;
             new_dep.parent = j;
             new_dep.child = i;
         }
     }
+    std::cerr << "- set up\n";
 
     auto walk_fn = [&](TxIdx start, auto visit_tx_fn, auto visit_dep_fn) noexcept {
         SetType todo = SetType::Singleton(start);
@@ -673,12 +694,12 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
         while (true) {
             for (auto i : todo) {
                 done.Set(i);
-                visit_tx_fn(i);
+                visit_tx_fn(tx_data[i]);
                 for (auto dep_idx : tx_data[i].parent_links) {
                     auto& dep_entry = dep_data[dep_idx];
                     Assume(dep_entry.child == i);
                     if (dep_entry.active) {
-                        visit_dep_fn(dep_idx, false);
+                        Assume(!todo[dep_entry.parent]);
                         todo.Set(dep_entry.parent);
                     }
                 }
@@ -686,8 +707,9 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
                     auto& dep_entry = dep_data[dep_idx];
                     Assume(dep_entry.parent == i);
                     if (dep_entry.active) {
-                        visit_dep_fn(dep_idx, true);
+                        Assume(!todo[dep_entry.child]);
                         todo.Set(dep_entry.child);
+                        visit_dep_fn(dep_entry);
                     }
                 }
             }
@@ -696,68 +718,152 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
         }
     };
 
-    size_t active_cand = active.size();
-    while (active_cand > 0) {
-        size_t pick = rng.randrange(active_cand);
-        std::optional<DepIdx> improvement;
-        auto active_code = active[pick];
-        if (active_code & DEP_MASK) {
-            // Investigate whether making dependency (active_code ^ DEP_MASK) inactive is an improvement.
-            auto& dep_entry = dep_data[active_code ^ DEP_MASK];
-            Assume(dep_entry.active);
-            auto& part_entry = tx_data[dep_entry.part_rep];
-            Assume(part_entry.part_rep == dep_entry.part_rep);
+    size_t num_candidate_deps = shuffled_deps.size();
+    uint64_t iters = 0;
+    while (num_candidate_deps > 0) {
+        size_t pick = rng.randrange(num_candidate_deps);
+        DepIdx picked_dep = shuffled_deps[pick];
+        auto& dep_entry = dep_data[picked_dep];
+        if (dep_entry.active) {
+            std::cerr << "- consider making dep " << picked_dep << " (par=" << dep_entry.parent << ", chl=" << dep_entry.child << ") inactive\n";
+            // Investigate whether making dependency picked_dep inactive is an improvement.
+            auto& part_entry = tx_data[tx_data[dep_entry.parent].part_rep];
             Assume(part_entry.part_setinfo.transactions[dep_entry.parent]);
             Assume(part_entry.part_setinfo.transactions[dep_entry.child]);
             if (!(dep_entry.top_setinfo.feerate << part_entry.part_setinfo.feerate)) {
-                improvement = active_code ^ DEP_MASK;
+                auto top_part = dep_entry.top_setinfo;
+                auto bottom_part = part_entry.part_setinfo - top_part;
+                // Make dependency inactive.
+                dep_entry.active = 0;
+                // Update representatives.
+                part_entry.part_setinfo = top_part;
+                TxIdx bottom_rep = dep_entry.child;
+                auto& bottom_part_entry = tx_data[bottom_rep];
+                bottom_part_entry.part_setinfo = bottom_part;
+                // Remove bottom component from top transactions.
+                walk_fn(dep_entry.parent,
+                        [](TxData&) noexcept {},
+                        [&](DepData& dep) noexcept {
+                            dep.top_setinfo -= bottom_part;
+                        });
+                // Remove top component from bottom transactions.
+                walk_fn(dep_entry.child,
+                        [&](TxData& tx) noexcept {
+                            tx.part_rep = bottom_rep;
+                        },
+                        [&](DepData& dep) noexcept {
+                            dep.top_setinfo -= top_part;
+                        });
+                // Re-enable all shuffled deps, and start over.
+                std::cerr << "  - yes\n";
+                num_candidate_deps = shuffled_deps.size();
+                ++iters;
+                continue;
             }
         } else {
-            // Investigate whether transaction (active_code) has a dependency on another component, which we
-            // should make active (merging the components).
-            auto& tx_entry = tx_data[active_code];
-            auto& part_entry = tx_data[tx_entry.part_rep];
-            Assume(part_entry.part_rep == tx_entry.part_rep);
-            Assume(part_entry.part_setinfo.transactions[active_code]);
-            for (unsigned link_pos = 0; link_pos < part_entry@s.links.size(); ++link_pos) {
-                auto link_pick = rng.randrange(part_entry.parent_links.size() - link_pos);
-                if (link_pick != part_entry.parent_links.size() - 1) {
-                    std::swap(part_entry.parent_links[link_pick], part_entry.parent_links.back());
-                }
-                auto dep_idx = part_entry.parent_links[link_pick];
-                auto& dep_entry = dep_data[dep_idx];
-                Assume(dep_entry.child == 
-                if (!dep_entry.active && dep_entry.second == active_code) {
-                    auto& par_tx_entry = tx_data[dep_second.first];
-                    if (par_tx_entry.part_rep != tx_entry.part_rep) {
-                        auto& par_part_entry = tx_data[par_tx_entry.part_rep];
-                        Assume(par_part_entry.part_rep == par_tx_entry.part_rep);
-                        if (part_entry.part_setinfo.feerate >> par_part_entry.part_setinfo.feerate) {
-                            improvement = dep_idx;
-                            break;
-                        }
-                    }
+            auto& par_tx_entry = tx_data[dep_entry.parent];
+            auto& chl_tx_entry = tx_data[dep_entry.child];
+            if (par_tx_entry.part_rep != chl_tx_entry.part_rep) {
+                std::cerr << "- consider making dep " << picked_dep << " (par=" << dep_entry.parent << ", chl=" << dep_entry.child << ") active\n";
+                // Investigate whether making dependency picked_dep active is an improvement.
+                auto& par_part_entry = tx_data[par_tx_entry.part_rep];
+                Assume(par_part_entry.part_rep == par_tx_entry.part_rep);
+                Assume(par_part_entry.part_setinfo.transactions[dep_entry.parent]);
+                auto& chl_part_entry = tx_data[chl_tx_entry.part_rep];
+                Assume(chl_part_entry.part_rep == chl_tx_entry.part_rep);
+                Assume(chl_part_entry.part_setinfo.transactions[dep_entry.child]);
+                if (chl_part_entry.part_setinfo.feerate >> par_part_entry.part_setinfo.feerate) {
+                    TxIdx top_rep = par_tx_entry.part_rep;
+                    auto top_part = par_part_entry.part_setinfo;
+                    auto bottom_part = chl_part_entry.part_setinfo;
+                    // Update representative.
+                    par_part_entry.part_setinfo |= bottom_part;
+                    // Add bottom component to top transactions.
+                    walk_fn(dep_entry.parent,
+                            [](TxData&) noexcept {},
+                            [&](DepData& dep) noexcept {
+                                dep.top_setinfo |= bottom_part;
+                            });
+                    // Add top component to bottom transactions.
+                    walk_fn(dep_entry.child,
+                            [&](TxData& tx) noexcept {
+                                tx.part_rep = top_rep;
+                            },
+                            [&](DepData& dep) noexcept {
+                                dep.top_setinfo |= top_part;
+                            });
+                    // Make dependency active.
+                    dep_entry.active = 1;
+                    // Re-enable all shuffled deps, and start over.
+                    std::cerr << "  - yes\n";
+                    num_candidate_deps = shuffled_deps.size();
+                    ++iters;
+                    continue;
                 }
             }
         }
-        if (!improvement.has_value()) {
-            if (pick != active_cand - 1) {
-                std::swap(active[pick], active[active_cand - 1]);
-            }
-            --active_cand;
-            continue;
+        // Move the tried dependency off the viable list, and continue with remaining ones.
+        if (pick != num_candidate_deps - 1) {
+            std::swap(shuffled_deps[pick], shuffled_deps[num_candidate_deps - 1]);
         }
-
-       if (active_code & DEP_MASK) {
-           
-       } else {
-       }
-
-        active_cand = active.size();
+        --num_candidate_deps;
     }
 
     std::vector<ClusterIndex> ret;
-    return {std::move(ret), 0};
+    std::vector<TxIdx> heap;
+    heap.reserve(depgraph.TxCount());
+    for (TxIdx idx : depgraph.Positions()) {
+        auto& tx_entry = tx_data[idx];
+        if (tx_entry.unmet_deps == 0) {
+            heap.push_back(idx);
+            std::cerr << "- heap init " << idx << "\n";
+        }
+    }
+
+    auto cmp_fn = [&](TxIdx a, TxIdx b) noexcept {
+        Assume(depgraph.Positions()[a]);
+        Assume(depgraph.Positions()[b]);
+        auto& a_entry = tx_data[a];
+        auto& b_entry = tx_data[b];
+        Assume(a_entry.unmet_deps == 0);
+        Assume(b_entry.unmet_deps == 0);
+        if (a == b) return false;
+        auto& a_part = tx_data[a_entry.part_rep];
+        auto& b_part = tx_data[b_entry.part_rep];
+        if (a_part.part_setinfo.feerate != b_part.part_setinfo.feerate) {
+            return a_part.part_setinfo.feerate < b_part.part_setinfo.feerate;
+        }
+        if (a_entry.part_rep != b_entry.part_rep) {
+            return a_entry.part_rep > b_entry.part_rep;
+        }
+        return a > b;
+    };
+    std::make_heap(heap.begin(), heap.end(), cmp_fn);
+
+    while (!heap.empty()) {
+        std::pop_heap(heap.begin(), heap.end(), cmp_fn);
+        auto idx = heap.back();
+        std::cerr << "- heap proc " << idx << "\n";
+        Assume(depgraph.Positions()[idx]);
+        heap.pop_back();
+        ret.push_back(idx);
+        for (auto dep_idx : tx_data[idx].child_links) {
+            auto child_idx = dep_data[dep_idx].child;
+            auto& child_entry = tx_data[child_idx];
+            std::cerr << "  - heap proc dep=" << dep_idx << ": chl=" << child_idx << " (unmet_deps=" << child_entry.unmet_deps << ")\n";
+            Assume(depgraph.Positions()[child_idx]);
+            Assume(dep_data[dep_idx].parent == idx);
+            Assume(child_entry.unmet_deps > 0);
+            --child_entry.unmet_deps;
+            if (child_entry.unmet_deps == 0) {
+                heap.push_back(child_idx);
+                std::push_heap(heap.begin(), heap.end(), cmp_fn);
+            }
+        }
+    }
+    Assume(ret.size() == depgraph.TxCount());
+
+    return {std::move(ret), iters};
 }
 
 /** Class encapsulating the state needed to perform search for good candidate sets.

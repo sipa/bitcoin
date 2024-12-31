@@ -930,6 +930,38 @@ FUZZ_TARGET(clusterlin_linearize)
     }
 }
 
+FUZZ_TARGET(clusterlin_linearize_simplex)
+{
+    // Verify the behavior of SimplexLinearize().
+
+    // Retrieve an RNG seed, a depgraph, and whether to make it connected from the fuzz input.
+    SpanReader reader(buffer);
+    DepGraph<TestBitSet> depgraph;
+    uint64_t rng_seed{0};
+    uint8_t make_connected{1};
+    try {
+        reader >> Using<DepGraphFormatter>(depgraph) >> rng_seed >> make_connected;
+    } catch (const std::ios_base::failure&) {}
+    if (depgraph.TxCount() > 15) return;
+    // The most complicated graphs are connected ones (other ones just split up). Optionally force
+    // the graph to be connected.
+    if (make_connected) MakeConnected(depgraph);
+
+    // Invoke Linearize().
+    auto [linearization, optimal] = Linearize(depgraph, 100000, rng_seed);
+    auto chunking = ChunkLinearization(depgraph, linearization);
+    assert(optimal);
+
+    // Invoke SimplexLinearize().
+    auto [linearization_simplex, iters] = SimplexLinearize(depgraph, rng_seed);
+    SanityCheck(depgraph, linearization);
+    auto chunking_simplex = ChunkLinearization(depgraph, linearization_simplex);
+
+    auto cmp = CompareChunks(chunking, chunking_simplex);
+    assert(cmp >= 0);
+    assert(cmp <= 0);
+}
+
 FUZZ_TARGET(clusterlin_postlinearize)
 {
     // Verify expected properties of PostLinearize() on arbitrary linearizations.
@@ -1117,17 +1149,4 @@ FUZZ_TARGET(clusterlin_merge)
     assert(cmp1 >= 0);
     auto cmp2 = CompareChunks(chunking_merged, chunking2);
     assert(cmp2 >= 0);
-}
-
-FUZZ_TARGET(clusterlin_simplex)
-{
-    // Construct an arbitrary graph from the fuzz input.
-    SpanReader reader(buffer);
-    DepGraph<TestBitSet> depgraph;
-    uint64_t rng_seed;
-    try {
-        reader >> rng_seed >> Using<DepGraphFormatter>(depgraph);
-    } catch (const std::ios_base::failure&) {}
-
-    auto [lin, iters] = SimplexLinearize(depgraph, rng_seed);
 }
