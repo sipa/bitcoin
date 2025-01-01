@@ -942,7 +942,7 @@ FUZZ_TARGET(clusterlin_linearize_simplex)
     try {
         reader >> Using<DepGraphFormatter>(depgraph) >> rng_seed >> make_connected;
     } catch (const std::ios_base::failure&) {}
-    if (depgraph.TxCount() > 10) return;
+    if (depgraph.TxCount() > 16) return;
     // The most complicated graphs are connected ones (other ones just split up). Optionally force
     // the graph to be connected.
     if (make_connected) MakeConnected(depgraph);
@@ -953,13 +953,42 @@ FUZZ_TARGET(clusterlin_linearize_simplex)
     assert(optimal);
 
     // Invoke SimplexLinearize().
-    auto [linearization_simplex, iters] = SimplexLinearize(depgraph, rng_seed);
-    SanityCheck(depgraph, linearization);
-    auto chunking_simplex = ChunkLinearization(depgraph, linearization_simplex);
+    uint64_t max_iters = 0;
+    uint64_t min_iters = 0xffffffff;
+    for (int i = 0; i < 16; ++i) {
+        auto [linearization_simplex, iters] = SimplexLinearize(depgraph, rng_seed);
+        rng_seed += 0xca89c2338cb08f5d;
+        rng_seed = std::rotl(rng_seed, 27);
+        rng_seed *= 0xa1a4172ee8c3208b;
+        SanityCheck(depgraph, linearization);
+        auto chunking_simplex = ChunkLinearization(depgraph, linearization_simplex);
+        auto cmp = CompareChunks(chunking, chunking_simplex);
+        assert(cmp >= 0);
+        assert(cmp <= 0);
+        max_iters = std::max(max_iters, iters);
+        min_iters = std::min(min_iters, iters);
+    }
 
-    auto cmp = CompareChunks(chunking, chunking_simplex);
-    assert(cmp >= 0);
-    assert(cmp <= 0);
+    static uint64_t MAXES[65];
+    if (max_iters + 1 > MAXES[depgraph.TxCount()]) {
+        MAXES[depgraph.TxCount()] = max_iters + 1;
+        std::cerr << "MAX: ";
+        for (int i = 0; i <= 64; ++i) {
+            if (MAXES[i]) std::cerr << i << "=" << (MAXES[i] - 1) << " ";
+        }
+        std::cerr << "\n";
+    }
+
+    static uint64_t DIFFS[65];
+    if (max_iters - min_iters + 1 > DIFFS[depgraph.TxCount()]) {
+        DIFFS[depgraph.TxCount()] = max_iters - min_iters + 1;
+        std::cerr << "DIFF: ";
+        for (int i = 0; i <= 64; ++i) {
+            if (DIFFS[i]) std::cerr << i << "=" << (DIFFS[i] - 1) << " ";
+        }
+        std::cerr << "\n";
+    }
+
 }
 
 FUZZ_TARGET(clusterlin_postlinearize)
