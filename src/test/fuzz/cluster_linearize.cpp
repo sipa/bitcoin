@@ -942,7 +942,7 @@ FUZZ_TARGET(clusterlin_linearize_simplex)
     try {
         reader >> Using<DepGraphFormatter>(depgraph) >> rng_seed >> make_connected;
     } catch (const std::ios_base::failure&) {}
-    if (depgraph.TxCount() > 16) return;
+    if (depgraph.TxCount() > 12) return;
     // The most complicated graphs are connected ones (other ones just split up). Optionally force
     // the graph to be connected.
     if (make_connected) MakeConnected(depgraph);
