@@ -756,6 +756,57 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
 //        std::cerr << "(walk stop)\n";
     };
 
+    auto split_fn = [&](DepIdx dep) noexcept {
+        auto& dep_entry = dep_data[dep];
+        Assume(dep_entry.active != 0);
+        auto& part_entry = tx_data[tx_data[dep_entry.parent].part_rep];
+        auto top_part = dep_entry.top_setinfo;
+        auto bottom_part = part_entry.part_setinfo - top_part;
+        // Make dependency inactive.
+        dep_entry.active = 0;
+        // Update representatives.
+        part_entry.part_setinfo = top_part;
+        TxIdx bottom_rep = dep_entry.child;
+        auto& bottom_part_entry = tx_data[bottom_rep];
+        bottom_part_entry.part_setinfo = bottom_part;
+        TxIdx top_rep = dep_entry.parent;
+        auto& top_part_entry = tx_data[top_rep];
+        top_part_entry.part_setinfo = top_part;
+        // Remove bottom component from top transactions.
+        walk_fn(dep_entry.parent,
+                [&](TxData& tx) noexcept { tx.part_rep = top_rep; },
+                [&](DepData& dep) noexcept { dep.top_setinfo -= bottom_part; });
+        // Remove top component from bottom transactions.
+        walk_fn(dep_entry.child,
+                [&](TxData& tx) noexcept { tx.part_rep = bottom_rep; },
+                [&](DepData& dep) noexcept { dep.top_setinfo -= top_part; });
+    };
+
+    auto join_fn = [&](DepIdx dep) noexcept {
+        auto& dep_entry = dep_data[dep];
+        Assume(dep_entry.active == 0);
+        auto& par_tx_entry = tx_data[dep_entry.parent];
+        auto& chl_tx_entry = tx_data[dep_entry.child];
+        auto& par_part_entry = tx_data[par_tx_entry.part_rep];
+        auto& chl_part_entry = tx_data[chl_tx_entry.part_rep];
+        TxIdx top_rep = par_tx_entry.part_rep;
+        auto top_part = par_part_entry.part_setinfo;
+        auto bottom_part = chl_part_entry.part_setinfo;
+        // Update representative.
+        par_part_entry.part_setinfo |= bottom_part;
+        // Add bottom component to top transactions.
+        walk_fn(dep_entry.parent,
+                [](TxData&) noexcept {},
+                [&](DepData& dep) noexcept { dep.top_setinfo |= bottom_part; });
+        // Add top component to bottom transactions.
+        walk_fn(dep_entry.child,
+                [&](TxData& tx) noexcept { tx.part_rep = top_rep; },
+                [&](DepData& dep) noexcept { dep.top_setinfo |= top_part; });
+        // Make dependency active.
+        dep_entry.active = 1;
+        dep_entry.top_setinfo = top_part;
+    };
+
     size_t num_candidate_deps = shuffled_deps.size();
     uint64_t iters = 0;
     while (num_candidate_deps > 0) {
@@ -763,44 +814,12 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
         DepIdx picked_dep = shuffled_deps[pick];
         auto& dep_entry = dep_data[picked_dep];
         if (dep_entry.active) {
-//            std::cerr << "- consider making dep " << picked_dep << " (par=" << dep_entry.parent << ", chl=" << dep_entry.child << ") inactive\n";
             // Investigate whether making dependency picked_dep inactive is an improvement.
             auto& part_entry = tx_data[tx_data[dep_entry.parent].part_rep];
-            Assume(part_entry.part_setinfo.transactions[dep_entry.parent]);
-            Assume(part_entry.part_setinfo.transactions[dep_entry.child]);
             if (!(dep_entry.top_setinfo.feerate << part_entry.part_setinfo.feerate)) {
-                auto top_part = dep_entry.top_setinfo;
-                auto bottom_part = part_entry.part_setinfo - top_part;
-//                std::cerr << "  - top_part=(fee=" << top_part.feerate.fee << ",size=" << top_part.feerate.size << ") bottom_part=(fee=" << bottom_part.feerate.fee << ",size=" << bottom_part.feerate.size << ")\n";
-                // Make dependency inactive.
-                dep_entry.active = 0;
-                // Update representatives.
-                part_entry.part_setinfo = top_part;
-                TxIdx bottom_rep = dep_entry.child;
-                auto& bottom_part_entry = tx_data[bottom_rep];
-                bottom_part_entry.part_setinfo = bottom_part;
-                TxIdx top_rep = dep_entry.parent;
-                auto& top_part_entry = tx_data[top_rep];
-                top_part_entry.part_setinfo = top_part;
-                // Remove bottom component from top transactions.
-                walk_fn(dep_entry.parent,
-                        [&](TxData& tx) noexcept {
-                            tx.part_rep = top_rep;
-                        },
-                        [&](DepData& dep) noexcept {
-                            dep.top_setinfo -= bottom_part;
-                        });
-                // Remove top component from bottom transactions.
-                walk_fn(dep_entry.child,
-                        [&](TxData& tx) noexcept {
-                            tx.part_rep = bottom_rep;
-                        },
-                        [&](DepData& dep) noexcept {
-                            dep.top_setinfo -= top_part;
-                        });
+                // Split the partition.
+                split_fn(picked_dep);
                 // Re-enable all shuffled deps, and start over.
-//                std::cerr << "  - yes\n";
-                debug_fn();
                 num_candidate_deps = shuffled_deps.size();
                 ++iters;
                 continue;
@@ -809,40 +828,13 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
             auto& par_tx_entry = tx_data[dep_entry.parent];
             auto& chl_tx_entry = tx_data[dep_entry.child];
             if (par_tx_entry.part_rep != chl_tx_entry.part_rep) {
-//                std::cerr << "- consider making dep " << picked_dep << " (par=" << dep_entry.parent << ", chl=" << dep_entry.child << ") active\n";
                 // Investigate whether making dependency picked_dep active is an improvement.
                 auto& par_part_entry = tx_data[par_tx_entry.part_rep];
-                Assume(par_part_entry.part_rep == par_tx_entry.part_rep);
-                Assume(par_part_entry.part_setinfo.transactions[dep_entry.parent]);
                 auto& chl_part_entry = tx_data[chl_tx_entry.part_rep];
-                Assume(chl_part_entry.part_rep == chl_tx_entry.part_rep);
-                Assume(chl_part_entry.part_setinfo.transactions[dep_entry.child]);
                 if (chl_part_entry.part_setinfo.feerate >> par_part_entry.part_setinfo.feerate) {
-                    TxIdx top_rep = par_tx_entry.part_rep;
-                    auto top_part = par_part_entry.part_setinfo;
-                    auto bottom_part = chl_part_entry.part_setinfo;
-                    // Update representative.
-                    par_part_entry.part_setinfo |= bottom_part;
-                    // Add bottom component to top transactions.
-                    walk_fn(dep_entry.parent,
-                            [](TxData&) noexcept {},
-                            [&](DepData& dep) noexcept {
-                                dep.top_setinfo |= bottom_part;
-                            });
-                    // Add top component to bottom transactions.
-                    walk_fn(dep_entry.child,
-                            [&](TxData& tx) noexcept {
-                                tx.part_rep = top_rep;
-                            },
-                            [&](DepData& dep) noexcept {
-                                dep.top_setinfo |= top_part;
-                            });
-                    // Make dependency active.
-                    dep_entry.active = 1;
-                    dep_entry.top_setinfo = top_part;
+                    // Join the partitions.
+                    join_fn(picked_dep);
                     // Re-enable all shuffled deps, and start over.
-//                    std::cerr << "  - yes\n";
-                    debug_fn();
                     num_candidate_deps = shuffled_deps.size();
                     ++iters;
                     continue;
