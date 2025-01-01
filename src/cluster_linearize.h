@@ -666,27 +666,40 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
     tx_data.resize(depgraph.PositionRange());
 
     auto debug_fn = [&]() noexcept {
-        std::cerr << "STATE:\n";
+/*        std::cerr << "STATE:\n";
         for (auto i : depgraph.Positions()) {
-            std::cerr << " - tx " << i << ": fee=" << depgraph.FeeRate(i).fee << " size=" << depgraph.FeeRate(i).size << " rep=" << tx_data[i].part_rep << "\n";
-            std::cerr << "   - parents:";
+            std::cerr << "- tx " << i << ": fee=" << depgraph.FeeRate(i).fee << " size=" << depgraph.FeeRate(i).size << " rep=" << tx_data[i].part_rep << "\n";
+            std::cerr << "  - parents:";
             for (auto j : tx_data[i].parent_links) {
                 std::cerr << " dep=" << j;
             }
             std::cerr << "\n";
-            std::cerr << "   - children:";
+            std::cerr << "  - children:";
             for (auto j : tx_data[i].child_links) {
                 std::cerr << " dep=" << j;
             }
             std::cerr << "\n";
         }
         for (DepIdx dep = 0; dep < dep_data.size(); ++dep) {
-            
-            std::cerr << " - dep " << dep << (": parent=" << dep_data[dep].parent << 
+            auto& dep_entry = dep_data[dep];
+            std::cerr << "- dep " << dep << ": parent=" << dep_entry.parent << " child=" << dep_entry.child << "\n";
+            if (dep_entry.active) {
+                std::cerr << "  - active: top=(fee=" << dep_entry.top_setinfo.feerate.fee << ",size=" << dep_entry.top_setinfo.feerate.size << ")\n";
+            }
         }
+        for (auto i : depgraph.Positions()) {
+            auto& tx_entry = tx_data[i];
+            if (tx_entry.part_rep == i) {
+                std::cerr << "- rep " << i << ": txn=[";
+                for (auto j : tx_entry.part_setinfo.transactions) {
+                    std::cerr << j << " ";
+                }
+                std::cerr << "] fee=" << tx_entry.part_setinfo.feerate.fee << " size=" << tx_entry.part_setinfo.feerate.size << "\n";
+            }
+        }*/
     };
 
-    std::cerr << "\nSTART\n";
+//    std::cerr << "\nSTART\n";
     for (auto i : depgraph.Positions()) {
         auto& txentry = tx_data[i];
         txentry.part_rep = i;
@@ -694,9 +707,9 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
         txentry.unmet_deps = 0;
     }
     for (auto i : depgraph.Positions()) {
-        std::cerr << "- add tx " << i << "\n";
+//        std::cerr << "- add tx " << i << "\n";
         for (auto j : depgraph.GetReducedParents(i)) {
-            std::cerr << " - add dep " << (dep_data.size()) << ": par=" << j << " chl=" << i << "\n";
+//            std::cerr << " - add dep " << (dep_data.size()) << ": par=" << j << " chl=" << i << "\n";
             tx_data[i].parent_links.push_back(dep_data.size());
             tx_data[i].unmet_deps += 1;
             tx_data[j].child_links.push_back(dep_data.size());
@@ -707,28 +720,31 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
             new_dep.child = i;
         }
     }
-    std::cerr << "- set up\n";
+//    std::cerr << "- set up\n";
+    debug_fn();
 
     auto walk_fn = [&](TxIdx start, auto visit_tx_fn, auto visit_dep_fn) noexcept {
         SetType todo = SetType::Singleton(start);
         SetType done;
+//        std::cerr << "(walk start tx=" << start << ")\n";
         while (true) {
             for (auto i : todo) {
+//                std::cerr << "(walk visit tx=" << i << ")\n";
                 done.Set(i);
                 visit_tx_fn(tx_data[i]);
                 for (auto dep_idx : tx_data[i].parent_links) {
                     auto& dep_entry = dep_data[dep_idx];
                     Assume(dep_entry.child == i);
-                    if (dep_entry.active) {
-                        Assume(!todo[dep_entry.parent]);
+                    if (dep_entry.active && !done[dep_entry.parent]) {
+//                        std::cerr << "(walk traverse dep=" << dep_idx << " upward)\n";
                         todo.Set(dep_entry.parent);
                     }
                 }
                 for (auto dep_idx : tx_data[i].child_links) {
                     auto& dep_entry = dep_data[dep_idx];
                     Assume(dep_entry.parent == i);
-                    if (dep_entry.active) {
-                        Assume(!todo[dep_entry.child]);
+                    if (dep_entry.active && !done[dep_entry.child]) {
+//                        std::cerr << "(walk traverse dep=" << dep_idx << " downward)\n";
                         todo.Set(dep_entry.child);
                         visit_dep_fn(dep_entry);
                     }
@@ -737,6 +753,7 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
             todo -= done;
             if (todo.None()) break;
         }
+//        std::cerr << "(walk stop)\n";
     };
 
     size_t num_candidate_deps = shuffled_deps.size();
@@ -746,7 +763,7 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
         DepIdx picked_dep = shuffled_deps[pick];
         auto& dep_entry = dep_data[picked_dep];
         if (dep_entry.active) {
-            std::cerr << "- consider making dep " << picked_dep << " (par=" << dep_entry.parent << ", chl=" << dep_entry.child << ") inactive\n";
+//            std::cerr << "- consider making dep " << picked_dep << " (par=" << dep_entry.parent << ", chl=" << dep_entry.child << ") inactive\n";
             // Investigate whether making dependency picked_dep inactive is an improvement.
             auto& part_entry = tx_data[tx_data[dep_entry.parent].part_rep];
             Assume(part_entry.part_setinfo.transactions[dep_entry.parent]);
@@ -754,6 +771,7 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
             if (!(dep_entry.top_setinfo.feerate << part_entry.part_setinfo.feerate)) {
                 auto top_part = dep_entry.top_setinfo;
                 auto bottom_part = part_entry.part_setinfo - top_part;
+//                std::cerr << "  - top_part=(fee=" << top_part.feerate.fee << ",size=" << top_part.feerate.size << ") bottom_part=(fee=" << bottom_part.feerate.fee << ",size=" << bottom_part.feerate.size << ")\n";
                 // Make dependency inactive.
                 dep_entry.active = 0;
                 // Update representatives.
@@ -761,9 +779,14 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
                 TxIdx bottom_rep = dep_entry.child;
                 auto& bottom_part_entry = tx_data[bottom_rep];
                 bottom_part_entry.part_setinfo = bottom_part;
+                TxIdx top_rep = dep_entry.parent;
+                auto& top_part_entry = tx_data[top_rep];
+                top_part_entry.part_setinfo = top_part;
                 // Remove bottom component from top transactions.
                 walk_fn(dep_entry.parent,
-                        [](TxData&) noexcept {},
+                        [&](TxData& tx) noexcept {
+                            tx.part_rep = top_rep;
+                        },
                         [&](DepData& dep) noexcept {
                             dep.top_setinfo -= bottom_part;
                         });
@@ -776,7 +799,8 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
                             dep.top_setinfo -= top_part;
                         });
                 // Re-enable all shuffled deps, and start over.
-                std::cerr << "  - yes\n";
+//                std::cerr << "  - yes\n";
+                debug_fn();
                 num_candidate_deps = shuffled_deps.size();
                 ++iters;
                 continue;
@@ -785,7 +809,7 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
             auto& par_tx_entry = tx_data[dep_entry.parent];
             auto& chl_tx_entry = tx_data[dep_entry.child];
             if (par_tx_entry.part_rep != chl_tx_entry.part_rep) {
-                std::cerr << "- consider making dep " << picked_dep << " (par=" << dep_entry.parent << ", chl=" << dep_entry.child << ") active\n";
+//                std::cerr << "- consider making dep " << picked_dep << " (par=" << dep_entry.parent << ", chl=" << dep_entry.child << ") active\n";
                 // Investigate whether making dependency picked_dep active is an improvement.
                 auto& par_part_entry = tx_data[par_tx_entry.part_rep];
                 Assume(par_part_entry.part_rep == par_tx_entry.part_rep);
@@ -815,8 +839,10 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
                             });
                     // Make dependency active.
                     dep_entry.active = 1;
+                    dep_entry.top_setinfo = top_part;
                     // Re-enable all shuffled deps, and start over.
-                    std::cerr << "  - yes\n";
+//                    std::cerr << "  - yes\n";
+                    debug_fn();
                     num_candidate_deps = shuffled_deps.size();
                     ++iters;
                     continue;
@@ -837,7 +863,7 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
         auto& tx_entry = tx_data[idx];
         if (tx_entry.unmet_deps == 0) {
             heap.push_back(idx);
-            std::cerr << "- heap init " << idx << "\n";
+//            std::cerr << "- heap init " << idx << "\n";
         }
     }
 
@@ -864,14 +890,14 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
     while (!heap.empty()) {
         std::pop_heap(heap.begin(), heap.end(), cmp_fn);
         auto idx = heap.back();
-        std::cerr << "- heap proc " << idx << "\n";
+//        std::cerr << "- heap proc " << idx << "\n";
         Assume(depgraph.Positions()[idx]);
         heap.pop_back();
         ret.push_back(idx);
         for (auto dep_idx : tx_data[idx].child_links) {
             auto child_idx = dep_data[dep_idx].child;
             auto& child_entry = tx_data[child_idx];
-            std::cerr << "  - heap proc dep=" << dep_idx << ": chl=" << child_idx << " (unmet_deps=" << child_entry.unmet_deps << ")\n";
+//            std::cerr << "  - heap proc dep=" << dep_idx << ": chl=" << child_idx << " (unmet_deps=" << child_entry.unmet_deps << ")\n";
             Assume(depgraph.Positions()[child_idx]);
             Assume(dep_data[dep_idx].parent == idx);
             Assume(child_entry.unmet_deps > 0);
