@@ -634,6 +634,11 @@ public:
     }
 };
 
+__int128 QualityGain(const FeeFrac& good, const FeeFrac& bad) noexcept
+{
+    return __int128{good.fee} * bad.size - __int128{bad.fee} * good.size;
+}
+
 template<typename SetType>
 std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<SetType>& depgraph, uint64_t rng_seed) noexcept
 {
@@ -756,8 +761,7 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
 //        std::cerr << "(walk stop)\n";
     };
 
-    auto split_fn = [&](DepIdx dep) noexcept {
-        auto& dep_entry = dep_data[dep];
+    auto split_fn = [&](DepData& dep_entry) noexcept {
         Assume(dep_entry.active != 0);
         auto& part_entry = tx_data[tx_data[dep_entry.parent].part_rep];
         auto top_part = dep_entry.top_setinfo;
@@ -782,8 +786,7 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
                 [&](DepData& dep) noexcept { dep.top_setinfo -= top_part; });
     };
 
-    auto join_fn = [&](DepIdx dep) noexcept {
-        auto& dep_entry = dep_data[dep];
+    auto join_fn = [&](DepData& dep_entry) noexcept {
         Assume(dep_entry.active == 0);
         auto& par_tx_entry = tx_data[dep_entry.parent];
         auto& chl_tx_entry = tx_data[dep_entry.child];
@@ -807,45 +810,44 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
         dep_entry.top_setinfo = top_part;
     };
 
-    size_t num_candidate_deps = shuffled_deps.size();
     uint64_t iters = 0;
-    while (num_candidate_deps > 0) {
-        size_t pick = rng.randrange(num_candidate_deps);
-        DepIdx picked_dep = shuffled_deps[pick];
-        auto& dep_entry = dep_data[picked_dep];
-        if (dep_entry.active) {
-            // Investigate whether making dependency picked_dep inactive is an improvement.
-            auto& part_entry = tx_data[tx_data[dep_entry.parent].part_rep];
-            if (!(dep_entry.top_setinfo.feerate << part_entry.part_setinfo.feerate)) {
-                // Split the partition.
-                split_fn(picked_dep);
-                // Re-enable all shuffled deps, and start over.
-                num_candidate_deps = shuffled_deps.size();
-                ++iters;
-                continue;
-            }
-        } else {
-            auto& par_tx_entry = tx_data[dep_entry.parent];
-            auto& chl_tx_entry = tx_data[dep_entry.child];
-            if (par_tx_entry.part_rep != chl_tx_entry.part_rep) {
+    while (true) {
+        std::shuffle(shuffled_deps.begin(), shuffled_deps.end(), rng);
+        __int128 best_quality{0};
+        auto best_dep = DepIdx(-1);
+        for (DepIdx dep_idx = 0; dep_idx < shuffled_deps.size(); ++dep_idx) {
+            auto& dep_entry = dep_data[dep_idx];
+            if (dep_entry.active) {
+                auto& part_entry = tx_data[tx_data[dep_entry.parent].part_rep];
+                if (dep_entry.top_setinfo.feerate << part_entry.part_setinfo.feerate) continue;
+                auto quality = QualityGain(dep_entry.top_setinfo.feerate, part_entry.part_setinfo.feerate);
+                if (best_dep == DepIdx(-1) || quality > best_quality) {
+                    best_dep = dep_idx;
+                    best_quality = quality;
+                }
+            } else {
+                auto& par_tx_entry = tx_data[dep_entry.parent];
+                auto& chl_tx_entry = tx_data[dep_entry.child];
+                if (par_tx_entry.part_rep == chl_tx_entry.part_rep) continue;
                 // Investigate whether making dependency picked_dep active is an improvement.
                 auto& par_part_entry = tx_data[par_tx_entry.part_rep];
                 auto& chl_part_entry = tx_data[chl_tx_entry.part_rep];
-                if (chl_part_entry.part_setinfo.feerate >> par_part_entry.part_setinfo.feerate) {
-                    // Join the partitions.
-                    join_fn(picked_dep);
-                    // Re-enable all shuffled deps, and start over.
-                    num_candidate_deps = shuffled_deps.size();
-                    ++iters;
-                    continue;
+                if (!(chl_part_entry.part_setinfo.feerate >> par_part_entry.part_setinfo.feerate)) continue;
+                auto quality = QualityGain(chl_part_entry.part_setinfo.feerate, par_part_entry.part_setinfo.feerate);
+                if (best_dep == DepIdx(-1) || quality > best_quality) {
+                    best_dep = dep_idx;
+                    best_quality = quality;
                 }
             }
         }
-        // Move the tried dependency off the viable list, and continue with remaining ones.
-        if (pick != num_candidate_deps - 1) {
-            std::swap(shuffled_deps[pick], shuffled_deps[num_candidate_deps - 1]);
+        if (best_dep == DepIdx(-1)) break;
+        ++iters;
+        auto& best_entry = dep_data[best_dep];
+        if (best_entry.active) {
+            split_fn(best_entry);
+        } else {
+            join_fn(best_entry);
         }
-        --num_candidate_deps;
     }
 
     std::vector<ClusterIndex> ret;
