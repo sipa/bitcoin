@@ -4,6 +4,7 @@
 
 #include <test/fuzz/fuzz.h>
 
+#include <crypto/sha1.h>
 #include <netaddress.h>
 #include <netbase.h>
 #include <test/fuzz/util/check_globals.h>
@@ -279,3 +280,36 @@ int main(int argc, char** argv)
     return 0;
 }
 #endif
+
+bool FuzzSave(std::span<const uint8_t> input) noexcept
+{
+    static const bool save_enabled = getenv("FUZZ_SAVE_DIR") != nullptr;
+    if (save_enabled) {
+        static pid_t pid = getpid();
+        static const std::filesystem::path outdir{getenv("FUZZ_SAVE_DIR")};
+        assert(std::filesystem::is_directory(outdir));
+        unsigned char hash[20];
+        CSHA1().Write(input.data(), input.size()).Finalize(hash);
+        auto path = outdir / HexStr(hash);
+        if (std::filesystem::exists(path)) {
+            auto last = std::filesystem::last_write_time(path);
+            auto now = std::filesystem::file_time_type::clock::now();
+            if (now > last + std::chrono::seconds{10}) return false;
+            return true;
+        }
+        auto tmppath = outdir / ".." / strprintf("temp-%i-%s", pid, HexStr(hash));
+        {
+            std::ofstream out;
+            out.open(tmppath, std::ios::out | std::ios::binary);
+            assert(out.is_open());
+            out.write((const char*)input.data(), input.size());
+            out.close();
+        }
+        try {
+            std::filesystem::rename(tmppath, path);
+            std::cerr << "--- wrote " << path << std::endl;
+        } catch (const std::filesystem::filesystem_error& err) {
+        }
+    }
+    return true;
+}
