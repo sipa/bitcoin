@@ -816,10 +816,11 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
 
     auto make_topo_fn = [&]() noexcept {
         while (inactive_deps.size() > 0) {
+            __int128 best_qual = 0;
+            auto best = size_t(-1);
             std::shuffle(inactive_deps.begin(), inactive_deps.end(), rng);
             bool changed = false;
-            size_t pos = 0;
-            while (pos < inactive_deps.size()) {
+            for (size_t pos = 0; pos < inactive_deps.size(); ++pos) {
                 auto dep = inactive_deps[pos];
                 auto& dep_entry = dep_data[dep];
                 Assume(dep_entry.active == 0);
@@ -830,19 +831,22 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
                     auto& par_part_entry = tx_data[par_tx_entry.part_rep];
                     auto& chl_part_entry = tx_data[chl_tx_entry.part_rep];
                     if (chl_part_entry.part_setinfo.feerate >> par_part_entry.part_setinfo.feerate) {
-                        // Make active.
-                        if (pos + 1 != inactive_deps.size()) std::swap(inactive_deps.back(), inactive_deps[pos]);
-                        inactive_deps.pop_back();
-                        active_deps.push_back(dep);
-                        join_fn(dep_entry);
-                        changed = true;
-                        ++steps;
-                        continue;
+                        auto qual = QualityGain(chl_part_entry.part_setinfo.feerate, par_part_entry.part_setinfo.feerate);
+                        if (best == size_t(-1) || qual > best_qual) {
+                            best = pos;
+                            best_qual = qual;
+                        }
                     }
                 }
-                ++pos;
             }
-            if (!changed) break;
+            if (best == size_t(-1)) break;
+            // Make active.
+            auto dep = inactive_deps[best];
+            if (best + 1 != inactive_deps.size()) std::swap(inactive_deps.back(), inactive_deps[best]);
+            inactive_deps.pop_back();
+            active_deps.push_back(dep);
+            join_fn(dep_data[dep]);
+            ++steps;
         }
     };
 

@@ -942,7 +942,8 @@ FUZZ_TARGET(clusterlin_linearize_simplex)
     try {
         reader >> rng_seed >> make_connected >> Using<DepGraphFormatter>(depgraph);
     } catch (const std::ios_base::failure&) {}
-    if (depgraph.TxCount() > 12) return;
+    auto ntx = depgraph.TxCount();
+    if (ntx > 30) return;
     // The most complicated graphs are connected ones (other ones just split up). Optionally force
     // the graph to be connected.
     if (make_connected) MakeConnected(depgraph);
@@ -956,7 +957,6 @@ FUZZ_TARGET(clusterlin_linearize_simplex)
 
     // Invoke SimplexLinearize().
     uint64_t max_iters = 0;
-    uint64_t min_iters = 0xffffffff;
     for (int i = 0; i < 16; ++i) {
         auto [linearization_simplex, iters] = SimplexLinearize(depgraph, rng.rand64());
         SanityCheck(depgraph, linearization_simplex);
@@ -965,29 +965,29 @@ FUZZ_TARGET(clusterlin_linearize_simplex)
         assert(cmp >= 0);
         assert(cmp <= 0);
         max_iters = std::max(max_iters, iters);
-        min_iters = std::min(min_iters, iters);
     }
 
-    static uint64_t MAXES[65];
-    if (max_iters + 1 > MAXES[depgraph.TxCount()]) {
-        MAXES[depgraph.TxCount()] = max_iters + 1;
+    static std::pair<uint64_t, int64_t> MAXES[65];
+    std::pair<uint64_t, int64_t> score{max_iters + 1, -int64_t(buffer.size())};
+    bool print{false};
+    if (score > MAXES[ntx]) {
+        if (score.first > MAXES[ntx].first) print = true;
+        FuzzSave(buffer);
+        MAXES[ntx] = score;
+        if (ntx <= 30 && max_iters >= 157) {
+            std::vector<uint8_t> reser;
+            VectorWriter writer(reser, 0);
+            writer << Using<DepGraphFormatter>(depgraph);
+            std::cerr << "EXAMPLE " << ntx << " " << max_iters << ": " << HexStr(reser) << "\n";
+        }
+    }
+    if (print) {
         std::cerr << "MAX: ";
         for (int i = 0; i <= 64; ++i) {
-            if (MAXES[i]) std::cerr << i << "=" << (MAXES[i] - 1) << " ";
+            if (MAXES[i].first) std::cerr << i << "=" << (MAXES[i].first - 1) << " ";
         }
         std::cerr << "\n";
     }
-
-    static uint64_t DIFFS[65];
-    if (max_iters - min_iters + 1 > DIFFS[depgraph.TxCount()]) {
-        DIFFS[depgraph.TxCount()] = max_iters - min_iters + 1;
-        std::cerr << "DIFF: ";
-        for (int i = 0; i <= 64; ++i) {
-            if (DIFFS[i]) std::cerr << i << "=" << (DIFFS[i] - 1) << " ";
-        }
-        std::cerr << "\n";
-    }
-
 }
 
 FUZZ_TARGET(clusterlin_postlinearize)
