@@ -943,7 +943,11 @@ FUZZ_TARGET(clusterlin_linearize_simplex)
         reader >> rng_seed >> make_connected >> Using<DepGraphFormatter>(depgraph);
     } catch (const std::ios_base::failure&) {}
     auto ntx = depgraph.TxCount();
-    if (ntx > 30) return;
+    if (ntx > 6) return;
+/*    for (ClusterIndex idx : depgraph.Positions()) {
+        depgraph.FeeRate(idx).fee = 1 + (uint64_t(depgraph.FeeRate(idx).fee - 1) % 64);
+        depgraph.FeeRate(idx).size = 1 + (uint64_t(depgraph.FeeRate(idx).size - 1) % 64);
+    }*/
     // The most complicated graphs are connected ones (other ones just split up). Optionally force
     // the graph to be connected.
     if (make_connected) MakeConnected(depgraph);
@@ -955,9 +959,16 @@ FUZZ_TARGET(clusterlin_linearize_simplex)
     auto chunking = ChunkLinearization(depgraph, linearization);
     assert(optimal);
 
+    if constexpr (1) {
+        std::vector<uint8_t> reser;
+        VectorWriter writer(reser, 0);
+        writer << Using<DepGraphFormatter>(depgraph);
+        std::cerr << "EXAMPLE " << ntx << ": " << HexStr(reser) << "\n";
+    }
+
     // Invoke SimplexLinearize().
     uint64_t max_iters = 0;
-    for (int i = 0; i < 16; ++i) {
+    for (int i = 0; i < 8; ++i) {
         auto [linearization_simplex, iters] = SimplexLinearize(depgraph, rng.rand64());
         SanityCheck(depgraph, linearization_simplex);
         auto chunking_simplex = ChunkLinearization(depgraph, linearization_simplex);

@@ -814,12 +814,12 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
 
     uint64_t steps = 0;
 
+    std::cerr << "\nstart\n";
     auto make_topo_fn = [&]() noexcept {
         while (inactive_deps.size() > 0) {
             __int128 best_qual = 0;
             auto best = size_t(-1);
             std::shuffle(inactive_deps.begin(), inactive_deps.end(), rng);
-            bool changed = false;
             for (size_t pos = 0; pos < inactive_deps.size(); ++pos) {
                 auto dep = inactive_deps[pos];
                 auto& dep_entry = dep_data[dep];
@@ -831,10 +831,32 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
                     auto& par_part_entry = tx_data[par_tx_entry.part_rep];
                     auto& chl_part_entry = tx_data[chl_tx_entry.part_rep];
                     if (chl_part_entry.part_setinfo.feerate >> par_part_entry.part_setinfo.feerate) {
-                        auto qual = QualityGain(chl_part_entry.part_setinfo.feerate, par_part_entry.part_setinfo.feerate);
-                        if (best == size_t(-1) || qual > best_qual) {
-                            best = pos;
-                            best_qual = qual;
+                        SetType init = par_part_entry.part_setinfo.transactions | chl_part_entry.part_setinfo.transactions;
+                        SetType reachable = init;
+                        for (auto i : reachable) {
+                            reachable |= depgraph.Ancestors(i);
+                        }
+                        for (auto i : reachable) {
+                            reachable |= tx_data[tx_data[i].part_rep].part_setinfo.transactions;
+                        }
+                        reachable -= init;
+                        while (true) {
+                            auto old_reachable = reachable;
+                            for (auto i : reachable) {
+                                reachable |= depgraph.Ancestors(i);
+                            }
+                            for (auto i : reachable) {
+                                reachable |= tx_data[tx_data[i].part_rep].part_setinfo.transactions;
+                            }
+                            if (old_reachable == reachable) break;
+                        }
+                        if (!reachable.Overlaps(init)) {
+                            auto qual = QualityGain(chl_part_entry.part_setinfo.feerate, par_part_entry.part_setinfo.feerate);
+                            if (best == size_t(-1) || qual > best_qual) {
+                                best = pos;
+                                best_qual = qual;
+                                break; // comment out for max-q merges
+                            }
                         }
                     }
                 }
@@ -842,6 +864,7 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
             if (best == size_t(-1)) break;
             // Make active.
             auto dep = inactive_deps[best];
+            std::cerr << "-   activate " << (dep_data[dep].child) << "->" << (dep_data[dep].parent) << "\n";
             if (best + 1 != inactive_deps.size()) std::swap(inactive_deps.back(), inactive_deps[best]);
             inactive_deps.pop_back();
             active_deps.push_back(dep);
@@ -864,12 +887,14 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
                 if (best == DepIdx(-1) || qual > best_qual) {
                     best = pos;
                     best_qual = qual;
+                    break; // comment out for max-q splits
                 }
             }
         }
         if (best != size_t(-1)) {
             auto dep = active_deps[best];
             auto& dep_entry = dep_data[dep];
+            std::cerr << "- deactivate " << (dep_data[dep].child) << "->" << (dep_data[dep].parent) << "\n";
             if (best + 1 != active_deps.size()) std::swap(active_deps.back(), active_deps[best]);
             active_deps.pop_back();
             inactive_deps.push_back(dep);
