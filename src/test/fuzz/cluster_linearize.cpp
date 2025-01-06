@@ -946,7 +946,12 @@ FUZZ_TARGET(clusterlin_linearize_simplex)
     if (ntx > 30) return;
     // The most complicated graphs are connected ones (other ones just split up). Optionally force
     // the graph to be connected.
-    if (make_connected) MakeConnected(depgraph);
+    MakeConnected(depgraph);
+    uint64_t ndeps = 0;
+    for (auto i : depgraph.Positions()) {
+        ndeps += depgraph.GetReducedParents(i).Count();
+    }
+    if (ndeps > 12) return;
 
     InsecureRandomContext rng(rng_seed);
 
@@ -967,24 +972,32 @@ FUZZ_TARGET(clusterlin_linearize_simplex)
         max_iters = std::max(max_iters, iters);
     }
 
-    static std::pair<uint64_t, int64_t> MAXES[65];
+    static std::pair<uint64_t, int64_t> MAXES[31][31];
     std::pair<uint64_t, int64_t> score{max_iters + 1, -int64_t(buffer.size())};
     bool print{false};
-    if (score > MAXES[ntx]) {
-        if (score.first > MAXES[ntx].first) print = true;
+    if (score > MAXES[ntx][ndeps]) {
+        if (score.first > MAXES[ntx][ndeps].first) print = true;
         FuzzSave(buffer);
-        MAXES[ntx] = score;
-        if (ntx <= 30 && max_iters >= 157) {
-            std::vector<uint8_t> reser;
-            VectorWriter writer(reser, 0);
-            writer << Using<DepGraphFormatter>(depgraph);
-            std::cerr << "EXAMPLE " << ntx << " " << max_iters << ": " << HexStr(reser) << "\n";
+        MAXES[ntx][ndeps] = score;
+        std::vector<uint8_t> reser;
+        VectorWriter writer(reser, 0);
+        writer << rng_seed << uint8_t{0} << Using<DepGraphFormatter>(depgraph);
+        FuzzSave(reser);
+        static constexpr uint64_t LIMITS[] = {0, 1, 3, 5, 7, 10, 13, 17, 21, 25, 29, 33, 33};
+        if (max_iters >= LIMITS[ndeps]) {
+            std::cerr << ntx << " " << ndeps << ": " << max_iters << " " << HexStr(std::span{reser}.subspan(9)) << "\n";
         }
     }
     if (print) {
         std::cerr << "MAX: ";
-        for (int i = 0; i <= 64; ++i) {
-            if (MAXES[i].first) std::cerr << i << "=" << (MAXES[i].first - 1) << " ";
+        for (int j = 0; j <= 30; ++j) {
+            std::optional<uint64_t> worst;
+            for (int i = 0; i <= 30; ++i) {
+                if (MAXES[i][j].first && (!worst || MAXES[i][j].first > *worst)) {
+                    worst = MAXES[i][j].first - 1;
+                }
+            }
+            if (worst) std::cerr << j << "=" << (*worst) << " ";
         }
         std::cerr << "\n";
     }
