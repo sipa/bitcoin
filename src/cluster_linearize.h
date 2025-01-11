@@ -730,6 +730,32 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
 //    std::cerr << "- set up\n";
     debug_fn();
 
+    auto have_cycle_fn = [&]() noexcept
+    {
+        for (auto i : depgraph.Positions()) {
+            if (tx_data[i].part_rep == i) {
+                SetType init = tx_data[i].part_setinfo.transactions;
+                SetType reach = init;
+                for (auto j : reach) {
+                    reach |= depgraph.Ancestors(j);
+                }
+                reach -= init;
+                while (true) {
+                    auto old_reach = reach;
+                    for (auto j : reach) {
+                        reach |= tx_data[tx_data[j].part_rep].part_setinfo.transactions;
+                    }
+                    for (auto j : reach) {
+                        reach |= depgraph.Ancestors(j);
+                    }
+                    if (reach.Overlaps(init)) return true;
+                    if (reach == old_reach) break;
+                }
+            }
+        }
+        return false;
+    };
+
     auto walk_fn = [&](TxIdx start, auto visit_tx_fn, auto visit_dep_fn) noexcept {
         SetType todo = SetType::Singleton(start);
         SetType done;
@@ -814,43 +840,43 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
 
     uint64_t steps = 0;
 
-    auto make_topo_fn = [&]() noexcept {
-        while (inactive_deps.size() > 0) {
-            __int128 best_qual = 0;
-            auto best = size_t(-1);
-            std::shuffle(inactive_deps.begin(), inactive_deps.end(), rng);
-            bool changed = false;
-            for (size_t pos = 0; pos < inactive_deps.size(); ++pos) {
-                auto dep = inactive_deps[pos];
-                auto& dep_entry = dep_data[dep];
-                Assume(dep_entry.active == 0);
-                auto& par_tx_entry = tx_data[dep_entry.parent];
-                auto& chl_tx_entry = tx_data[dep_entry.child];
-                if (par_tx_entry.part_rep != chl_tx_entry.part_rep) {
-                    // Investigate whether making dependency dep active is an improvement.
-                    auto& par_part_entry = tx_data[par_tx_entry.part_rep];
-                    auto& chl_part_entry = tx_data[chl_tx_entry.part_rep];
-                    if (chl_part_entry.part_setinfo.feerate >> par_part_entry.part_setinfo.feerate) {
-                        auto qual = QualityGain(chl_part_entry.part_setinfo.feerate, par_part_entry.part_setinfo.feerate);
-                        if (best == size_t(-1) || qual > best_qual) {
-                            best = pos;
-                            best_qual = qual;
-                        }
+    auto make_topo_fn = [&](bool pick_random) noexcept {
+        __int128 best_qual = 0;
+        auto best = size_t(-1);
+        std::shuffle(inactive_deps.begin(), inactive_deps.end(), rng);
+        bool changed = false;
+        for (size_t pos = 0; pos < inactive_deps.size(); ++pos) {
+            auto dep = inactive_deps[pos];
+            auto& dep_entry = dep_data[dep];
+            Assume(dep_entry.active == 0);
+            auto& par_tx_entry = tx_data[dep_entry.parent];
+            auto& chl_tx_entry = tx_data[dep_entry.child];
+            if (par_tx_entry.part_rep != chl_tx_entry.part_rep) {
+                // Investigate whether making dependency dep active is an improvement.
+                auto& par_part_entry = tx_data[par_tx_entry.part_rep];
+                auto& chl_part_entry = tx_data[chl_tx_entry.part_rep];
+                if (chl_part_entry.part_setinfo.feerate >> par_part_entry.part_setinfo.feerate) {
+                    auto qual = QualityGain(chl_part_entry.part_setinfo.feerate, par_part_entry.part_setinfo.feerate);
+                    if (best == size_t(-1) || qual > best_qual) {
+                        best = pos;
+                        best_qual = qual;
+                        if (pick_random) break;
                     }
                 }
             }
-            if (best == size_t(-1)) break;
-            // Make active.
-            auto dep = inactive_deps[best];
-            if (best + 1 != inactive_deps.size()) std::swap(inactive_deps.back(), inactive_deps[best]);
-            inactive_deps.pop_back();
-            active_deps.push_back(dep);
-            join_fn(dep_data[dep]);
-            ++steps;
         }
+        if (best == size_t(-1)) return false;
+        // Make active.
+        auto dep = inactive_deps[best];
+        if (best + 1 != inactive_deps.size()) std::swap(inactive_deps.back(), inactive_deps[best]);
+        inactive_deps.pop_back();
+        active_deps.push_back(dep);
+        join_fn(dep_data[dep]);
+        ++steps;
+        return true;
     };
 
-    auto improve_fn = [&]() noexcept {
+    auto improve_fn = [&](bool pick_random) noexcept {
         __int128 best_qual = 0;
         auto best = size_t(-1);
         std::shuffle(active_deps.begin(), active_deps.end(), rng);
@@ -864,23 +890,23 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
                 if (best == DepIdx(-1) || qual > best_qual) {
                     best = pos;
                     best_qual = qual;
+                    if (pick_random) break;
                 }
             }
         }
-        if (best != size_t(-1)) {
-            auto dep = active_deps[best];
-            auto& dep_entry = dep_data[dep];
-            if (best + 1 != active_deps.size()) std::swap(active_deps.back(), active_deps[best]);
-            active_deps.pop_back();
-            inactive_deps.push_back(dep);
-            split_fn(dep_entry);
-            ++steps;
-            return true;
-        }
-        return false;
+        if (best == size_t(-1)) return false;
+        auto dep = active_deps[best];
+        auto& dep_entry = dep_data[dep];
+        if (best + 1 != active_deps.size()) std::swap(active_deps.back(), active_deps[best]);
+        active_deps.pop_back();
+        inactive_deps.push_back(dep);
+        split_fn(dep_entry);
+        ++steps;
+        return true;
     };
 
-    make_topo_fn();
+    while (make_topo_fn(false)) {}
+    make_topo_fn(false);
     std::vector<uint64_t> states;
     while (true) {
         if (dep_data.size() <= 64) {
@@ -893,8 +919,9 @@ std::pair<std::vector<ClusterIndex>, uint64_t> SimplexLinearize(const DepGraph<S
             }
             states.push_back(state);
         }
-        if (!improve_fn()) break;
-        make_topo_fn();
+        Assume(!have_cycle_fn());
+        if (!improve_fn(false)) break;
+        while (make_topo_fn(false)) {}
     }
 
     std::vector<ClusterIndex> ret;
