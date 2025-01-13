@@ -17,6 +17,8 @@
 #include <vector>
 #include <utility>
 
+#include <iostream>
+
 using namespace cluster_linearize;
 
 namespace {
@@ -202,17 +204,17 @@ SetType ReadTopologicalSet(const DepGraph<SetType>& depgraph, const SetType& tod
 }
 
 /** Given a dependency graph, construct any valid linearization for it, reading from a SpanReader. */
-template<typename BS>
-std::vector<ClusterIndex> ReadLinearization(const DepGraph<BS>& depgraph, SpanReader& reader)
+template<typename SetType>
+std::vector<ClusterIndex> ReadLinearization(const DepGraph<SetType>& depgraph, SpanReader& reader)
 {
     std::vector<ClusterIndex> linearization;
-    TestBitSet todo = depgraph.Positions();
+    SetType todo = depgraph.Positions();
     // In every iteration one topologically-valid transaction is appended to linearization.
     while (todo.Any()) {
         // Compute the set of transactions with no not-yet-included ancestors.
-        TestBitSet potential_next;
+        SetType potential_next;
         for (auto j : todo) {
-            if ((depgraph.Ancestors(j) & todo) == TestBitSet::Singleton(j)) {
+            if ((depgraph.Ancestors(j) & todo) == SetType::Singleton(j)) {
                 potential_next.Set(j);
             }
         }
@@ -237,6 +239,28 @@ std::vector<ClusterIndex> ReadLinearization(const DepGraph<BS>& depgraph, SpanRe
         }
     }
     return linearization;
+}
+
+template<typename SetType>
+void WriteLinearization(const DepGraph<SetType>& depgraph, std::span<ClusterIndex> linearization, VectorWriter& writer)
+{
+    SetType todo = depgraph.Positions();
+    for (ClusterIndex idx : linearization) {
+        SetType potential_next;
+        for (auto j : todo) {
+            if ((depgraph.Ancestors(j) & todo) == SetType::Singleton(j)) {
+                potential_next.Set(j);
+            }
+        }
+        assert(potential_next.Any());
+        uint64_t out{0};
+        for (auto j : potential_next) {
+            if (j == idx) break;
+            ++out;
+        }
+        writer << VARINT(out);
+        todo.Reset(idx);
+    }
 }
 
 } // namespace
@@ -1172,4 +1196,189 @@ FUZZ_TARGET(clusterlin_fix_linearization)
     // In any case, the topo_prefix long prefix of linearization cannot be changed.
     assert(std::equal(linearization.begin(), linearization.begin() + topo_prefix,
                       linearization_fixed.begin()));
+}
+
+FUZZ_TARGET(clusterlin_linearize_simplex)
+{
+    // Construct an arbitrary graph from the fuzz input.
+    SpanReader reader(buffer);
+    DepGraph<TestBitSet> depgraph;
+    uint64_t rng_seed{0};
+    try {
+        reader >> rng_seed >> Using<DepGraphFormatter>(depgraph);
+    } catch (const std::ios_base::failure&) {}
+    if (depgraph.TxCount() > 16) return;
+    MakeConnected(depgraph);
+    unsigned num_deps{0};
+    uint64_t sum_size{0};
+    uint64_t sum_abs_fee{0};
+    for (auto i : depgraph.Positions()) {
+        sum_size += depgraph.FeeRate(i).size;
+        if (depgraph.FeeRate(i).fee > 0) {
+            sum_abs_fee += depgraph.FeeRate(i).fee;
+        } else {
+            sum_abs_fee -= depgraph.FeeRate(i).fee;
+        }
+        num_deps += depgraph.GetReducedParents(i).Count();
+    }
+    if (std::bit_width(sum_size) * 3 + std::bit_width(sum_abs_fee) + 2 > 127) return;
+    if (num_deps > 16) return;
+
+    auto lin = ReadLinearization(depgraph, reader);
+    SanityCheck(depgraph, lin);
+    auto dia = ChunkLinearization(depgraph, lin);
+    SimplexState simplex(depgraph, lin, rng_seed);
+    assert(!simplex.HaveCycle());
+    assert(simplex.IsTopological());
+    FeeFrac depgraph_sum = depgraph.FeeRate(depgraph.Positions());
+
+    std::vector<uint64_t> states;
+    while (true) {
+        states.push_back(simplex.GetState());
+
+        assert(!simplex.HaveCycle());
+        assert(simplex.IsTopological());
+        auto next_lin = simplex.GetLinearization();
+        SanityCheck(depgraph, next_lin);
+        auto next_dia = simplex.GetDiagram();
+        FeeFrac dia_sum;
+        for (const auto& dia_elem : next_dia) dia_sum += dia_elem;
+        Assume(dia_sum == depgraph_sum);
+        auto next_chunking = ChunkLinearization(depgraph, next_lin);
+        assert(CompareChunks(next_chunking, next_dia) >= 0);
+        dia = next_dia;
+        lin = next_lin;
+
+        if (!simplex.MaxRImprove(false)) break;
+    }
+    std::sort(states.begin(), states.end());
+    assert(std::adjacent_find(states.begin(), states.end()) == states.end());
+
+    auto chunking = ChunkLinearization(depgraph, lin);
+    assert(CompareChunks(chunking, dia) == 0);
+
+    auto [search_lin, search_opt] = Linearize(depgraph, 100000, rng_seed, lin);
+    assert(search_opt);
+    auto search_chunking = ChunkLinearization(depgraph, search_lin);
+    assert(CompareChunks(chunking, search_chunking) == 0);
+}
+
+FUZZ_TARGET(clusterlin_linearize_simplex_worstfinder)
+{
+    // Construct an arbitrary graph from the fuzz input.
+    SpanReader reader(buffer);
+    DepGraph<TestBitSet> depgraph;
+    uint64_t rng_seed{0};
+    try {
+        reader >> rng_seed >> Using<DepGraphFormatter>(depgraph);
+    } catch (const std::ios_base::failure&) {}
+    auto num_txn = depgraph.TxCount();
+    if (num_txn > 10) return;
+    MakeConnected(depgraph);
+    unsigned num_deps{0};
+    uint64_t sum_size{0};
+    uint64_t sum_abs_fee{0};
+    for (auto i : depgraph.Positions()) {
+        sum_size += depgraph.FeeRate(i).size;
+        if (depgraph.FeeRate(i).fee > 0) {
+            sum_abs_fee += depgraph.FeeRate(i).fee;
+        } else {
+            sum_abs_fee -= depgraph.FeeRate(i).fee;
+        }
+        num_deps += depgraph.GetReducedParents(i).Count();
+    }
+    if (std::bit_width(sum_size) * 3 + std::bit_width(sum_abs_fee) + 2 > 127) return;
+    if (num_deps > 10) return;
+
+/*    std::cerr << "numtx=" << num_txn << " numdeps=" << num_deps << "\n";
+    {
+        std::vector<uint8_t> data;
+        VectorWriter writer(data, 0);
+        writer << Using<DepGraphFormatter>(depgraph);
+        std::cerr << "HEX: " << HexStr(data) << "\n";
+    }*/
+
+    auto lin = ReadLinearization(depgraph, reader);
+    SimplexState simplex_minq_rm(depgraph, lin, rng_seed);
+    SimplexState simplex_maxq_rm(depgraph, lin, rng_seed);
+    SimplexState simplex_minr_rm(depgraph, lin, rng_seed);
+    SimplexState simplex_maxr_rm(depgraph, lin, rng_seed);
+    SimplexState simplex_minq_qm(depgraph, lin, rng_seed);
+    SimplexState simplex_maxq_qm(depgraph, lin, rng_seed);
+    SimplexState simplex_minr_qm(depgraph, lin, rng_seed);
+    SimplexState simplex_maxr_qm(depgraph, lin, rng_seed);
+
+    while (true) if (!simplex_minq_rm.MinQImprove(false)) break;
+    assert(simplex_minq_rm.IsTopological());
+    while (true) if (!simplex_maxq_rm.MaxQImprove(false)) break;
+    assert(simplex_maxq_rm.IsTopological());
+    while (true) if (!simplex_minr_rm.MinRImprove(false)) break;
+    assert(simplex_minr_rm.IsTopological());
+    while (true) if (!simplex_maxr_rm.MaxRImprove(false)) break;
+    assert(simplex_maxr_rm.IsTopological());
+//    while (true) if (!simplex_minq_qm.MinQImprove(true)) break;
+//    assert(simplex_minq_qm.IsTopological());
+    while (true) if (!simplex_maxq_qm.MaxQImprove(true)) break;
+    assert(simplex_maxq_qm.IsTopological());
+//    while (true) if (!simplex_minr_qm.MinRImprove(true)) break;
+//    assert(simplex_minr_qm.IsTopological());
+//    while (true) if (!simplex_maxr_qm.MaxRImprove(true)) break;
+//    assert(simplex_maxr_qm.IsTopological());
+
+    uint64_t iters[8] = {simplex_maxq_qm.GetIterations(), simplex_maxq_rm.GetIterations(),
+                         simplex_maxr_qm.GetIterations(), simplex_maxr_rm.GetIterations(),
+                         simplex_minr_qm.GetIterations(), simplex_minr_rm.GetIterations(),
+                         simplex_minq_qm.GetIterations(), simplex_minq_rm.GetIterations()
+                        };
+
+    static std::optional<std::pair<uint64_t, size_t>> MAX[65][65][8];
+    bool do_save{false};
+    bool do_print{false};
+    for (int style = 0; style < 8; ++style) {
+        auto& elem = MAX[num_txn][num_deps][style];
+        if (!elem.has_value() || iters[style] > elem->first) {
+            do_save = true;
+            do_print = true;
+            elem = std::pair<uint64_t, size_t>{iters[style], buffer.size()};
+        } else if (iters[style] == elem->first && buffer.size() < elem->second) {
+            do_save = true;
+            elem = std::pair<uint64_t, size_t>{iters[style], buffer.size()};
+        }
+    }
+    if (do_save) {
+        FuzzSave(buffer);
+        std::vector<uint8_t> reser;
+        VectorWriter writer(reser, 0);
+        writer << rng_seed << Using<DepGraphFormatter>(depgraph);
+        WriteLinearization(depgraph, lin, writer);
+        FuzzSave(reser);
+    }
+    if (do_print) {
+        std::cerr << "\nMAX:\n";
+        for (int deps = 0; deps <= 64; ++deps) {
+            std::optional<uint64_t> highest[8];
+            for (int txn = 0; txn <= 64; ++txn) {
+                for (int style = 0; style < 8; ++style) {
+                    if (MAX[txn][deps][style].has_value()) {
+                        if (!highest[style].has_value() || MAX[txn][deps][style]->first > *highest[style]) {
+                            highest[style] = MAX[txn][deps][style]->first;
+                        }
+                    }
+                }
+            }
+            assert(highest[0].has_value() == highest[1].has_value());
+            assert(highest[0].has_value() == highest[2].has_value());
+            assert(highest[0].has_value() == highest[3].has_value());
+            assert(highest[0].has_value() == highest[4].has_value());
+            assert(highest[0].has_value() == highest[5].has_value());
+            assert(highest[0].has_value() == highest[6].has_value());
+            assert(highest[0].has_value() == highest[7].has_value());
+            if (highest[0].has_value()) {
+                std::cerr << "* deps=" << deps << ": (Sq+,Mr+)=" << *highest[1] << " (Sq+,Mq+)=" << *highest[0]
+                                                << " (Sr+,Mr+)=" << *highest[3] /* << " (Sr+,Mq+)=" << *highest[2] */
+                                                << " (Sr-,Mr+)=" << *highest[5] << " (Sq-,Mr+)=" << *highest[7]
+                                                /* << " (Sr-,Mq+)=" << *highest[4] << " (Sq-,Mq+)=" << *highest[6]*/ << "\n";
+            }
+        }
+    }
 }
