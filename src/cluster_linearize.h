@@ -1202,7 +1202,16 @@ class SimplexState
                     // Skip dependencies where parent is not worse than child.
                     auto& linked_setinfo = m_tx_data[linked_rep].part_setinfo;
                     // Keep the lowest-feerate parent or highest-feerare child.
-                    int64_t score = int64_t{m_tx_data[dep_entry.parent].lin_pos} * 1000000 + int64_t{m_tx_data[dep_entry.child].lin_pos} * 1;
+//                    int64_t score = int64_t{m_tx_data[dep_entry.parent].lin_pos} * 1000000 + int64_t{m_tx_data[dep_entry.child].lin_pos} * 1;
+//                    int64_t score = int64_t{m_tx_data[dep_entry.parent].lin_pos} * -1000000 + int64_t{m_tx_data[dep_entry.child].lin_pos} * 1;
+//                    int64_t score = int64_t{m_tx_data[dep_entry.parent].lin_pos} * -1000000 + int64_t{m_tx_data[dep_entry.child].lin_pos} * -1;
+//                    int64_t score = int64_t{m_tx_data[dep_entry.parent].lin_pos} * 1000000 + int64_t{m_tx_data[dep_entry.child].lin_pos} * -1;
+                    int64_t score = int64_t{m_tx_data[dep_entry.parent].lin_pos} * 1 + int64_t{m_tx_data[dep_entry.child].lin_pos} * 1000000;
+//                    int64_t score = int64_t{m_tx_data[dep_entry.parent].lin_pos} * -1 + int64_t{m_tx_data[dep_entry.child].lin_pos} * 1000000;
+//                    int64_t score = int64_t{m_tx_data[dep_entry.parent].lin_pos} * -1 + int64_t{m_tx_data[dep_entry.child].lin_pos} * -1000000;
+//                    int64_t score = int64_t{m_tx_data[dep_entry.parent].lin_pos} * 1 + int64_t{m_tx_data[dep_entry.child].lin_pos} * -1000000;
+
+
                     if (candidate.has_value()) {
                         auto cmp = Upward ? FeeRateCompare(linked_setinfo.feerate, candidate_feerate)
                                           : FeeRateCompare(candidate_feerate, linked_setinfo.feerate);
@@ -1302,14 +1311,23 @@ class SimplexState
     }
 
 public:
-    SimplexState(const DepGraph<SetType>& depgraph, const std::span<TxIdx> linearization, uint64_t rng_seed) noexcept :
-         m_transactions(depgraph.Positions()), m_rng(rng_seed)
+    void Initialize(const DepGraph<SetType>& depgraph, const std::span<TxIdx> linearization) noexcept
     {
-        m_tx_data.resize(depgraph.PositionRange());
+        m_num_activations = 0;
+        m_num_deactivations = 0;
+        m_num_walks = 0;
+        m_transactions = depgraph.Positions();
+
+        m_tx_data.resize(std::max<size_t>(m_tx_data.size(), depgraph.PositionRange()));
+        m_dep_data.clear();
+        m_deps.clear();
+
         TxIdx lin_pos{0};
         for (auto tx_idx : linearization) {
             // Add transaction.
             auto& tx_entry = m_tx_data[tx_idx];
+            tx_entry.parent_links.clear();
+            tx_entry.child_links.clear();
             tx_entry.part_rep = tx_idx;
             tx_entry.part_setinfo = SetInfo(depgraph, tx_idx);
             tx_entry.unmet_deps = 0;
@@ -1331,6 +1349,11 @@ public:
             // Activate dependencies where possible.
             MergeUpwards(tx_idx);
         }
+    }
+
+    SimplexState(const DepGraph<SetType>& depgraph, const std::span<TxIdx> linearization, uint64_t rng_seed) noexcept : m_rng(rng_seed)
+    {
+        Initialize(depgraph, linearization);
     }
 
     uint64_t GetState() const noexcept
@@ -1583,6 +1606,20 @@ public:
     uint64_t GetIterations() const noexcept
     {
         return m_num_deactivations + m_num_activations;
+    }
+
+    __int128 GetSplitQ() const noexcept
+    {
+        __int128 ret{0};
+        for (DepIdx dep_idx = 0; dep_idx < m_dep_data.size(); ++dep_idx) {
+            auto& dep_entry = m_dep_data[dep_idx];
+            if (dep_entry.active) {
+                auto& part_setinfo = m_tx_data[m_tx_data[dep_entry.parent].part_rep].part_setinfo;
+                auto q = QualityGain(dep_entry.top_setinfo.feerate, part_setinfo.feerate);
+                ret += q;
+            }
+        }
+        return ret;
     }
 };
 

@@ -1263,6 +1263,138 @@ FUZZ_TARGET(clusterlin_linearize_simplex)
     assert(CompareChunks(chunking, search_chunking) == 0);
 }
 
+FUZZ_TARGET(clusterlin_linearize_simplex_optiinit)
+{
+    SpanReader reader(buffer);
+    DepGraph<TestBitSet> depgraph;
+    try {
+        reader >> Using<DepGraphFormatter>(depgraph);
+    } catch (const std::ios_base::failure&) {}
+    auto num_txn = depgraph.TxCount();
+    if (num_txn > 15) return;
+    MakeConnected(depgraph);
+    unsigned num_deps{0};
+    uint64_t sum_size{0};
+    uint64_t sum_abs_fee{0};
+    for (auto i : depgraph.Positions()) {
+        sum_size += depgraph.FeeRate(i).size;
+        if (depgraph.FeeRate(i).fee > 0) {
+            sum_abs_fee += depgraph.FeeRate(i).fee;
+        } else {
+            sum_abs_fee -= depgraph.FeeRate(i).fee;
+        }
+        num_deps += depgraph.GetReducedParents(i).Count();
+    }
+    if (std::bit_width(sum_size) * 3 + std::bit_width(sum_abs_fee) + 2 > 127) return;
+    if (num_deps > 30) return;
+
+    std::vector<ClusterIndex> lin;
+    for (auto i : depgraph.Positions()) lin.push_back(i);
+    FixLinearization(depgraph, lin);
+
+    SimplexState simplex(depgraph, lin, 0);
+    std::vector<FeeFrac> opt;
+    {
+        while (true) if (!simplex.MaxQImprove(false)) break;
+        assert(simplex.IsTopological());
+        assert(simplex.IsOptimal());
+        auto opt_lin = simplex.GetLinearization();
+        opt = ChunkLinearization(depgraph, opt_lin);
+    }
+    if (opt.size() != 1) return;
+
+    auto perm_linearization = lin;
+    int64_t iters{0};
+    uint64_t max_steps = 0;
+    uint64_t min_steps = uint64_t(-1);
+
+    static bool UNK[65][65];
+    if (UNK[num_txn][num_deps]) return;
+    do {
+        /** What prefix of perm_linearization is topological. */
+        ClusterIndex topo_length{0};
+        TestBitSet perm_done;
+        while (topo_length < perm_linearization.size()) {
+            auto i = perm_linearization[topo_length];
+            perm_done.Set(i);
+            if (!depgraph.Ancestors(i).IsSubsetOf(perm_done)) break;
+            ++topo_length;
+        }
+        if (topo_length == perm_linearization.size()) {
+            // Fully topological.
+            simplex.Initialize(depgraph, perm_linearization);
+            auto init_steps = simplex.GetIterations();
+            assert(simplex.IsTopological());
+            while (true) {
+                if (!simplex.MaxQImprove(false)) {
+                    assert(simplex.IsTopological());
+                    assert(simplex.IsOptimal());
+                    break;
+                }
+            }
+            max_steps = std::max(max_steps, simplex.GetIterations() - init_steps);
+            min_steps = std::min(min_steps, simplex.GetIterations() - init_steps);
+        } else {
+            // Otherwise, fast forward to the last permutation with the same non-topological
+            // prefix.
+            auto first_non_topo = perm_linearization.begin() + topo_length;
+            assert(std::is_sorted(first_non_topo + 1, perm_linearization.end()));
+            std::reverse(first_non_topo + 1, perm_linearization.end());
+        }
+        ++iters;
+        if (iters == 4096) {
+            UNK[num_txn][num_deps] = true;
+            FuzzSave(buffer);
+            return;
+        }
+    } while(std::next_permutation(perm_linearization.begin(), perm_linearization.end()));
+
+    bool do_save = false;
+    static std::optional<std::pair<uint64_t, size_t>> MINQ[65][65];
+    static std::optional<std::pair<uint64_t, size_t>> MAXQ[65][65];
+    {
+        auto& entry = MINQ[num_txn][num_deps];
+        if (!entry.has_value() || min_steps > entry->first || (min_steps == entry->first && buffer.size() < entry->second)) {
+            entry = std::make_optional<std::pair<uint64_t, size_t>>(min_steps, buffer.size());
+            do_save = true;
+        }
+    }
+
+    {
+        auto& entry = MAXQ[num_txn][num_deps];
+        if (!entry.has_value() || max_steps > entry->first || (max_steps == entry->first && buffer.size() < entry->second)) {
+            entry = std::make_optional<std::pair<uint64_t, size_t>>(max_steps, buffer.size());
+            do_save = true;
+        }
+    }
+
+    if (do_save) {
+        FuzzSave(buffer);
+        std::vector<uint8_t> reser;
+        VectorWriter writer(reser, 0);
+        writer << Using<DepGraphFormatter>(depgraph);
+        FuzzSave(reser);
+        if (num_txn == 5 && num_deps == 6 && MAXQ[num_txn][num_deps]->first >= 4) {
+            std::cerr << "BLUP 5,6: " << HexStr(reser) << "\n";
+        }
+        if (num_txn == 8 && num_deps == 15 && MAXQ[num_txn][num_deps]->first >= 18) {
+            std::cerr << "BLUP 8,15: " << HexStr(reser) << "\n";
+        }
+        if (num_txn == 9 && num_deps == 20 && MAXQ[num_txn][num_deps]->first >= 24) {
+            std::cerr << "BLUP 9,20: " << HexStr(reser) << "\n";
+        }
+        std::cerr << "MAX:";
+        for (int ntx = 0; ntx <= 64; ++ntx) {
+            for (int ndep = 0; ndep <= 64; ++ndep) {
+                if (MAXQ[ntx][ndep].has_value() && !UNK[ntx][ndep]) {
+                    std::cerr << " (" << ntx << "," << ndep << ")=" /* << MINQ[ntx][ndep]->first << "/" */ << (MAXQ[ntx][ndep]->first >> 1) << "(" << ((MAXQ[ntx][ndep]->first >> 1) + ntx - 1 - ndep) << ")";
+                }
+            }
+        }
+        std::cerr << "\n";
+    }
+}
+
 FUZZ_TARGET(clusterlin_linearize_simplex_worstfinder)
 {
     // Construct an arbitrary graph from the fuzz input.
