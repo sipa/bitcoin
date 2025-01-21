@@ -1293,13 +1293,66 @@ class SimplexState
         Deactivate(dep_idx);
         auto new_par_rep = m_tx_data[dep_entry.parent].part_rep;
         auto new_chl_rep = m_tx_data[dep_entry.child].part_rep;
+        std::optional<std::pair<unsigned, DepIdx>> best;
         for (auto t : m_tx_data[new_par_rep].part_setinfo.transactions) {
             for (auto d : m_tx_data[t].parent_links) {
                 if (m_tx_data[m_dep_data[d].parent].part_rep == new_chl_rep) {
-                    Activate(d);
-                    return;
+                    std::vector<DepIdx> sja(m_tx_data.size());
+                    for (auto i : m_transactions) sja[i] = DepIdx(-1);
+                    SetType reached = SetType::Singleton(m_dep_data[d].child);
+                    SetType added = reached;
+                    unsigned steps = 0;
+                    while (true) {
+                        SetType new_added;
+                        for (auto i : added) {
+                            Assume(m_transactions[i]);
+                            Assume(sja[i] == DepIdx(-1) || sja[i] < m_dep_data.size());
+                            for (auto d2 : m_tx_data[i].parent_links) {
+                                Assume(m_dep_data[d2].child == i);
+                                auto new_par = m_dep_data[d2].parent;
+                                if (reached[new_par]) continue;
+                                bool same = m_tx_data[i].part_rep == m_tx_data[new_par].part_rep;
+                                bool cross = (!same && m_tx_data[i].part_rep == new_par_rep && m_tx_data[new_par].part_rep == new_chl_rep);
+                                if (same || cross) {
+                                    reached.Set(new_par);
+                                    new_added.Set(new_par);
+                                    if (same) sja[new_par] = sja[i];
+                                    if (cross) sja[new_par] = d2;
+                                }
+                            }
+                            for (auto d2 : m_tx_data[i].child_links) {
+                                Assume(m_dep_data[d2].parent == i);
+                                auto new_chl = m_dep_data[d2].child;
+                                if (reached[new_chl]) continue;
+                                bool same = m_tx_data[i].part_rep == m_tx_data[new_chl].part_rep;
+                                bool cross = (!same && m_tx_data[i].part_rep == new_chl_rep && m_tx_data[new_chl].part_rep == new_par_rep);
+                                if (same || cross) {
+                                    reached.Set(new_chl);
+                                    new_added.Set(new_chl);
+                                    sja[new_chl] = sja[i];
+                                }
+                            }
+                        }
+                        if (reached[m_dep_data[d].parent]) {
+                            Assume(sja[m_dep_data[d].parent] != DepIdx(-1));
+                            Assume(sja[m_dep_data[d].parent] < m_dep_data.size());
+                            Assume(!m_dep_data[sja[m_dep_data[d].parent]].active);
+                            Assume(sja[m_dep_data[d].parent] != dep_idx);
+                            if (!best.has_value() || steps < best->first) {
+                                best = {steps, sja[m_dep_data[d].parent]};
+                            }
+                            break;
+                        }
+                        Assume(new_added.Any());
+                        added = new_added;
+                        ++steps;
+                    }
                 }
             }
+        }
+        if (best.has_value()) {
+            Activate(best->second);
+            return;
         }
         if (use_q_merge) {
             MergeQUpwards(dep_entry.parent);

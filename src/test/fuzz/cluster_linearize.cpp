@@ -1375,13 +1375,16 @@ FUZZ_TARGET(clusterlin_linearize_simplex_optiinit)
         writer << Using<DepGraphFormatter>(depgraph);
         FuzzSave(reser);
         if (num_txn == 5 && num_deps == 6 && MAXQ[num_txn][num_deps]->first >= 4) {
-            std::cerr << "BLUP 5,6: " << HexStr(reser) << "\n";
+            std::cerr << "BLUP 5,6,2: " << HexStr(reser) << "\n";
+        }
+        if (num_txn == 8 && num_deps == 11 && MAXQ[num_txn][num_deps]->first >= 14) {
+            std::cerr << "BLUP 8,11,7: " << HexStr(reser) << "\n";
         }
         if (num_txn == 8 && num_deps == 15 && MAXQ[num_txn][num_deps]->first >= 18) {
-            std::cerr << "BLUP 8,15: " << HexStr(reser) << "\n";
+            std::cerr << "BLUP 8,15.9: " << HexStr(reser) << "\n";
         }
         if (num_txn == 9 && num_deps == 20 && MAXQ[num_txn][num_deps]->first >= 24) {
-            std::cerr << "BLUP 9,20: " << HexStr(reser) << "\n";
+            std::cerr << "BLUP 9,20,24: " << HexStr(reser) << "\n";
         }
         std::cerr << "MAX:";
         for (int ntx = 0; ntx <= 64; ++ntx) {
