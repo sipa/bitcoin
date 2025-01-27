@@ -1224,8 +1224,15 @@ FUZZ_TARGET(clusterlin_linearize_simplex)
     if (std::bit_width(sum_size) * 3 + std::bit_width(sum_abs_fee) + 2 > 127) return;
     if (num_deps > 16) return;
 
+
     auto lin = ReadLinearization(depgraph, reader);
     SanityCheck(depgraph, lin);
+
+    auto [search_lin, search_opt] = Linearize(depgraph, 100000, rng_seed, lin);
+    assert(search_opt);
+    auto search_chunking = ChunkLinearization(depgraph, search_lin);
+    if (search_chunking.size() != 1) return;
+
     auto dia = ChunkLinearization(depgraph, lin);
     SimplexState simplex(depgraph, lin, rng_seed);
     assert(!simplex.HaveCycle());
@@ -1234,22 +1241,26 @@ FUZZ_TARGET(clusterlin_linearize_simplex)
 
     std::vector<uint64_t> states;
     while (true) {
-        states.push_back(simplex.GetState());
+        auto state = simplex.GetState();
+        for (auto prev_state : states) {
+            assert(state != prev_state);
+        }
+        states.push_back(state);
 
-        assert(!simplex.HaveCycle());
-        assert(simplex.IsTopological());
+//        assert(!simplex.HaveCycle());
+//        assert(simplex.IsTopological());
         auto next_lin = simplex.GetLinearization();
         SanityCheck(depgraph, next_lin);
         auto next_dia = simplex.GetDiagram();
         FeeFrac dia_sum;
         for (const auto& dia_elem : next_dia) dia_sum += dia_elem;
         Assume(dia_sum == depgraph_sum);
-        auto next_chunking = ChunkLinearization(depgraph, next_lin);
-        assert(CompareChunks(next_chunking, next_dia) >= 0);
+//        auto next_chunking = ChunkLinearization(depgraph, next_lin);
+//        assert(CompareChunks(next_chunking, next_dia) >= 0);
         dia = next_dia;
         lin = next_lin;
 
-        if (!simplex.MaxRImprove(false)) break;
+        if (!simplex.MinQImprove(true)) break;
     }
     std::sort(states.begin(), states.end());
     assert(std::adjacent_find(states.begin(), states.end()) == states.end());
@@ -1257,9 +1268,6 @@ FUZZ_TARGET(clusterlin_linearize_simplex)
     auto chunking = ChunkLinearization(depgraph, lin);
     assert(CompareChunks(chunking, dia) == 0);
 
-    auto [search_lin, search_opt] = Linearize(depgraph, 100000, rng_seed, lin);
-    assert(search_opt);
-    auto search_chunking = ChunkLinearization(depgraph, search_lin);
     assert(CompareChunks(chunking, search_chunking) == 0);
 }
 

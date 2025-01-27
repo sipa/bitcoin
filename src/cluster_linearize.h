@@ -1180,7 +1180,6 @@ class SimplexState
         while (true) {
             std::optional<DepIdx> candidate;
             FeeFrac candidate_feerate;
-            int64_t candidate_score{0};
             // Switch to representative.
             tx_idx = m_tx_data[tx_idx].part_rep;
             auto& current_setinfo = m_tx_data[tx_idx].part_setinfo;
@@ -1202,25 +1201,13 @@ class SimplexState
                     // Skip dependencies where parent is not worse than child.
                     auto& linked_setinfo = m_tx_data[linked_rep].part_setinfo;
                     // Keep the lowest-feerate parent or highest-feerare child.
-//                    int64_t score = int64_t{m_tx_data[dep_entry.parent].lin_pos} * 1000000 + int64_t{m_tx_data[dep_entry.child].lin_pos} * 1;
-//                    int64_t score = int64_t{m_tx_data[dep_entry.parent].lin_pos} * -1000000 + int64_t{m_tx_data[dep_entry.child].lin_pos} * 1;
-//                    int64_t score = int64_t{m_tx_data[dep_entry.parent].lin_pos} * -1000000 + int64_t{m_tx_data[dep_entry.child].lin_pos} * -1;
-//                    int64_t score = int64_t{m_tx_data[dep_entry.parent].lin_pos} * 1000000 + int64_t{m_tx_data[dep_entry.child].lin_pos} * -1;
-                    int64_t score = int64_t{m_tx_data[dep_entry.parent].lin_pos} * 1 + int64_t{m_tx_data[dep_entry.child].lin_pos} * 1000000;
-//                    int64_t score = int64_t{m_tx_data[dep_entry.parent].lin_pos} * -1 + int64_t{m_tx_data[dep_entry.child].lin_pos} * 1000000;
-//                    int64_t score = int64_t{m_tx_data[dep_entry.parent].lin_pos} * -1 + int64_t{m_tx_data[dep_entry.child].lin_pos} * -1000000;
-//                    int64_t score = int64_t{m_tx_data[dep_entry.parent].lin_pos} * 1 + int64_t{m_tx_data[dep_entry.child].lin_pos} * -1000000;
-
-
                     if (candidate.has_value()) {
                         auto cmp = Upward ? FeeRateCompare(linked_setinfo.feerate, candidate_feerate)
                                           : FeeRateCompare(candidate_feerate, linked_setinfo.feerate);
                         if (cmp > 0) continue;
-                        if (cmp == 0 && score < candidate_score) continue;
                     }
                     candidate = dep_idx;
                     candidate_feerate = linked_setinfo.feerate;
-                    candidate_score = score;
                 }
             }
             // Stop if nothing was found.
@@ -1286,73 +1273,32 @@ class SimplexState
     unsigned MergeQUpwards(TxIdx tx_idx) noexcept { return MergeQ<true>(tx_idx); }
     unsigned MergeQDownwards(TxIdx tx_idx) noexcept { return MergeQ<false>(tx_idx); }
 
+    std::vector<std::pair<SetType, SetType>> m_splits;
+
     void Improve(DepIdx dep_idx, bool use_q_merge) noexcept
     {
         auto& dep_entry = m_dep_data[dep_idx];
         Assume(dep_entry.active);
+/*        std::pair<SetType, SetType> split;
+        split.first = dep_entry.top_setinfo.transactions;
+        auto part_rep = m_tx_data[dep_entry.parent].part_rep;
+        split.second = m_tx_data[part_rep].part_setinfo.transactions;
+        Assume(split.first.IsSubsetOf(split.second));
+        Assume(split.first != split.second);
+        for (const auto& prev_split : m_splits) {
+            Assume(split != prev_split);
+        }
+        m_splits.push_back(split);*/
         Deactivate(dep_idx);
         auto new_par_rep = m_tx_data[dep_entry.parent].part_rep;
         auto new_chl_rep = m_tx_data[dep_entry.child].part_rep;
-        std::optional<std::pair<unsigned, DepIdx>> best;
         for (auto t : m_tx_data[new_par_rep].part_setinfo.transactions) {
             for (auto d : m_tx_data[t].parent_links) {
                 if (m_tx_data[m_dep_data[d].parent].part_rep == new_chl_rep) {
-                    std::vector<DepIdx> sja(m_tx_data.size());
-                    for (auto i : m_transactions) sja[i] = DepIdx(-1);
-                    SetType reached = SetType::Singleton(m_dep_data[d].child);
-                    SetType added = reached;
-                    unsigned steps = 0;
-                    while (true) {
-                        SetType new_added;
-                        for (auto i : added) {
-                            Assume(m_transactions[i]);
-                            Assume(sja[i] == DepIdx(-1) || sja[i] < m_dep_data.size());
-                            for (auto d2 : m_tx_data[i].parent_links) {
-                                Assume(m_dep_data[d2].child == i);
-                                auto new_par = m_dep_data[d2].parent;
-                                if (reached[new_par]) continue;
-                                bool same = m_tx_data[i].part_rep == m_tx_data[new_par].part_rep;
-                                bool cross = (!same && m_tx_data[i].part_rep == new_par_rep && m_tx_data[new_par].part_rep == new_chl_rep);
-                                if (same || cross) {
-                                    reached.Set(new_par);
-                                    new_added.Set(new_par);
-                                    if (same) sja[new_par] = sja[i];
-                                    if (cross) sja[new_par] = d2;
-                                }
-                            }
-                            for (auto d2 : m_tx_data[i].child_links) {
-                                Assume(m_dep_data[d2].parent == i);
-                                auto new_chl = m_dep_data[d2].child;
-                                if (reached[new_chl]) continue;
-                                bool same = m_tx_data[i].part_rep == m_tx_data[new_chl].part_rep;
-                                bool cross = (!same && m_tx_data[i].part_rep == new_chl_rep && m_tx_data[new_chl].part_rep == new_par_rep);
-                                if (same || cross) {
-                                    reached.Set(new_chl);
-                                    new_added.Set(new_chl);
-                                    sja[new_chl] = sja[i];
-                                }
-                            }
-                        }
-                        if (reached[m_dep_data[d].parent]) {
-                            Assume(sja[m_dep_data[d].parent] != DepIdx(-1));
-                            Assume(sja[m_dep_data[d].parent] < m_dep_data.size());
-                            Assume(!m_dep_data[sja[m_dep_data[d].parent]].active);
-                            Assume(sja[m_dep_data[d].parent] != dep_idx);
-                            if (!best.has_value() || steps < best->first) {
-                                best = {steps, sja[m_dep_data[d].parent]};
-                            }
-                            break;
-                        }
-                        Assume(new_added.Any());
-                        added = new_added;
-                        ++steps;
-                    }
+                    Activate(d);
+                    return;
                 }
             }
-        }
-        if (best.has_value()) {
-            Activate(best->second);
-            return;
         }
         if (use_q_merge) {
             MergeQUpwards(dep_entry.parent);
@@ -1476,7 +1422,7 @@ public:
         return true;
     }
 
-    bool RandomImprove() noexcept
+    bool RandomImprove(bool use_q_merge) noexcept
     {
         for (size_t pos = 0; pos < m_deps.size(); ++pos) {
             size_t pick = pos + m_rng.randrange(m_deps.size() - pos);
@@ -1486,7 +1432,7 @@ public:
             if (!dep_entry.active) continue;
             TxIdx rep = m_tx_data[dep_entry.child].part_rep;
             if (dep_entry.top_setinfo.feerate >> m_tx_data[rep].part_setinfo.feerate) {
-                Improve(dep_idx);
+                Improve(dep_idx, use_q_merge);
                 return true;
             }
         }
