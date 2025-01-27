@@ -13,6 +13,7 @@
 #include <consensus/amount.h>
 #include <consensus/consensus.h>
 #include <core_io.h>
+#include <random.h>
 #include <key_io.h>
 #include <policy/policy.h>
 #include <primitives/transaction.h>
@@ -45,6 +46,7 @@ const TranslateFn G_TRANSLATION_FUN{nullptr};
 
 static void SetupBitcoinTxArgs(ArgsManager &argsman)
 {
+    RandomInit();
     SetupHelpOptions(argsman);
 
     argsman.AddArg("-version", "Print version and exit", ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);

@@ -377,7 +377,6 @@ if(BUILD_CLI)
   list(APPEND installable_targets bitcoin-cli)
 endif()
 
-
 if(BUILD_TX)
   add_executable(bitcoin-tx bitcoin-tx.cpp)
   add_windows_resources(bitcoin-tx bitcoin-tx-res.rc)
@@ -390,6 +389,16 @@ if(BUILD_TX)
   list(APPEND installable_targets bitcoin-tx)
 endif()
 
+if(BUILD_DEPGRAPH)
+  add_executable(bitcoin-depgraph bitcoin-depgraph.cpp)
+  target_link_libraries(bitcoin-depgraph
+    core_interface
+    bitcoin_common
+    bitcoin_util
+    univalue
+  )
+  list(APPEND installable_targets bitcoin-depgraph)
+endif()
 
 if(BUILD_UTIL)
   add_executable(bitcoin-util bitcoin-util.cpp)
