@@ -12,6 +12,7 @@
 #include <random.h>
 #include <compat/compat.h>
 #include <uint256.h>
+#include <util/check.h>
 #include <util/feefrac.h>
 #include <util/bitset.h>
 #include <cluster_linearize.h>
@@ -122,7 +123,7 @@ class MathFuzzStore
     static constexpr uint64_t K0 = 0x6ed7c7b1b2748d39;
     static constexpr uint64_t K1 = 0x2a6a1074578e5b8a;
 
-    using MapType = std::map<Key, std::array<std::vector<size_t>, KEY_SIZE>>;
+    using MapType = std::map<Key, std::array<std::vector<size_t>, VALUE_SIZE>>;
     MapType m_datasets;
 
     struct Entry
@@ -131,18 +132,43 @@ class MathFuzzStore
         Value value;
         uint256 hash;
         std::vector<std::byte> input;
-        std::array<SizeType, KEY_SIZE> pos;
+        std::array<SizeType, VALUE_SIZE> pos;
     };
 
     std::vector<Entry> m_entries;
-
-    std::map<Key, std::array<std::vector<size_t>, KEY_SIZE>> m_datasets;
 
     static uint256 HashInput(const std::vector<std::byte>& input) noexcept
     {
         uint256 hash;
         CSHA256().Write((const uint8_t*)input.data(), input.size).Finalize(hash.data());
         return hash;
+    }
+
+    void Swap(size_t idx1, size_t idx2) noexcept
+    {
+        auto& entry1 = m_entries[idx1];
+        auto& entry2 = m_entries[idx2];
+        std::swap(entry1, entry2);
+        for (unsigned i = 0; i < VALUE_SIZE; ++i) {
+            if (entry1.pos[i] != MISSING_POS) entry1.key_it->second[i][entry1.pos[i]] = idx1;
+            if (entry2.pos[i] != MISSING_POS) entry2.key_it->second[i][entry2.pos[i]] = idx2;
+        }
+    }
+
+    void Clear(size_t idx, unsigned key_idx) noexcept
+    {
+        auto& entry = m_entries[idx];
+        Assume(entry.pos[key_idx] != MISSING_POS);
+        entry.key_it->second[key_idx][entry.pos[key_idx]] = MISSING_ENTRY;
+        entry.pos[key_idx] = MISSING_POS;
+        bool survives{false};
+        for (unsigned i = 0; i < VALUE_SIZE; ++i) {
+            if (entry.pos[i] != MISSING_POS) survives = true;
+        }
+        if (!survives) {
+            if (idx != m_entries.size() - 1) Swap(idx, m_entries.size() - 1);
+            m_entries.pop_back();
+        }
     }
 
 public:
@@ -152,25 +178,27 @@ public:
 
     unsigned Add(Key&& key, Value&& value, std::vector<std::byte> input) noexcept
     {
-
-        auto& dataset = m_datasets[key];
-        if (dataset[0].size() == 0) {
-            for (unsigned i = 0; i < KEY_SIZE; ++i) {
+        auto [dataset_it, added] = m_datasets.try_emplace(std::move(key));
+        auto& dataset = dataset_it->second;
+        if (added) {
+            for (unsigned i = 0; i < VALUE_SIZE; ++i) {
                 dataset[i].resize(m_dataset_size);
             }
         }
 
         std::optional<uint256> hash;
-        SizeType idx[KEY_SIZE];
-        bool store[KEY_SIZE];
+        SizeType idx[VALUE_SIZE];
+        bool store[VALUE_SIZE];
         bool any_store = false;
+        unsigned i = 0;
         for (unsigned i = 0; i < _SIZE; ++i) {
             idx[i] = m_rng.randrange(m_dataset_size);
-            if (dataset[i][idx[i]] == MISSING) {
+            auto old_entry_pos = dataset[i][idx[i]];
+            if (old_entry_pos == MISSING_ENTRY) {
                 store[i] = true;
             } else {
-                auto& old_entry = m_entries[dataset[i][idx[i]]];
-                if (std::get<i>(value) != std::get<i>(old_entry.value)) {
+                auto& old_entry = m_entries[old_entry_pos];
+                if (value[i] != old_entry.value[i]) {
                     store[i] = (std::get<i>(value) > std::get<i>(old_entry.value));
                 } else if (m_rng.randbool()) {
                     if (!hash.has_value()) hash = HashInput(input);
@@ -178,23 +206,26 @@ public:
                     auto new_rand = SimpleSipHash13(*hash, i, idx[i]);
                     store[i] = (new_rand < old_rand);
                 }
+                if (store[i]) Clean(old_entry_pos, i);
             }
             any_store = any_store || store[i];
         }
         if (!any_store) return;
         if (!hash.has_value()) hash = HashInput(input);
+        auto new_entry_pos = m_entries.size();
         auto new_entry = m_entries.emplace_back();
-        new_entry->key = std::move(key);
+        new_entry->key = dataset_it;
         new_entry->value = std::move(value);
         new_entry->hash = std::move(*hash);
         new_entry->input = std::move(input);
-        for (unsigned i = 0; i < KEY_SIZE;
-
-            if (std::get<i>(value) > dataset[i][idx[i]]) {
-                store = true;
-            } else 
+        for (unsigned i = 0; i < VALUE_SIZE; ++i) {
+            if (store[i]) {
+                new_entry->pos[i] = idx[i];
+                dataset[i][idx[i]] = new_entry_pos;
+            } else {
+                new_entry->pos[i] = MISSING_POS;
+            }
         }
-        
     }
 }
 
