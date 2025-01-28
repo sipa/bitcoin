@@ -1525,3 +1525,29 @@ FUZZ_TARGET(clusterlin_linearize_simplex_worstfinder)
         }
     }
 }
+
+FUZZ_TARGET(clusterlin_linearize_lingraph)
+{
+    SpanReader reader(buffer);
+    DepGraph<TestBitSet> depgraph;
+    std::vector<ClusterIndex> linearization;
+    reader >> Using<DepGraphFormatter>(std::tie(depgraph, linearization));
+    SanityCheck(depgraph, linearization);
+
+    InsecureRandomContext rng(111);
+    std::vector<uint8_t> reser;
+    for (int i = 0; i < 10; ++i) {
+        std::shuffle(linearization.begin(), linearization.end(), rng);
+        FixLinearization(depgraph, linearization);
+
+        reser.clear();
+        VectorWriter writer(reser, 0);
+        writer << Using<DepGraphFormatter>(std::tie(depgraph, linearization));
+
+        SpanReader reader2(reser);
+        DepGraph<TestBitSet> depgraph2;
+        std::vector<ClusterIndex> linearization2;
+        reader2 >> Using<DepGraphFormatter>(std::tie(depgraph, linearization2));
+        assert(linearization == linearization2);
+   }
+}

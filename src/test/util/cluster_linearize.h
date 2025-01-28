@@ -130,18 +130,10 @@ struct DepGraphFormatter
         }
     }
 
-    template <typename Stream, typename SetType>
-    static void Ser(Stream& s, const DepGraph<SetType>& depgraph)
+    template <typename Stream, typename SetType, typename LinType>
+    static void Ser(Stream& s, std::tuple<const DepGraph<SetType>&, LinType> graphlin)
     {
-        /** Construct a topological order to serialize the transactions in. */
-        std::vector<ClusterIndex> topo_order;
-        topo_order.reserve(depgraph.TxCount());
-        for (auto i : depgraph.Positions()) topo_order.push_back(i);
-        std::sort(topo_order.begin(), topo_order.end(), [&](ClusterIndex a, ClusterIndex b) {
-            auto anc_a = depgraph.Ancestors(a).Count(), anc_b = depgraph.Ancestors(b).Count();
-            if (anc_a != anc_b) return anc_a < anc_b;
-            return a < b;
-        });
+        const auto& [depgraph, topo_order] = graphlin;
 
         /** Which positions (incl. holes) the deserializer already knows when it has deserialized
          *  what has been serialized here so far. */
@@ -195,15 +187,39 @@ struct DepGraphFormatter
         s << uint8_t{0};
     }
 
+    template <typename Stream, typename SetType, typename LinType>
+    static void Ser(Stream& s, std::tuple<DepGraph<SetType>&, LinType> graphlin)
+    {
+        auto& [depgraph, linearization] = graphlin;
+        Ser(s, std::tie(const_cast<const DepGraph<SetType>&>(depgraph), linearization));
+    }
+
     template <typename Stream, typename SetType>
-    void Unser(Stream& s, DepGraph<SetType>& depgraph)
+    static void Ser(Stream& s, const DepGraph<SetType>& depgraph)
+    {
+        std::vector<ClusterIndex> linearization;
+
+        /** Construct a topological order to serialize the transactions in. */
+        linearization.reserve(depgraph.TxCount());
+        for (auto i : depgraph.Positions()) linearization.push_back(i);
+        std::sort(linearization.begin(), linearization.end(), [&](auto a, auto b) {
+            auto anc_a = depgraph.Ancestors(a).Count(), anc_b = depgraph.Ancestors(b).Count();
+            if (anc_a != anc_b) return anc_a < anc_b;
+            return a < b;
+        });
+        Ser(s, std::tie(depgraph, linearization));
+    }
+
+    template <typename Stream, typename SetType, typename LinType>
+    void Unser(Stream& s, std::tuple<DepGraph<SetType>&, LinType> graphlin)
     {
         /** The dependency graph which we deserialize into first, with transactions in
          *  topological serialization order, not original cluster order. */
         DepGraph<SetType> topo_depgraph;
         /** Mapping from serialization order to cluster order, used later to reconstruct the
          *  cluster order. */
-        std::vector<ClusterIndex> reordering;
+        auto& [depgraph, reordering] = graphlin;
+        reordering.clear();
         /** How big the entries vector in the reconstructed depgraph will be (including holes). */
         ClusterIndex total_size{0};
 
@@ -290,6 +306,13 @@ struct DepGraphFormatter
 
         // Construct the original cluster order depgraph.
         depgraph = DepGraph(topo_depgraph, reordering, total_size);
+    }
+
+    template <typename Stream, typename SetType>
+    void Unser(Stream& s, DepGraph<SetType>& depgraph)
+    {
+        std::vector<ClusterIndex> linearization;
+        Unser(s, std::tie(depgraph, linearization));
     }
 };
 
