@@ -218,6 +218,8 @@ class MathFuzzStore
                     auto old_rank = dataset[i].Rank(old_entry.hash);
                     auto new_rank = dataset[i].Rank(hash);
                     store[i] = (new_rank > old_rank);
+                } else {
+                    store[i] = false;
                 }
                 if (store[i]) Clear(old_entry_idx, i);
             }
@@ -258,6 +260,18 @@ public:
     std::span<const std::byte> Get() noexcept
     {
         return m_entries[m_rng.randrange(m_entries.size())].input;
+    }
+
+    void ImportFrom(const MathFuzzStore& store) noexcept
+    {
+        std::vector<size_t> scrambled(store.m_entries.size());
+        std::iota(scrambled.begin(), scrambled.end(), size_t{0});
+        std::shuffle(scrambled.begin(), scrambled.end(), m_rng);
+        for (size_t idx : scrambled) {
+            auto& entry = store.m_entries[idx];
+            assert(HashInput(entry.input) == entry.hash);
+            AddHashed(Key{entry.key_it->first}, Value(entry.value), std::vector{entry.input}, entry.hash);
+        }
     }
 
     void SanityCheck() const noexcept
@@ -310,8 +324,8 @@ MAIN_FUNCTION
     using PosType = uint16_t;
     MathFuzzStore<PosType, KeyType, ValueType> store(1000, 11);
     Xoshiro256PP rng(1111);
-    for (int i = 0; i < 10000000; ++i) {
-        int bits = rng.randrange(20);
+    for (int i = 0; i < 100000000; ++i) {
+        int bits = rng.randrange(24);
         uint32_t val = rng.randbits(bits);
         std::vector<std::byte> data((bits + 7) / 8);
         for (unsigned byte = 0; byte < data.size(); ++byte) {
@@ -324,6 +338,9 @@ MAIN_FUNCTION
         store.Add(std::move(key), std::move(value), std::move(data));
         store.Get();
     }
+    store.SanityCheck();
+    std::cerr << store.size() << "\n";
+    store.ImportFrom(store);
     store.SanityCheck();
     std::cerr << store.size() << "\n";
     return 0;
