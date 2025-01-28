@@ -315,6 +315,40 @@ public:
     size_t size() const noexcept { return m_entries.size(); }
 };
 
+template<typename SetType>
+class LinearDepGraphMutator
+{
+    Xoshiro256PP m_rng;
+
+    enum OP {
+        OP_ADD_TX,
+        OP_ADD_DEP,
+        OP_DEL_TX,
+        OP_LIN_SWAP,
+        OP_LIN_PERM,
+
+        OP_MAX
+    };
+
+    uint32_t m_prob_op[OP_MAX] = {
+        0x80000000,
+        0xc0000000,
+        0xe0000000,
+        0xf0000000,
+        0xffffffff
+    };
+
+    uint64_t m_ops{0};
+    uint64_t m_freq_op[OP_MAX] = {0};
+
+public:
+    template<std::unsigned_integral PosType, typename Key, typename Value, typename Function>
+    void Step(MathFuzzStore<PosType, Key, Value>& store, Function eval) noexcept
+    {
+        
+    }
+};
+
 } // namespace
 
 MAIN_FUNCTION
