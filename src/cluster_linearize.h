@@ -1018,59 +1018,58 @@ inline __int128 QualityGain(const FeeFrac& good, const FeeFrac& bad) noexcept
     return __int128{good.fee} * bad.size - __int128{bad.fee} * good.size;
 }
 
-struct RateDiff
-{
-    __int128 numerator{0};
-    int64_t denominator{1};
-
-    inline friend std::weak_ordering operator<=>(const RateDiff& a, const RateDiff& b) noexcept
-    {
-        __int128 mul_a = a.numerator * b.denominator;
-        __int128 mul_b = b.numerator * a.denominator;
-        return mul_a <=> mul_b;
-    }
-};
-
-inline RateDiff RateGain(const FeeFrac& good, const FeeFrac& bad) noexcept
-{
-    __int128 num = QualityGain(good, bad);
-    int64_t denom = good.size * bad.size;
-    return {num, denom};
-}
-
 template<typename SetType>
 class SimplexState
 {
+    /** Index into m_tx_data. */
     using TxIdx = ClusterIndex;
+    /** Index into m_dep_data. */
     using DepIdx = uint32_t;
 
+    /** Information about an individual dependency. */
     struct DepData
     {
+        /** Whether this dependency is active. */
         bool active;
+        /** What its parent and child transactions are. */
         TxIdx parent, child;
+        /** (Only if active) The would-be parent chunk + its feerate that would be created if this
+         *  dependency were made inactive. */
         SetInfo<SetType> top_setinfo;
     };
 
+    /** Information about an individual transaction, and possibly about a chunk. */
     struct TxData
     {
+        /** The dependencies that have this transactions as child, connecting to its parents. */
         std::vector<DepIdx> parent_links;
+        /** The dependencies that have this transactions as parent, connecting to its children. */
         std::vector<DepIdx> child_links;
-        TxIdx part_rep;
-        TxIdx lin_pos;
+        /** Which TxData holds information about the chunk this transaction is in (i.e., the
+         *  represenative transaction of the chunk. */
+        TxIdx chunk_rep;
+        /** (Only used in GetLinearization) The number of parents this transaction has which have
+         *  not yet been included. */
         mutable TxIdx unmet_deps;
-        SetInfo<SetType> part_setinfo;
+        /** (Only if this transaction is a chunk representative) The chunk + its feerate. */
+        SetInfo<SetType> chunk_setinfo;
     };
 
+    /** The set of transactions being linearized. */
     SetType m_transactions;
+    /** Information about all transactions + chunks. */
     std::vector<TxData> m_tx_data;
+    /** Information about all dependencies. */
     std::vector<DepData> m_dep_data;
+    /** A randomized list of all dependencies. */
     std::vector<DepIdx> m_deps;
-    uint64_t m_num_activations{0};
-    uint64_t m_num_deactivations{0};
-    uint64_t m_num_walks{0};
 
+    /** Internal RNG. */
     InsecureRandomContext m_rng;
 
+    /** Walk a chunk, starting from transaction start. visit_tx(idx) is called for each encountered
+     *  transaction. visit_dep(dep, down) is called for each encountered dependency, where down is
+     *  true from dependencies traversed from parent to child, false for child to parent. */
     void Walk(TxIdx start, std::invocable<TxIdx> auto visit_tx, std::invocable<DepIdx, bool> auto visit_dep) noexcept
     {
         SetType todo = SetType::Singleton(start);
@@ -1079,7 +1078,6 @@ class SimplexState
             for (auto tx_idx : todo) {
                 done.Set(tx_idx);
                 visit_tx(tx_idx);
-                ++m_num_walks;
                 for (auto dep_idx : m_tx_data[tx_idx].parent_links) {
                     auto& dep_entry = m_dep_data[dep_idx];
                     Assume(dep_entry.child == tx_idx);
@@ -1094,7 +1092,6 @@ class SimplexState
                     if (dep_entry.active && !done[dep_entry.child]) {
                         todo.Set(dep_entry.child);
                         visit_dep(dep_idx, true);
-                        ++m_num_walks;
                     }
                 }
             }
@@ -1102,29 +1099,29 @@ class SimplexState
         } while (todo.Any());
     }
 
+    /** Deactivate a specified active dependency. */
     void Deactivate(DepIdx dep_idx) noexcept
     {
         auto& dep_entry = m_dep_data[dep_idx];
         Assume(dep_entry.active);
-        ++m_num_deactivations;
-        auto& part_entry = m_tx_data[m_tx_data[dep_entry.parent].part_rep];
+        auto& chunk_entry = m_tx_data[m_tx_data[dep_entry.parent].chunk_rep];
         auto top_part = dep_entry.top_setinfo;
-        auto bottom_part = part_entry.part_setinfo - top_part;
+        auto bottom_part = chunk_entry.chunk_setinfo - top_part;
         // Make dependency inactive.
         dep_entry.active = 0;
         // Update representatives.
-        part_entry.part_setinfo = top_part;
+        chunk_entry.chunk_setinfo = top_part;
         TxIdx bottom_rep = dep_entry.child;
-        auto& bottom_part_entry = m_tx_data[bottom_rep];
-        bottom_part_entry.part_setinfo = bottom_part;
+        auto& bottom_chunk_entry = m_tx_data[bottom_rep];
+        bottom_chunk_entry.chunk_setinfo = bottom_part;
         TxIdx top_rep = dep_entry.parent;
-        auto& top_part_entry = m_tx_data[top_rep];
-        top_part_entry.part_setinfo = top_part;
+        auto& top_chunk_entry = m_tx_data[top_rep];
+        top_chunk_entry.chunk_setinfo = top_part;
         // Remove bottom component from top transactions, and make top_rep the representative for
         // all of them.
         Walk(dep_entry.parent,
              [&](TxIdx idx) noexcept {
-                 m_tx_data[idx].part_rep = top_rep;
+                 m_tx_data[idx].chunk_rep = top_rep;
              },
              [&](DepIdx idx, bool down) noexcept {
                  if (down) m_dep_data[idx].top_setinfo -= bottom_part;
@@ -1133,27 +1130,27 @@ class SimplexState
         // for all of them.
         Walk(dep_entry.child,
              [&](TxIdx idx) noexcept {
-                 m_tx_data[idx].part_rep = bottom_rep;
+                 m_tx_data[idx].chunk_rep = bottom_rep;
              },
              [&](DepIdx idx, bool down) noexcept {
                  if (down) m_dep_data[idx].top_setinfo -= top_part;
              });
     }
 
+    /** Activate a specified inactive dependency. */
     void Activate(DepIdx dep_idx) noexcept
     {
         auto& dep_entry = m_dep_data[dep_idx];
         Assume(!dep_entry.active);
-        ++m_num_activations;
         auto& par_tx_entry = m_tx_data[dep_entry.parent];
         auto& chl_tx_entry = m_tx_data[dep_entry.child];
-        auto& par_part_entry = m_tx_data[par_tx_entry.part_rep];
-        auto& chl_part_entry = m_tx_data[chl_tx_entry.part_rep];
-        TxIdx top_rep = par_tx_entry.part_rep;
-        auto top_part = par_part_entry.part_setinfo;
-        auto bottom_part = chl_part_entry.part_setinfo;
+        auto& par_chunk_entry = m_tx_data[par_tx_entry.chunk_rep];
+        auto& chl_chunk_entry = m_tx_data[chl_tx_entry.chunk_rep];
+        TxIdx top_rep = par_tx_entry.chunk_rep;
+        auto top_part = par_chunk_entry.chunk_setinfo;
+        auto bottom_part = chl_chunk_entry.chunk_setinfo;
         // Update representative.
-        par_part_entry.part_setinfo |= bottom_part;
+        par_chunk_entry.chunk_setinfo |= bottom_part;
         // Add bottom component to top transactions.
         Walk(dep_entry.parent,
              [](TxIdx) noexcept {},
@@ -1163,7 +1160,7 @@ class SimplexState
         // Add top component to bottom transactions.
         Walk(dep_entry.child,
              [&](TxIdx idx) noexcept {
-                 m_tx_data[idx].part_rep = top_rep;
+                 m_tx_data[idx].chunk_rep = top_rep;
              },
              [&](DepIdx idx, bool down) noexcept {
                  if (down) m_dep_data[idx].top_setinfo |= top_part;
@@ -1173,6 +1170,8 @@ class SimplexState
         dep_entry.top_setinfo = top_part;
     }
 
+    /** Perform an upward or downward merge bubbling, starting with the chunk that contains the
+     *  specified transaction. */
     template<bool Upward>
     unsigned Merge(TxIdx tx_idx) noexcept
     {
@@ -1181,8 +1180,8 @@ class SimplexState
             std::optional<DepIdx> candidate;
             FeeFrac candidate_feerate;
             // Switch to representative.
-            tx_idx = m_tx_data[tx_idx].part_rep;
-            auto& current_setinfo = m_tx_data[tx_idx].part_setinfo;
+            tx_idx = m_tx_data[tx_idx].chunk_rep;
+            auto& current_setinfo = m_tx_data[tx_idx].chunk_setinfo;
             // Iterate over all its transactions.
             for (auto member_idx : current_setinfo.transactions) {
                 // And over their links in the relevant direction.
@@ -1195,11 +1194,11 @@ class SimplexState
                     // Skip dependencies internal to the component.
                     Assume(!Upward || dep_entry.child == member_idx);
                     Assume(Upward || dep_entry.parent == member_idx);
-                    auto linked_rep = Upward ? m_tx_data[dep_entry.parent].part_rep
-                                             : m_tx_data[dep_entry.child].part_rep;
+                    auto linked_rep = Upward ? m_tx_data[dep_entry.parent].chunk_rep
+                                             : m_tx_data[dep_entry.child].chunk_rep;
                     if (linked_rep == tx_idx) continue;
                     // Skip dependencies where parent is not worse than child.
-                    auto& linked_setinfo = m_tx_data[linked_rep].part_setinfo;
+                    auto& linked_setinfo = m_tx_data[linked_rep].chunk_setinfo;
                     // Keep the lowest-feerate parent or highest-feerare child.
                     if (candidate.has_value()) {
                         auto cmp = Upward ? FeeRateCompare(linked_setinfo.feerate, candidate_feerate)
@@ -1222,115 +1221,49 @@ class SimplexState
         return steps;
     }
 
+    /** Perform an upward merge bubbling. */
     unsigned MergeUpwards(TxIdx tx_idx) noexcept { return Merge<true>(tx_idx); }
+    /** Perform a downward merge bubbling. */
     unsigned MergeDownwards(TxIdx tx_idx) noexcept { return Merge<false>(tx_idx); }
 
-    template<bool Upward>
-    unsigned MergeQ(TxIdx tx_idx) noexcept
-    {
-        unsigned steps{0};
-        while (true) {
-            std::optional<DepIdx> candidate;
-            __int128 candidate_quality = 0;
-            // Switch to representative.
-            tx_idx = m_tx_data[tx_idx].part_rep;
-            auto& current_setinfo = m_tx_data[tx_idx].part_setinfo;
-            // Iterate over all its transactions.
-            for (auto member_idx : current_setinfo.transactions) {
-                // And over their links in the relevant direction.
-                auto& links = Upward ? m_tx_data[member_idx].parent_links
-                                     : m_tx_data[member_idx].child_links;
-                for (auto dep_idx : links) {
-                    // Skip active dependencies.
-                    auto& dep_entry = m_dep_data[dep_idx];
-                    if (dep_entry.active) continue;
-                    // Skip dependencies internal to the component.
-                    Assume(!Upward || dep_entry.child == member_idx);
-                    Assume(Upward || dep_entry.parent == member_idx);
-                    auto linked_rep = Upward ? m_tx_data[dep_entry.parent].part_rep
-                                             : m_tx_data[dep_entry.child].part_rep;
-                    if (linked_rep == tx_idx) continue;
-                    // Skip dependencies where parent is not worse than child.
-                    auto& linked_setinfo = m_tx_data[linked_rep].part_setinfo;
-                    // Keep the lowest-feerate parent or highest-feerare child.
-                    auto quality = Upward ? QualityGain(current_setinfo.feerate, linked_setinfo.feerate)
-                                          : QualityGain(linked_setinfo.feerate, current_setinfo.feerate);
-                    if (quality > 0 && (!candidate.has_value() || quality > candidate_quality)) {
-                        candidate = dep_idx;
-                        candidate_quality = quality;
-                    }
-                }
-            }
-            // Stop if nothing was found.
-            if (!candidate.has_value()) break;
-            // Activate, and continue with the merged component.
-            Activate(*candidate);
-            ++steps;
-        }
-        return steps;
-    }
-
-    unsigned MergeQUpwards(TxIdx tx_idx) noexcept { return MergeQ<true>(tx_idx); }
-    unsigned MergeQDownwards(TxIdx tx_idx) noexcept { return MergeQ<false>(tx_idx); }
-
-    std::vector<std::pair<SetType, SetType>> m_splits;
-
-    void Improve(DepIdx dep_idx, bool use_q_merge) noexcept
+    /** Perform an improvement step on a specified active dependency. It is deactivated, and the
+     *  resulting split-up chunks are merged up/down as relevant to make the graph topological. */
+    void Improve(DepIdx dep_idx) noexcept
     {
         auto& dep_entry = m_dep_data[dep_idx];
         Assume(dep_entry.active);
-/*        std::pair<SetType, SetType> split;
-        split.first = dep_entry.top_setinfo.transactions;
-        auto part_rep = m_tx_data[dep_entry.parent].part_rep;
-        split.second = m_tx_data[part_rep].part_setinfo.transactions;
-        Assume(split.first.IsSubsetOf(split.second));
-        Assume(split.first != split.second);
-        for (const auto& prev_split : m_splits) {
-            Assume(split != prev_split);
-        }
-        m_splits.push_back(split);*/
         Deactivate(dep_idx);
-        auto new_par_rep = m_tx_data[dep_entry.parent].part_rep;
-        auto new_chl_rep = m_tx_data[dep_entry.child].part_rep;
-        for (auto t : m_tx_data[new_par_rep].part_setinfo.transactions) {
+        auto new_par_rep = m_tx_data[dep_entry.parent].chunk_rep;
+        auto new_chl_rep = m_tx_data[dep_entry.child].chunk_rep;
+        for (auto t : m_tx_data[new_par_rep].chunk_setinfo.transactions) {
             for (auto d : m_tx_data[t].parent_links) {
-                if (m_tx_data[m_dep_data[d].parent].part_rep == new_chl_rep) {
+                if (m_tx_data[m_dep_data[d].parent].chunk_rep == new_chl_rep) {
                     Activate(d);
                     return;
                 }
             }
         }
-        if (use_q_merge) {
-            MergeQUpwards(dep_entry.parent);
-            MergeQDownwards(dep_entry.child);
-        } else {
-            MergeUpwards(dep_entry.parent);
-            MergeDownwards(dep_entry.child);
-        }
+        MergeUpwards(dep_entry.parent);
+        MergeDownwards(dep_entry.child);
     }
 
 public:
     void Initialize(const DepGraph<SetType>& depgraph, const std::span<TxIdx> linearization) noexcept
     {
-        m_num_activations = 0;
-        m_num_deactivations = 0;
-        m_num_walks = 0;
         m_transactions = depgraph.Positions();
 
         m_tx_data.resize(std::max<size_t>(m_tx_data.size(), depgraph.PositionRange()));
         m_dep_data.clear();
         m_deps.clear();
 
-        TxIdx lin_pos{0};
         for (auto tx_idx : linearization) {
             // Add transaction.
             auto& tx_entry = m_tx_data[tx_idx];
             tx_entry.parent_links.clear();
             tx_entry.child_links.clear();
-            tx_entry.part_rep = tx_idx;
-            tx_entry.part_setinfo = SetInfo(depgraph, tx_idx);
+            tx_entry.chunk_rep = tx_idx;
+            tx_entry.chunk_setinfo = SetInfo(depgraph, tx_idx);
             tx_entry.unmet_deps = 0;
-            tx_entry.lin_pos = lin_pos++;
             // Add its dependencies.
             for (auto par_idx : depgraph.GetReducedParents(tx_idx)) {
                 // Add links to parent and child transaction.
@@ -1369,12 +1302,12 @@ public:
     {
         for (auto tx_idx : m_transactions) {
             auto& tx_entry = m_tx_data[tx_idx];
-            if (tx_entry.part_rep == tx_idx) {
-                SetType init = tx_entry.part_setinfo.transactions;
+            if (tx_entry.chunk_rep == tx_idx) {
+                SetType init = tx_entry.chunk_setinfo.transactions;
                 SetType reach = init;
                 for (auto i : reach) {
                     for (auto d : m_tx_data[i].parent_links) {
-                        reach |= m_tx_data[m_tx_data[m_dep_data[d].parent].part_rep].part_setinfo.transactions;
+                        reach |= m_tx_data[m_tx_data[m_dep_data[d].parent].chunk_rep].chunk_setinfo.transactions;
                     }
                 }
                 reach -= init;
@@ -1382,7 +1315,7 @@ public:
                     auto old_reach = reach;
                     for (auto i : reach) {
                         for (auto d : m_tx_data[i].parent_links) {
-                            reach |= m_tx_data[m_tx_data[m_dep_data[d].parent].part_rep].part_setinfo.transactions;
+                            reach |= m_tx_data[m_tx_data[m_dep_data[d].parent].chunk_rep].chunk_setinfo.transactions;
                         }
                     }
                     if (reach == old_reach) break;
@@ -1398,11 +1331,11 @@ public:
         for (DepIdx dep_idx = 0; dep_idx < m_dep_data.size(); ++dep_idx) {
             auto& dep_entry = m_dep_data[dep_idx];
             if (!dep_entry.active) {
-                TxIdx par_rep = m_tx_data[dep_entry.parent].part_rep;
-                TxIdx chl_rep = m_tx_data[dep_entry.child].part_rep;
+                TxIdx par_rep = m_tx_data[dep_entry.parent].chunk_rep;
+                TxIdx chl_rep = m_tx_data[dep_entry.child].chunk_rep;
                 if (par_rep != chl_rep) {
-                    auto& par_comp = m_tx_data[par_rep].part_setinfo;
-                    auto& chl_comp = m_tx_data[chl_rep].part_setinfo;
+                    auto& par_comp = m_tx_data[par_rep].chunk_setinfo;
+                    auto& chl_comp = m_tx_data[chl_rep].chunk_setinfo;
                     if (chl_comp.feerate >> par_comp.feerate) return false;
                 }
             }
@@ -1416,8 +1349,8 @@ public:
             DepIdx dep_idx = m_deps[pos];
             auto& dep_entry = m_dep_data[dep_idx];
             if (!dep_entry.active) continue;
-            TxIdx rep = m_tx_data[dep_entry.child].part_rep;
-            if (dep_entry.top_setinfo.feerate >> m_tx_data[rep].part_setinfo.feerate) return false;
+            TxIdx rep = m_tx_data[dep_entry.child].chunk_rep;
+            if (dep_entry.top_setinfo.feerate >> m_tx_data[rep].chunk_setinfo.feerate) return false;
         }
         return true;
     }
@@ -1430,8 +1363,8 @@ public:
             DepIdx dep_idx = m_deps[pos];
             auto& dep_entry = m_dep_data[dep_idx];
             if (!dep_entry.active) continue;
-            TxIdx rep = m_tx_data[dep_entry.child].part_rep;
-            if (dep_entry.top_setinfo.feerate >> m_tx_data[rep].part_setinfo.feerate) {
+            TxIdx rep = m_tx_data[dep_entry.child].chunk_rep;
+            if (dep_entry.top_setinfo.feerate >> m_tx_data[rep].chunk_setinfo.feerate) {
                 Improve(dep_idx, use_q_merge);
                 return true;
             }
@@ -1449,9 +1382,9 @@ public:
             DepIdx dep_idx = m_deps[pos];
             auto& dep_entry = m_dep_data[dep_idx];
             if (!dep_entry.active) continue;
-            TxIdx rep = m_tx_data[dep_entry.child].part_rep;
-            if (dep_entry.top_setinfo.feerate >> m_tx_data[rep].part_setinfo.feerate) {
-                auto q = QualityGain(dep_entry.top_setinfo.feerate, m_tx_data[rep].part_setinfo.feerate);
+            TxIdx rep = m_tx_data[dep_entry.child].chunk_rep;
+            if (dep_entry.top_setinfo.feerate >> m_tx_data[rep].chunk_setinfo.feerate) {
+                auto q = QualityGain(dep_entry.top_setinfo.feerate, m_tx_data[rep].chunk_setinfo.feerate);
                 if (!best.has_value() || q > score) {
                     score = q;
                     best = dep_idx;
@@ -1459,79 +1392,7 @@ public:
             }
         }
         if (!best.has_value()) return false;
-        Improve(*best, use_q_merge);
-        return true;
-    }
-
-    bool MinQImprove(bool use_q_merge) noexcept
-    {
-        __int128 score{0};
-        std::optional<DepIdx> worst;
-        for (size_t pos = 0; pos < m_deps.size(); ++pos) {
-            size_t pick = pos + m_rng.randrange(m_deps.size() - pos);
-            if (pick != pos) std::swap(m_deps[pick], m_deps[pos]);
-            DepIdx dep_idx = m_deps[pos];
-            auto& dep_entry = m_dep_data[dep_idx];
-            if (!dep_entry.active) continue;
-            TxIdx rep = m_tx_data[dep_entry.child].part_rep;
-            if (dep_entry.top_setinfo.feerate >> m_tx_data[rep].part_setinfo.feerate) {
-                auto q = QualityGain(dep_entry.top_setinfo.feerate, m_tx_data[rep].part_setinfo.feerate);
-                if (!worst.has_value() || q < score) {
-                    score = q;
-                    worst = dep_idx;
-                }
-            }
-        }
-        if (!worst.has_value()) return false;
-        Improve(*worst, use_q_merge);
-        return true;
-    }
-
-    bool MaxRImprove(bool use_q_merge) noexcept
-    {
-        RateDiff score;
-        std::optional<DepIdx> best;
-        for (size_t pos = 0; pos < m_deps.size(); ++pos) {
-            size_t pick = pos + m_rng.randrange(m_deps.size() - pos);
-            if (pick != pos) std::swap(m_deps[pick], m_deps[pos]);
-            DepIdx dep_idx = m_deps[pos];
-            auto& dep_entry = m_dep_data[dep_idx];
-            if (!dep_entry.active) continue;
-            TxIdx rep = m_tx_data[dep_entry.child].part_rep;
-            if (dep_entry.top_setinfo.feerate >> m_tx_data[rep].part_setinfo.feerate) {
-                auto q = RateGain(dep_entry.top_setinfo.feerate, m_tx_data[rep].part_setinfo.feerate);
-                if (!best.has_value() || q > score) {
-                    score = q;
-                    best = dep_idx;
-                }
-            }
-        }
-        if (!best.has_value()) return false;
-        Improve(*best, use_q_merge);
-        return true;
-    }
-
-    bool MinRImprove(bool use_q_merge) noexcept
-    {
-        RateDiff score;
-        std::optional<DepIdx> worst;
-        for (size_t pos = 0; pos < m_deps.size(); ++pos) {
-            size_t pick = pos + m_rng.randrange(m_deps.size() - pos);
-            if (pick != pos) std::swap(m_deps[pick], m_deps[pos]);
-            DepIdx dep_idx = m_deps[pos];
-            auto& dep_entry = m_dep_data[dep_idx];
-            if (!dep_entry.active) continue;
-            TxIdx rep = m_tx_data[dep_entry.child].part_rep;
-            if (dep_entry.top_setinfo.feerate >> m_tx_data[rep].part_setinfo.feerate) {
-                auto q = RateGain(dep_entry.top_setinfo.feerate, m_tx_data[rep].part_setinfo.feerate);
-                if (!worst.has_value() || q < score) {
-                    score = q;
-                    worst = dep_idx;
-                }
-            }
-        }
-        if (!worst.has_value()) return false;
-        Improve(*worst, use_q_merge);
+        Improve(*best);
         return true;
     }
 
@@ -1540,10 +1401,10 @@ public:
         std::vector<FeeFrac> diagram;
         SetType cover;
         for (TxIdx idx : m_transactions) {
-            if (m_tx_data[idx].part_rep == idx) {
-                Assume(!cover.Overlaps(m_tx_data[idx].part_setinfo.transactions));
-                cover |= m_tx_data[idx].part_setinfo.transactions;
-                diagram.push_back(m_tx_data[idx].part_setinfo.feerate);
+            if (m_tx_data[idx].chunk_rep == idx) {
+                Assume(!cover.Overlaps(m_tx_data[idx].chunk_setinfo.transactions));
+                cover |= m_tx_data[idx].chunk_setinfo.transactions;
+                diagram.push_back(m_tx_data[idx].chunk_setinfo.feerate);
             }
         }
         Assume(cover == m_transactions);
@@ -1570,13 +1431,13 @@ public:
             Assume(a_entry.unmet_deps == 0);
             Assume(b_entry.unmet_deps == 0);
             if (a == b) return false;
-            auto& a_part = m_tx_data[a_entry.part_rep];
-            auto& b_part = m_tx_data[b_entry.part_rep];
-            if (a_part.part_setinfo.feerate != b_part.part_setinfo.feerate) {
-                return a_part.part_setinfo.feerate < b_part.part_setinfo.feerate;
+            auto& a_part = m_tx_data[a_entry.chunk_rep];
+            auto& b_part = m_tx_data[b_entry.chunk_rep];
+            if (a_part.chunk_setinfo.feerate != b_part.chunk_setinfo.feerate) {
+                return a_part.chunk_setinfo.feerate < b_part.chunk_setinfo.feerate;
             }
-            if (a_entry.part_rep != b_entry.part_rep) {
-                return a_entry.part_rep > b_entry.part_rep;
+            if (a_entry.chunk_rep != b_entry.chunk_rep) {
+                return a_entry.chunk_rep > b_entry.chunk_rep;
             }
             return a > b;
         };
@@ -1599,25 +1460,6 @@ public:
             }
         }
         Assume(ret.size() == m_transactions.Count());
-        return ret;
-    }
-
-    uint64_t GetIterations() const noexcept
-    {
-        return m_num_deactivations + m_num_activations;
-    }
-
-    __int128 GetSplitQ() const noexcept
-    {
-        __int128 ret{0};
-        for (DepIdx dep_idx = 0; dep_idx < m_dep_data.size(); ++dep_idx) {
-            auto& dep_entry = m_dep_data[dep_idx];
-            if (dep_entry.active) {
-                auto& part_setinfo = m_tx_data[m_tx_data[dep_entry.parent].part_rep].part_setinfo;
-                auto q = QualityGain(dep_entry.top_setinfo.feerate, part_setinfo.feerate);
-                ret += q;
-            }
-        }
         return ret;
     }
 };
