@@ -374,6 +374,21 @@ struct SetInfo
         return *this;
     }
 
+    /** Remove the transactions of other from this SetInfo (must be subset). */
+    SetInfo& operator-=(const SetInfo& other) noexcept
+    {
+        Assume(other.transactions.IsSubsetOf(transactions));
+        transactions -= other.transactions;
+        feerate -= other.feerate;
+        return *this;
+    }
+
+    SetInfo operator-(const SetInfo& other) noexcept
+    {
+        Assume(other.transactions.IsSubsetOf(transactions));
+        return {transactions - other.transactions, feerate - other.feerate};
+    }
+
     /** Construct a new SetInfo equal to this, with more transactions added (which may overlap
      *  with the existing transactions in the SetInfo). */
     [[nodiscard]] SetInfo Add(const DepGraph<SetType>& depgraph, const SetType& txn) const noexcept
@@ -1040,7 +1055,7 @@ public:
  * Complexity: possibly O(N * min(max_iterations + N, sqrt(2^N))) where N=depgraph.TxCount().
  */
 template<typename SetType>
-std::tuple<std::vector<DepGraphIndex>, bool, uint64_t> Linearize(const DepGraph<SetType>& depgraph, uint64_t max_iterations, uint64_t rng_seed, std::span<const DepGraphIndex> old_linearization = {}) noexcept
+std::tuple<std::vector<DepGraphIndex>, bool, uint64_t> CSSLinearize(const DepGraph<SetType>& depgraph, uint64_t max_iterations, uint64_t rng_seed, std::span<const DepGraphIndex> old_linearization = {}) noexcept
 {
     Assume(old_linearization.empty() || old_linearization.size() == depgraph.TxCount());
     if (depgraph.TxCount() == 0) return {{}, true, 0};
@@ -1115,6 +1130,1181 @@ std::tuple<std::vector<DepGraphIndex>, bool, uint64_t> Linearize(const DepGraph<
     }
 
     return {std::move(linearization), optimal, max_iterations - iterations_left};
+}
+
+/** Class to represent the internal state of the spanning-forest linearization algorithm. */
+template<typename SetType>
+class SpanningForestState
+{
+private:
+    /** Internal RNG. */
+    InsecureRandomContext m_rng;
+
+    /** Data type to represent indexing into m_tx_data. */
+    using TxIdx = uint32_t;
+    /** Data type to represent indexing into m_dep_data. */
+    using DepIdx = std::conditional_t<(SetType::Size() <= 32), uint8_t, std::conditional_t<(SetType::Size() <= 512), uint16_t, uint32_t>>;
+
+    /** Structure with information about a single transaction and possibly chunk. */
+    struct TxData {
+        /** The original index. */
+        DepGraphIndex original_idx;
+        /** The position in the original linearization. */
+        DepGraphIndex original_pos;
+        /** The dependencies involving this transaction as child. All active ones (see
+         *  parent_deps_active) appear first. */
+        std::array<DepIdx, SetType::Size() - 1> parent_deps;
+        /** The total number of dependencies involving this transaction as child. */
+        TxIdx parent_deps_total{0};
+        /** The number of active dependencies involving this transaction as child. */
+        TxIdx parent_deps_active{0};
+        /** The dependencies involving this transaction as parent. All active ones (see
+         *  parent_deps_active) appear first. */
+        std::array<DepIdx, SetType::Size() - 1> child_deps;
+        /** The total number of dependencies involving this transaction as parent. */
+        TxIdx child_deps_total{0};
+        /** The number of active dependencies involving this transaction as parent. */
+        TxIdx child_deps_active{0};
+        /** The set of parent transactions of this transaction. Immutable after construction. */
+        SetType parents;
+        /** The set of child transactions of this transaction. Immutable after construction. */
+        SetType children;
+        /** The set of parent transactions of this transaction reachable through active
+         *  dependencies. */
+        SetType active_parents;
+        /** Which transaction holds the chunk_setinfo for the chunk this transaction is in
+         *  (the representative for the chunk). */
+        TxIdx chunk_rep;
+        /** (Only if this transaction is the representative for the chunk it is in) The total
+         *  chunk set and feerate. */
+        SetInfo<SetType> chunk_setinfo;
+    };
+
+    /** Structure with information about a single dependency. */
+    struct DepData {
+        /** Whether this dependency is active. */
+        bool active;
+        /** What the parent and child transactions are. Immutable after construction. */
+        TxIdx parent, child;
+        /** Index into the parent's TxData::parent_deps where this dependency appears. */
+        DepIdx parent_pos;
+        /** Index into the child's TxData::child_deps where this dependency appears. */
+        DepIdx child_pos;
+        /** (Only if this dependency is active). The top chunk that would be formed if this
+         *  dependency were deactivated. */
+        SetInfo<SetType> top_setinfo;
+        /** (Only if this dependency is active and Requalify has been called). The ScaledDifference
+         *  between the top_setinfo.feerate and the existing chunk's chunk_setinfo.feerate. */
+        FeeFrac::MulType top_gain;
+    };
+
+    /** The set of transactions being linearized. Immutable after construction. */
+    TxIdx m_num_transactions{0};
+    /** Which transaction is next to be improved. */
+    TxIdx m_next_transaction{0};
+    /** Information about each transaction (and chunks). Indexed by TxIdx. */
+    std::vector<TxData> m_tx_data;
+    /** Information about each dependency. Indexed by DepIdx. */
+    std::vector<DepData> m_dep_data;
+
+    /** A metric for predicting the runtime of the algorithm. */
+    uint64_t m_cost{0};
+
+    /** Walk a chunk, starting from transaction start. visit_tx(idx) is called for each encountered
+     *  transaction. visit_dep_down(dep) is called for each encountered dependency that is traversed
+     *  in the parent-to-child (downward) direction. */
+    void Walk(TxIdx start, std::invocable<TxData&> auto visit_tx, std::invocable<DepData&> auto visit_dep_down) noexcept
+    {
+        /** The set of transactions we still have to process. */
+        SetType todo = SetType::Singleton(start);
+        /** The set of transactions we have already processed. */
+        SetType done;
+        do {
+            for (auto tx_idx : todo) {
+                // Mark the transaction as processed, and invoke the visitor for it.
+                auto& tx_data = m_tx_data[tx_idx];
+                done.Set(tx_idx);
+                visit_tx(tx_data);
+                // Mark all active parents as to be processed.
+                todo |= tx_data.active_parents;
+                todo -= done;
+                // Iterate over all its active child dependencies.
+                auto child_deps = std::span{tx_data.child_deps}.first(tx_data.child_deps_active);
+                for (auto dep_idx : child_deps) {
+                    auto& dep_entry = m_dep_data[dep_idx];
+                    Assume(dep_entry.parent == tx_idx);
+                    Assume(dep_entry.active);
+                    // If this is the first time reaching the child, mark it as todo, and invoke
+                    // the downward dependency visitor for it. We do not need to check if it isn't
+                    // already in todo here, because there cannot be multiple dependencies that
+                    // reach the same transaction; the !done check is purely to prevent travelling
+                    // an already-travelled dependency back in reverse direction.
+                    if (!done[dep_entry.child]) {
+                        Assume(!todo[dep_entry.child]);
+                        todo.Set(dep_entry.child);
+                        visit_dep_down(dep_entry);
+                    }
+                }
+            }
+        } while (todo.Any());
+    }
+
+    /** Swap two dependencies in a given transaction's implied list of parent deps. */
+    void SwapParentDeps(TxData& tx_data, DepIdx pos1, DepIdx pos2) noexcept
+    {
+        if (pos1 == pos2) return;
+        std::swap(tx_data.parent_deps[pos1], tx_data.parent_deps[pos2]);
+        m_dep_data[tx_data.parent_deps[pos1]].parent_pos = pos1;
+        m_dep_data[tx_data.parent_deps[pos2]].parent_pos = pos2;
+    }
+
+    /** Swap two dependencies in a given transaction's implied list of child deps. */
+    void SwapChildDeps(TxData& tx_data, DepIdx pos1, DepIdx pos2) noexcept
+    {
+        if (pos1 == pos2) return;
+        std::swap(tx_data.child_deps[pos1], tx_data.child_deps[pos2]);
+        m_dep_data[tx_data.child_deps[pos1]].child_pos = pos1;
+        m_dep_data[tx_data.child_deps[pos2]].child_pos = pos2;
+    }
+
+    /** Make a specified inactive dependency active. */
+    void Activate(DepIdx dep_idx) noexcept
+    {
+        auto& dep_data = m_dep_data[dep_idx];
+        Assume(!dep_data.active);
+        // Make dep_idx the first inactive dependency in the child's list of parent deps.
+        auto& child_tx_data = m_tx_data[dep_data.child];
+        SwapParentDeps(child_tx_data, dep_data.parent_pos, child_tx_data.parent_deps_active);
+        // Make dep_idx the first inactive dependency in the parent's list of child deps.
+        auto& parent_tx_data = m_tx_data[dep_data.parent];
+        SwapChildDeps(parent_tx_data, dep_data.child_pos, parent_tx_data.child_deps_active);
+
+        // Gather information about the parent and child chunks.
+        Assume(parent_tx_data.chunk_rep != child_tx_data.chunk_rep);
+        auto& par_chunk_data = m_tx_data[parent_tx_data.chunk_rep];
+        auto& chl_chunk_data = m_tx_data[child_tx_data.chunk_rep];
+        TxIdx top_rep = parent_tx_data.chunk_rep;
+        auto top_part = par_chunk_data.chunk_setinfo;
+        auto bottom_part = chl_chunk_data.chunk_setinfo;
+        // Update the parent chunk to also contain the child.
+        par_chunk_data.chunk_setinfo |= bottom_part;
+        m_cost += par_chunk_data.chunk_setinfo.transactions.Count() * 4 + 4;
+        // Add bottom component to top transactions.
+        Walk(dep_data.parent,
+             [](TxData&) noexcept {},
+             [&](DepData& depdata) noexcept { depdata.top_setinfo |= bottom_part; });
+        // Add top component to bottom transactions.
+        Walk(dep_data.child,
+             [&](TxData& txdata) noexcept { txdata.chunk_rep = top_rep; },
+             [&](DepData& depdata) noexcept { depdata.top_setinfo |= top_part; });
+        // Make active.
+        dep_data.active = true;
+        dep_data.top_setinfo = top_part;
+        child_tx_data.parent_deps_active += 1;
+        child_tx_data.active_parents.Set(dep_data.parent);
+        Assume(child_tx_data.parent_deps_active <= child_tx_data.parent_deps_total);
+        parent_tx_data.child_deps_active += 1;
+        Assume(parent_tx_data.child_deps_active <= parent_tx_data.child_deps_total);
+    }
+
+    /** Make a specified active dependency inactive. */
+    void Deactivate(DepIdx dep_idx) noexcept
+    {
+        auto& dep_data = m_dep_data[dep_idx];
+        Assume(dep_data.active);
+        // Make dep_idx the last active dependency in the child's list of parent deps.
+        auto& child_tx_data = m_tx_data[dep_data.child];
+        Assume(child_tx_data.parent_deps_active >= 1);
+        SwapParentDeps(child_tx_data, dep_data.parent_pos, child_tx_data.parent_deps_active - 1);
+        // Make dep_idx the last active dependency in the parent's list of child deps.
+        auto& parent_tx_data = m_tx_data[dep_data.parent];
+        Assume(parent_tx_data.child_deps_active >= 1);
+        SwapChildDeps(parent_tx_data, dep_data.child_pos, parent_tx_data.child_deps_active - 1);
+        // Make inactive.
+        dep_data.active = false;
+        child_tx_data.parent_deps_active -= 1;
+        child_tx_data.active_parents.Reset(dep_data.parent);
+        parent_tx_data.child_deps_active -= 1;
+        // Randomize the position dep_idx gets within the inactive dependencies.
+        SwapParentDeps(child_tx_data, dep_data.parent_pos, child_tx_data.parent_deps_active + m_rng.randrange(child_tx_data.parent_deps_total - child_tx_data.parent_deps_active));
+        SwapChildDeps(parent_tx_data, dep_data.child_pos, parent_tx_data.child_deps_active + m_rng.randrange(parent_tx_data.child_deps_total - parent_tx_data.child_deps_active));
+        // Update representatives.
+        auto& chunk_data = m_tx_data[parent_tx_data.chunk_rep];
+        m_cost += chunk_data.chunk_setinfo.transactions.Count() * 4 + 6;
+        auto top_part = dep_data.top_setinfo;
+        auto bottom_part = chunk_data.chunk_setinfo - top_part;
+        chunk_data.chunk_setinfo = top_part;
+        TxIdx bottom_rep = dep_data.child;
+        auto& bottom_chunk_data = m_tx_data[bottom_rep];
+        bottom_chunk_data.chunk_setinfo = bottom_part;
+        TxIdx top_rep = dep_data.parent;
+        auto& top_chunk_data = m_tx_data[top_rep];
+        top_chunk_data.chunk_setinfo = top_part;
+        // Remove bottom component from top transactions, and make top_rep the representative for
+        // all of them.
+        Walk(dep_data.parent,
+             [&](TxData& txdata) noexcept { txdata.chunk_rep = top_rep; },
+             [&](DepData& depdata) noexcept { depdata.top_setinfo -= bottom_part; });
+        // Remove top component from bottom transactions, and make bottom_rep the representative
+        // for all of them.
+        Walk(dep_data.child,
+             [&](TxData& txdata) noexcept { txdata.chunk_rep = bottom_rep; },
+             [&](DepData& depdata) noexcept { depdata.top_setinfo -= top_part; });
+    }
+
+    template<bool DownWard>
+    unsigned MergeSequence(TxIdx tx_idx) noexcept
+    {
+        unsigned ret{0};
+        while (true) {
+            /** Information about the chunk that tx_idx is currently in. */
+            auto& chunk_data = m_tx_data[m_tx_data[tx_idx].chunk_rep];
+            SetType chunk_txn = chunk_data.chunk_setinfo.transactions;
+            // Iterate over all transactions in the chunk, figuring out which other chunk each
+            // depends on, but only testing each other chunk once. For those depended-on chunks,
+            // remember the highest-feerate (if DownWard) or lowest-feerate (if !DownWard) one.
+            SetType explored = chunk_txn;
+            std::optional<std::tuple<TxIdx, FeeFrac, TxIdx>> best;
+            for (auto tx : chunk_txn) {
+                auto& tx_data = m_tx_data[tx];
+                auto unreached = (DownWard ? tx_data.children : tx_data.parents) - explored;
+                while (unreached.Any()) {
+                    auto chunk_rep = m_tx_data[unreached.First()].chunk_rep;
+                    auto& reached = m_tx_data[m_tx_data[unreached.First()].chunk_rep].chunk_setinfo;
+                    if (!best.has_value() || (DownWard ? reached.feerate >> std::get<FeeFrac>(*best) :
+                                                         reached.feerate << std::get<FeeFrac>(*best))) {
+                        best = {tx, reached.feerate, chunk_rep};
+                    }
+                    explored |= reached.transactions;
+                    unreached -= explored;
+                    m_cost += 2;
+                }
+            }
+            // Stop if all of the depended-on chunks have a lower/higher feerate than the chunk
+            // that tx_idx is in.
+            if (!best.has_value()) break;
+            auto& best_tx_data = m_tx_data[std::get<0>(*best)];
+            m_cost += 2;
+            if (DownWard && std::get<FeeFrac>(*best) << chunk_data.chunk_setinfo.feerate) break;
+            if (!DownWard && std::get<FeeFrac>(*best) >> chunk_data.chunk_setinfo.feerate) break;
+            // Now do a second loop to determine exactly which inactive dependency is to be
+            // activated. We already know which transaction it in the current chunk it attaches
+            // to, and what chunk it depends on. By separating this out from the loop above, we
+            // have two O(num_tx) loops rather than a single O(num_deps) loop.
+            auto inactive = DownWard ? std::span{best_tx_data.child_deps}.first(best_tx_data.child_deps_total).subspan(best_tx_data.child_deps_active)
+                                     : std::span{best_tx_data.parent_deps}.first(best_tx_data.parent_deps_total).subspan(best_tx_data.parent_deps_active);
+            const auto& merge_chunk = m_tx_data[std::get<2>(*best)].chunk_setinfo.transactions;
+            bool found{false};
+            for (auto dep_idx : inactive) {
+                auto& dep_data = m_dep_data[dep_idx];
+                if (merge_chunk[DownWard ? dep_data.child : dep_data.parent]) {
+                    Activate(dep_idx);
+                    found = true;
+                    break;
+                }
+                m_cost += 1;
+            }
+            Assume(found);
+            ++ret;
+        }
+        return ret;
+    }
+
+    /** Recompute the DepData::top_gain values for a subset of transactions. */
+    void Requalify(const SetType& requalify) noexcept
+    {
+        for (auto tx : requalify) {
+            auto& tx_data = m_tx_data[tx];
+            auto& chunk_feerate = m_tx_data[tx_data.chunk_rep].chunk_setinfo.feerate;
+            auto active_parents = std::span{tx_data.parent_deps}.first(tx_data.parent_deps_active);
+            for (auto dep : active_parents) {
+                auto& dep_data = m_dep_data[dep];
+                dep_data.top_gain = FeeFrac::ScaledDifference(dep_data.top_setinfo.feerate, chunk_feerate);
+                m_cost += 2;
+            }
+        }
+    }
+
+    /** Split a chunk, and then merge the resulting two chunks to make the graph topological
+     *  again. */
+    void Improve(DepIdx dep_idx) noexcept
+    {
+        auto& dep_data = m_dep_data[dep_idx];
+        Assume(dep_data.active);
+        Deactivate(dep_idx);
+        MergeSequence<false>(dep_data.parent);
+        MergeSequence<true>(dep_data.child);
+        auto requalify = m_tx_data[m_tx_data[dep_data.parent].chunk_rep].chunk_setinfo.transactions |
+                         m_tx_data[m_tx_data[dep_data.child].chunk_rep].chunk_setinfo.transactions;
+        Requalify(requalify);
+    }
+
+public:
+    /** Construct a spanning forest for the given DepGraph, with all transactions in their own
+     *  chunk. The graph must be made topological before OptimalStep can be called, using either
+     *  LoadLinearization() or LoadRandom. */
+    explicit SpanningForestState(const DepGraph<SetType>& depgraph, uint64_t rng_seed, std::span<const DepGraphIndex> old_linearization = {}) noexcept : m_rng(rng_seed)
+    {
+        std::vector<TxIdx> old_to_new(depgraph.PositionRange());
+        std::vector<DepGraphIndex> new_to_old;
+        new_to_old.reserve(depgraph.TxCount());
+        for (auto i : depgraph.Positions()) new_to_old.push_back(i);
+        std::shuffle(new_to_old.begin(), new_to_old.end(), m_rng);
+        m_num_transactions = 0;
+        for (auto i : new_to_old) {
+            old_to_new[i] = m_num_transactions++;
+        }
+        m_cost = 100 + 40 * old_to_new.size();
+        // If no existing linearization is provided, construct a randomized topological ordering.
+        std::vector<DepGraphIndex> load_order;
+        if (old_linearization.empty()) {
+            load_order = new_to_old;
+            std::shuffle(load_order.begin(), load_order.end(), m_rng);
+            std::sort(load_order.begin(), load_order.end(), [&](TxIdx a, TxIdx b) noexcept { return depgraph.Ancestors(a).Count() < depgraph.Ancestors(b).Count(); });
+            old_linearization = std::span{load_order};
+        }
+        // Add transactions one by one, in order of existing linearization.
+        m_tx_data.resize(m_num_transactions);
+        m_dep_data.reserve(((m_num_transactions + 1) / 2) * (m_num_transactions / 2));
+        DepGraphIndex num_done = 0;
+        for (DepGraphIndex old_tx : old_linearization) {
+            auto new_tx = old_to_new[old_tx];
+            // Fill in transaction data.
+            auto& tx_data = m_tx_data[new_tx];
+            tx_data.original_idx = old_tx;
+            tx_data.original_pos = num_done++;
+            tx_data.chunk_rep = new_tx;
+            tx_data.chunk_setinfo.transactions = SetType::Singleton(new_tx);
+            tx_data.chunk_setinfo.feerate = depgraph.FeeRate(old_tx);
+            // Add its dependencies.
+            SetType old_parents = depgraph.GetReducedParents(old_tx);
+            for (auto old_par : old_parents) {
+                auto new_par = old_to_new[old_par];
+                auto& par_tx_data = m_tx_data[new_par];
+                auto dep_idx = m_dep_data.size();
+                // Construct new dependency.
+                auto& dep = m_dep_data.emplace_back();
+                dep.active = false;
+                dep.parent = new_par;
+                dep.child = new_tx;
+                // Add it as parent of the child.
+                dep.parent_pos = tx_data.parent_deps_total;
+                tx_data.parent_deps[tx_data.parent_deps_total++] = dep_idx;
+                tx_data.parents.Set(new_par);
+                // Add it as child of the parent.
+                dep.child_pos = par_tx_data.child_deps_total;
+                par_tx_data.child_deps[par_tx_data.child_deps_total++] = dep_idx;
+                par_tx_data.children.Set(new_tx);
+                // Move to random position within the inactive dependencies of each.
+                SwapParentDeps(tx_data, tx_data.parent_deps_active + m_rng.randrange(tx_data.parent_deps_total - tx_data.parent_deps_active), tx_data.parent_deps_total - 1);
+                SwapChildDeps(par_tx_data, par_tx_data.child_deps_active + m_rng.randrange(par_tx_data.child_deps_total - par_tx_data.child_deps_active), par_tx_data.child_deps_total - 1);
+            }
+            // Start a merge sequence on the new transaction to make the graph topological.
+            MergeSequence<false>(new_tx);
+        }
+        Requalify(SetType::Fill(m_num_transactions));
+    }
+
+    /** Perform one improvement step. */
+    bool Step() noexcept
+    {
+        if (m_tx_data.empty()) return false;
+        // Iterate over the transactions in a round-robin fashion, until one is found with one or
+        // more improvable dependencies, and then pick the one with the highest top_gain (i.e.,
+        // the one which would cause the highest increase in area under the fee-size diagram,
+        // assuming the split does not trigger a self-merge.
+        // By using a round-robin approach as opposed to picking the highest-increase dependency
+        // over the whole graph, we distribute the computational work in improving the graph more
+        // fairly over all transactions.
+        TxIdx prev_next_transaction = m_next_transaction;
+        while (true) {
+            // Find the active dependency with the highest top_gain.
+            std::optional<std::pair<FeeFrac::MulType, DepIdx>> best;
+            const auto& tx_data = m_tx_data[m_next_transaction];
+            if (++m_next_transaction == m_tx_data.size()) m_next_transaction = 0;
+            const auto active_children = std::span{tx_data.child_deps}.first(tx_data.child_deps_active);
+            for (DepIdx dep_idx : active_children) {
+                const auto& dep_data = m_dep_data[dep_idx];
+                Assume(dep_data.active);
+                if (!best.has_value() || dep_data.top_gain > best->first) {
+                    best = {dep_data.top_gain, dep_idx};
+                }
+            }
+            m_cost += active_children.size();
+            // Perform an improvement step if the best found dependency has positive gain.
+            if (best.has_value() && best->first > 0) {
+                Improve(best->second);
+                return true;
+            }
+            // If we have done a loop over the entire set of transactions without making any
+            // changes, we are done.
+            if (m_next_transaction == prev_next_transaction) return false;
+        }
+    }
+
+    /** Construct a topologically-valid linearization from the current forest state. */
+    std::vector<DepGraphIndex> GetLinearization() noexcept
+    {
+        /** The output linearization. */
+        std::vector<DepGraphIndex> ret;
+        /** A heap with all chunks (by representative) that can currently be included. */
+        std::vector<TxIdx> heap_chunks;
+        /** Information about chunks. Only used for chunk representatives, and counts the number
+         *  of unmet dependencies this chunk has on other (not including dependencies within the
+         *  chunk). */
+        std::vector<TxIdx> chunk_deps(m_tx_data.size(), 0);
+        /** The set of all chunk representatives. */
+        SetType chunk_reps;
+        // Populate chunk_deps[c] with the number of out-of-chunk dependencies the chunk has.
+        for (TxIdx chl_idx = 0; chl_idx < m_num_transactions; ++chl_idx) {
+            const auto& chl_data = m_tx_data[chl_idx];
+            auto chl_chunk_rep = chl_data.chunk_rep;
+            chunk_reps.Set(chl_chunk_rep);
+            for (auto par_idx : chl_data.parents) {
+                auto par_chunk_rep = m_tx_data[par_idx].chunk_rep;
+                chunk_deps[chl_chunk_rep] += (par_chunk_rep != chl_chunk_rep);
+            }
+        }
+        // Construct a heap with all chunks that have no out-of-chunk dependencies.
+        /** Comparison function for the heap. */
+        auto chunk_cmp_fn = [&](TxIdx a, TxIdx b) noexcept {
+            auto& chunk_a = m_tx_data[a];
+            auto& chunk_b = m_tx_data[b];
+            Assume(chunk_a.chunk_rep == a);
+            Assume(chunk_b.chunk_rep == b);
+            if (chunk_a.chunk_setinfo.feerate != chunk_b.chunk_setinfo.feerate) {
+                return chunk_a.chunk_setinfo.feerate < chunk_b.chunk_setinfo.feerate;
+            }
+            return a < b;
+        };
+        for (TxIdx chunk_rep : chunk_reps) {
+            if (chunk_deps[chunk_rep] == 0) heap_chunks.push_back(chunk_rep);
+        }
+        std::make_heap(heap_chunks.begin(), heap_chunks.end(), chunk_cmp_fn);
+        // Pop chunks off the heap, highest-feerate ones first.
+        while (!heap_chunks.empty()) {
+            auto chunk_rep = heap_chunks.front();
+            std::pop_heap(heap_chunks.begin(), heap_chunks.end(), chunk_cmp_fn);
+            heap_chunks.pop_back();
+            Assume(m_tx_data[chunk_rep].chunk_rep == chunk_rep);
+            Assume(chunk_deps[chunk_rep] == 0);
+            const auto& chunk_txn = m_tx_data[chunk_rep].chunk_setinfo.transactions;
+            // Append all transactions in the chunk to ret, and decrement chunk dependency counts.
+            auto old_len = ret.size();
+            for (TxIdx tx_idx : chunk_txn) {
+                const auto& tx_data = m_tx_data[tx_idx];
+                // Add transaction to output linearization.
+                ret.push_back(tx_idx);
+                // Decrement chunk dependency counts.
+                for (TxIdx chl_idx : tx_data.children) {
+                    auto& chl_data = m_tx_data[chl_idx];
+                    if (chl_data.chunk_rep != chunk_rep) {
+                        Assume(chunk_deps[chl_data.chunk_rep] > 0);
+                        if (--chunk_deps[chl_data.chunk_rep] == 0) {
+                            // Child chunk has no dependencies left. Add it to the heap.
+                            heap_chunks.push_back(chl_data.chunk_rep);
+                            std::push_heap(heap_chunks.begin(), heap_chunks.end(), chunk_cmp_fn);
+                        }
+                    }
+                }
+            }
+            // Sort the transactions within the chunk according to the order they had in the
+            // original linearization.
+            std::sort(ret.begin() + old_len, ret.end(), [&](TxIdx a, TxIdx b) noexcept {
+                return m_tx_data[a].original_pos < m_tx_data[b].original_pos;
+            });
+        }
+        Assume(ret.size() == m_num_transactions);
+        // Convert to DepGraphIndexes.
+        for (auto& val : ret) {
+            val = m_tx_data[val].original_idx;
+        }
+        return ret;
+    }
+
+    uint64_t GetCost() const noexcept { return m_cost; }
+};
+
+/** Find or improve a linearization for a cluster.
+ *
+ * @param[in] depgraph            Dependency graph of the cluster to be linearized.
+ * @param[in] max_iterations      Upper bound on the number of operations that will be done.
+ * @param[in] rng_seed            A random number seed to control search order. This prevents peers
+ *                                from predicting exactly which clusters would be hard for us to
+ *                                linearize.
+ * @param[in] old_linearization   An existing linearization for the cluster (which must be
+ *                                topologically valid), or empty.
+ * @return                        A tuple of:
+ *                                - The resulting linearization. It is guaranteed to be at least as
+ *                                  good (in the feerate diagram sense) as old_linearization.
+ *                                - A boolean indicating whether the result is guaranteed to be
+ *                                  optimal.
+ *                                - How many optimization steps were actually performed.
+ *
+ * Complexity: possibly somewhere between O(N^4) and O(N^6), where N=depgraph.TxCount().
+ */
+template<typename SetType>
+std::tuple<std::vector<DepGraphIndex>, bool, uint64_t> SFLLinearize(const DepGraph<SetType>& depgraph, uint64_t max_iterations, uint64_t rng_seed, std::span<const DepGraphIndex> old_linearization = {}) noexcept
+{
+    SpanningForestState forest(depgraph, rng_seed, old_linearization);
+    bool optimal{false};
+    uint64_t cost{0};
+    while (true) {
+        cost = forest.GetCost();
+        if (cost > max_iterations) break;
+        if (!forest.Step()) {
+            optimal = true;
+            break;
+        }
+    }
+    return {forest.GetLinearization(), optimal, forest.GetCost()};
+}
+
+/** Class to represent the internal state of the min-cut algorithm (matrix version). */
+template<typename SetType>
+class MinCutState
+{
+    /** Internal rng. */
+    InsecureRandomContext m_rng;
+
+    /** Data type to represent indexing into m_tx_data. */
+    using TxIdx = uint32_t;
+    /** Data type to represent indexing into m_dep_data. */
+    using DepIdx = std::conditional_t<SetType::Size() <= 32, uint8_t, std::conditional_t<SetType::Size() <= 512, uint16_t, uint32_t>>;
+
+    using FlowType = __int128;
+    static constexpr FlowType MAX_FLOW = std::numeric_limits<FlowType>::max();
+
+    /** Structure with information about a single transaction. */
+    struct TxData
+    {
+        /** Original DepGraphIndex (immutable). */
+        DepGraphIndex original_idx;
+        /** Individual feerate of this transaction (immutable). */
+        FeeFrac feerate;
+        /** Indexes of dependencies involving this transaction as parent or child, by peer TxIdx (immutable). */
+        std::array<DepIdx, SetType::Size()> deps;
+        /** Which transactions are (direct) parents of this one (immutable). */
+        SetType parents[2];
+        /** Whether the edge from this transaction to indexed peer (in that direction) is unsaturated. */
+        SetType unsaturated[2];
+        /** Allowed flow from source (positive) or to sink (negative). */
+        FlowType sink_source_capacity;
+        /** Used flow from source (positive) or to sink (negative). */
+        FlowType sink_source_flow[2];
+        /** Like above, but the value the flow had at the start of this cut. */
+        FlowType init_sink_source_flow[2];
+        /** Excess flow in this node (always >= 0). */
+        FlowType excess[2];
+        /** Like above, but the value the excess had at the start of this cut. */
+        FlowType init_excess[2];
+    };
+
+    /** Structure with information about a single dependency. */
+    struct DepData
+    {
+        /** What the parent and child transactions are. Immutable after construction. */
+        TxIdx parent[2];
+        /** The flow of this edge. */
+        FlowType flow[2];
+        /** Like above, but the value the flow had at the start of this cut. */
+        FlowType init_flow[2];
+    };
+
+    size_t m_num_transactions;
+    std::vector<TxData> m_tx_data;
+    std::vector<DepData> m_dep_data;
+    FlowType m_scale;
+    bool m_optimal;
+
+    SetType m_current_group;
+    int m_ntx;
+    uint64_t m_cost[2] = {0, 0};
+    SetType m_active_nodes[2];
+    SetType m_active_heights[2];
+    std::vector<SetType> m_nodes_by_height[2];
+    int m_max_height[2];
+
+    uint64_t m_total_cost{0};
+
+public:
+    MinCutState(const DepGraph<SetType>& depgraph, uint64_t rng_seed) noexcept : m_rng(rng_seed)
+    {
+        std::vector<TxIdx> old_to_new(depgraph.PositionRange());
+        std::vector<DepGraphIndex> new_to_old;
+        new_to_old.reserve(depgraph.TxCount());
+        for (auto i : depgraph.Positions()) new_to_old.push_back(i);
+        std::shuffle(new_to_old.begin(), new_to_old.end(), m_rng);
+        m_num_transactions = 0;
+        for (auto i : new_to_old) old_to_new[i] = m_num_transactions++;
+        m_tx_data.resize(m_num_transactions);
+        uint64_t sum_sizes{0};
+        __int128 sum_fees{0};
+        for (TxIdx tx = 0; tx < m_num_transactions; ++tx) {
+            m_total_cost += 2;
+            auto& tx_data = m_tx_data[tx];
+            tx_data.original_idx = new_to_old[tx];
+            tx_data.feerate = depgraph.FeeRate(new_to_old[tx]);
+            tx_data.sink_source_capacity = 0;
+            tx_data.sink_source_flow[0] = 0;
+            tx_data.sink_source_flow[1] = 0;
+            tx_data.init_sink_source_flow[0] = 0;
+            tx_data.init_sink_source_flow[1] = 0;
+            tx_data.excess[0] = 0;
+            tx_data.excess[1] = 0;
+            tx_data.init_excess[0] = 0;
+            tx_data.init_excess[1] = 0;
+            sum_sizes += tx_data.feerate.size;
+            if (tx_data.feerate.fee < 0) {
+                sum_fees -= tx_data.feerate.fee;
+            } else {
+                sum_fees += tx_data.feerate.fee;
+            }
+            auto old_parents = depgraph.GetReducedParents(new_to_old[tx]);
+            for (auto old_par : old_parents) {
+                m_total_cost += 5;
+                auto par = old_to_new[old_par];
+                tx_data.parents[0].Set(par);
+                DepIdx dep = m_dep_data.size();
+                auto& dep_data = m_dep_data.emplace_back();
+                dep_data.parent[0] = par;
+                dep_data.parent[1] = tx;
+                dep_data.flow[0] = 0;
+                dep_data.flow[1] = 0;
+                dep_data.init_flow[0] = 0;
+                dep_data.init_flow[1] = 0;
+                tx_data.deps[par] = dep;
+                m_tx_data[par].deps[tx] = dep;
+                m_tx_data[par].parents[1].Set(tx);
+                m_tx_data[par].unsaturated[1].Set(tx);
+            }
+            tx_data.unsaturated[0] = tx_data.parents[0];
+        }
+        auto limit = (((MAX_FLOW / sum_sizes) / sum_sizes) / sum_sizes) / 2;
+        if (sum_fees > limit) {
+            m_scale = (MAX_FLOW / sum_sizes) / sum_fees;
+            m_optimal = false;
+        } else {
+            m_scale = 2 * FlowType(sum_sizes) * sum_sizes;
+            m_optimal = true;
+        }
+    }
+
+    SetType FullGroup() const noexcept { return SetType::Fill(m_num_transactions); }
+    SetType OriginalIndexes(const SetType& group) const noexcept
+    {
+        SetType ret;
+        for (auto i : group) {
+            ret.Set(m_tx_data[i].original_idx);
+        }
+        return ret;
+    }
+
+    size_t GetNumDeps() const noexcept { return m_dep_data.size(); }
+
+    template<bool Reverse>
+    SetType FullRelabel() noexcept
+    {
+        SetType reachable, old_reachable;
+        m_active_nodes[Reverse] = SetType{};
+        m_active_heights[Reverse] = SetType();
+        m_max_height[Reverse] = -1;
+        m_nodes_by_height[Reverse].assign(m_tx_data.size(), SetType{});
+        for (auto tx : m_current_group) {
+            auto& tx_data = m_tx_data[tx];
+            if (tx_data.sink_source_flow[Reverse] > (Reverse ? -tx_data.sink_source_capacity : tx_data.sink_source_capacity)) {
+                reachable.Set(tx);
+            }
+        }
+        m_total_cost += 4 * m_ntx;
+        int dist = 0;
+        while (true) {
+            auto added = reachable - old_reachable;
+            if (added.None()) break;
+            m_nodes_by_height[Reverse][dist] = added;
+            m_max_height[Reverse] = dist;
+            old_reachable = reachable;
+            m_total_cost += 1;
+            for (auto tx : added) {
+                m_total_cost += 2;
+                auto& tx_data = m_tx_data[tx];
+                if (tx_data.excess[Reverse] > 0) {
+                    m_active_nodes[Reverse].Set(tx);
+                    m_active_heights[Reverse].Set(dist);
+                }
+                Assume(dist < m_ntx);
+                reachable |= tx_data.parents[!Reverse] & m_current_group;
+                m_total_cost += 1;
+                for (auto parent : tx_data.parents[Reverse] & m_current_group) {
+                    m_total_cost += 2;
+                    auto& dep_data = m_dep_data[tx_data.deps[parent]];
+                    if (dep_data.flow[Reverse] > 0) {
+                        reachable.Set(parent);
+                    }
+                }
+            }
+            ++dist;
+        }
+        return reachable;
+    }
+
+    template<bool Reverse>
+    void InitMinCut(const SetType& group) noexcept
+    {
+        Assume(group.Any());
+        Assume(m_cost[Reverse] == 0);
+        m_current_group = group;
+        FeeFrac group_feerate;
+        for (auto i : group) {
+            m_total_cost += 1;
+            group_feerate += m_tx_data[i].feerate;
+        }
+        Assume(group_feerate.size > 0);
+        m_total_cost += 10;
+        auto lambda = (m_scale * group_feerate.fee) / group_feerate.size;
+        m_ntx = group.Count();
+        for (auto i : group) {
+            m_total_cost += 5;
+            auto& tx_data = m_tx_data[i];
+            tx_data.sink_source_capacity = m_scale * tx_data.feerate.fee - lambda * tx_data.feerate.size;
+            const auto& real_capacity = Reverse ? -tx_data.sink_source_capacity : tx_data.sink_source_capacity;
+            if (tx_data.sink_source_flow[Reverse] < real_capacity) {
+                tx_data.excess[Reverse] += real_capacity - tx_data.sink_source_flow[Reverse];
+                tx_data.sink_source_flow[Reverse] = real_capacity;
+            }
+            Assume(tx_data.excess[Reverse] >= 0);
+        }
+        FullRelabel<Reverse>();
+        SanityCheck<Reverse>();
+    }
+
+    template<bool Reverse>
+    void SanityCheck() const noexcept
+    {
+        if constexpr (!G_FUZZING_BUILD) return;
+        assert(m_ntx >= 1);
+        assert(unsigned(m_ntx) <= SetType::Size());
+        int max_height = -1;
+        SetType active_nodes;
+        SetType active_heights;
+        for (auto tx : m_current_group) {
+            auto& tx_data = m_tx_data[tx];
+            if (tx_data.excess[Reverse] > 0) {
+                active_nodes.Set(tx);
+            }
+            for (auto par : tx_data.parents[Reverse]) {
+                assert(tx_data.unsaturated[Reverse][par]);
+            }
+            for (auto chl : tx_data.parents[!Reverse]) {
+                auto& dep_data = m_dep_data[tx_data.deps[chl]];
+                assert(tx_data.unsaturated[Reverse][chl] == (dep_data.flow[Reverse] > 0));
+            }
+        }
+        SetType seen;
+        bool had_gap = false;
+        for (int h = 0; h < m_ntx; ++h) {
+            auto current = m_nodes_by_height[Reverse][h];
+            assert(!current.Overlaps(seen));
+            seen |= current;
+            if (current.Overlaps(active_nodes)) {
+                active_heights.Set(h);
+            }
+            if (current.Any()) {
+                assert(!had_gap);
+                max_height = h;
+            } else {
+                had_gap = true;
+            }
+        }
+        assert(m_active_nodes[Reverse] == (active_nodes & seen));
+        assert(m_active_heights[Reverse] == active_heights);
+        assert(m_max_height[Reverse] == max_height);
+    }
+
+    template<bool Reverse>
+    bool StepMinCut() noexcept
+    {
+        // Find height with active nodes.
+        if (m_active_heights[Reverse].None()) return true;
+        int height = m_active_heights[Reverse].Last();
+        Assume(height < m_ntx);
+
+        // Pick an active node.
+        Assume(m_active_nodes[Reverse].Overlaps(m_nodes_by_height[Reverse][height]));
+        TxIdx tx = (m_active_nodes[Reverse] & m_nodes_by_height[Reverse][height]).First();
+        auto& tx_data = m_tx_data[tx];
+        Assume(tx_data.excess[Reverse] > 0 && height >= 0 && height < m_ntx);
+        // Mark it inactive (the loop below will run until it is inactive).
+        m_active_nodes[Reverse].Reset(tx);
+        if (!m_active_nodes[Reverse].Overlaps(m_nodes_by_height[Reverse][height])) {
+            m_active_heights[Reverse].Reset(height);
+        }
+
+        // Account for the work of picking an active node.
+        m_cost[Reverse] += 1;
+
+        if (height == 0) {
+            // Push to sink.
+            m_cost[Reverse] += 3;
+            auto discharge = std::min(tx_data.excess[Reverse], Reverse ? tx_data.sink_source_flow[Reverse] + tx_data.sink_source_capacity : tx_data.sink_source_flow[Reverse] - tx_data.sink_source_capacity);
+            if (discharge > 0) {
+                m_cost[Reverse] += 1;
+                tx_data.sink_source_flow[Reverse] -= discharge;
+                tx_data.excess[Reverse] -= discharge;
+                if (tx_data.excess[Reverse] == 0) return false;
+            }
+        }
+
+        Assume(tx_data.excess[Reverse] > 0);
+
+        while (true) {
+            Assume(tx_data.excess[Reverse] > 0);
+            Assume(height >= 0);
+            Assume(height < m_ntx);
+            // Check if there are any edges to push through; if not, relabel.
+            m_cost[Reverse] += 1;
+            if (height == 0 || !tx_data.unsaturated[Reverse].Overlaps(m_nodes_by_height[Reverse][height - 1])) {
+                // Unregister this transaction at its current height, because that height will
+                // increase.
+                m_cost[Reverse] += 1;
+                m_nodes_by_height[Reverse][height].Reset(tx);
+                // Gap detection optimization.
+                if (m_nodes_by_height[Reverse][height].None()) {
+                    // Update m_max_height if needed.
+                    if (height == m_max_height[Reverse]) {
+                        --m_max_height[Reverse];
+                    }
+                    Assume(m_max_height[Reverse] == -1 || m_nodes_by_height[Reverse][m_max_height[Reverse]].Any());
+                    // Mark this and higher nodes as unreachable.
+                    m_max_height[Reverse] = height - 1;
+                    ++height;
+                    while (height < m_ntx && m_nodes_by_height[Reverse][height].Any()) {
+                        m_cost[Reverse] += 1;
+                        m_nodes_by_height[Reverse][height] = SetType();
+                        m_active_heights[Reverse].Reset(height);
+                        ++height;
+                    }
+                    return false;
+                }
+                // Increment height until limit is reached, or edges are found.
+                do {
+                    m_cost[Reverse] += 1;
+                    // If incrementing further would introduce a gap, leave this node unreachable.
+                    if (height == m_max_height[Reverse] + 1 || height == m_ntx - 1) {
+                        return false;
+                    }
+                    ++height;
+                    Assume(height < m_ntx);
+                } while (!tx_data.unsaturated[Reverse].Overlaps(m_nodes_by_height[Reverse][height - 1]));
+                // Register the transaction at its new height.
+                m_nodes_by_height[Reverse][height].Set(tx);
+                m_max_height[Reverse] = std::max(m_max_height[Reverse], height);
+            }
+            Assume(tx_data.excess[Reverse] > 0);
+            Assume(height >= 1);
+            Assume(height < m_ntx);
+
+            m_cost[Reverse] += 6;
+            Assume(tx_data.unsaturated[Reverse].Overlaps(m_nodes_by_height[Reverse][height - 1]));
+            auto push_to = (tx_data.unsaturated[Reverse] & (m_nodes_by_height[Reverse][height - 1])).First();
+            m_active_nodes[Reverse].Set(push_to);
+            m_active_heights[Reverse].Set(height - 1);
+            auto& push_to_data = m_tx_data[push_to];
+            auto dep = tx_data.deps[push_to];
+            auto& dep_data = m_dep_data[dep];
+            Assume(tx_data.excess[Reverse] > 0);
+            if (dep_data.parent[!Reverse] == tx) {
+                // Upward non-saturating push (capacity is infinite).
+                push_to_data.unsaturated[Reverse].Set(tx);
+                dep_data.flow[Reverse] += tx_data.excess[Reverse];
+                push_to_data.excess[Reverse] += tx_data.excess[Reverse];
+                tx_data.excess[Reverse] = 0;
+                return false;
+            } else if (tx_data.excess[Reverse] < dep_data.flow[Reverse]) {
+                // Downward non-saturating push.
+                Assume(dep_data.flow[Reverse] > 0);
+                dep_data.flow[Reverse] -= tx_data.excess[Reverse];
+                Assume(dep_data.flow[Reverse] >= 0);
+                push_to_data.excess[Reverse] += tx_data.excess[Reverse];
+                tx_data.excess[Reverse] = 0;
+                return false;
+            } else {
+                // Downward saturating push.
+                Assume(dep_data.flow[Reverse] > 0);
+                push_to_data.excess[Reverse] += dep_data.flow[Reverse];
+                tx_data.excess[Reverse] -= dep_data.flow[Reverse];
+                Assume(tx_data.excess[Reverse] >= 0);
+                dep_data.flow[Reverse] = 0;
+                tx_data.unsaturated[Reverse].Reset(push_to);
+                if (tx_data.excess[Reverse] == 0) return false;
+            }
+        }
+    }
+
+    template<bool Reverse>
+    std::pair<SetType, SetType> GetCut() noexcept
+    {
+        auto sink_side = FullRelabel<Reverse>();
+        auto source_side = m_current_group - sink_side;
+        m_total_cost += 1;
+        if constexpr (Reverse) {
+            return {sink_side, source_side};
+        } else {
+            return {source_side, sink_side};
+        }
+    }
+
+    void AccountForPushes() noexcept
+    {
+        m_total_cost += m_cost[0];
+        m_total_cost += m_cost[1];
+        m_cost[0] = 0;
+        m_cost[1] = 0;
+    }
+
+    /** Split a group in two, breaking the dependencies between them, and from each side's
+     *  perspective, contract the other one into the source or sink. */
+    void SplitGraph(const SetType& top_side, const SetType& bottom_side) noexcept
+    {
+        for (auto par : top_side) {
+            m_total_cost += 2;
+            auto& par_data = m_tx_data[par];
+            for (auto child : par_data.parents[1] & bottom_side) {
+                m_total_cost += 3;
+                auto& dep_data = m_dep_data[par_data.deps[child]];
+                // Found an edge across the cut.
+                // Convert current forward flow across into sink/source flow.
+                par_data.sink_source_flow[0] += dep_data.flow[0];
+                // Convert initial forward flow across into initial sink/source flow.
+                par_data.init_sink_source_flow[0] += dep_data.init_flow[0];
+                // Convert current reverse flow across into sink/source flow.
+                par_data.sink_source_flow[1] -= dep_data.flow[1];
+                // Convert initial reverse flow across into initial sink/source flow.
+                par_data.init_sink_source_flow[1] -= dep_data.init_flow[1];
+            }
+            par_data.parents[1] -= bottom_side;
+        }
+        for (auto chl : bottom_side) {
+            m_total_cost += 2;
+            auto& chl_data = m_tx_data[chl];
+            for (auto par : chl_data.parents[0] & top_side) {
+                m_total_cost += 3;
+                auto& dep_data = m_dep_data[chl_data.deps[par]];
+                // Found an edge across the cut.
+                // Convert current forward flow across into sink/source flow.
+                chl_data.sink_source_flow[0] -= dep_data.flow[0];
+                // Convert initial forward flow across into initial sink/source flow.
+                chl_data.init_sink_source_flow[0] -= dep_data.init_flow[0];
+                // Convert current reverse flow across into sink/source flow.
+                chl_data.sink_source_flow[1] += dep_data.flow[1];
+                // Convert initial reverse flow across into initial sink/source flow.
+                chl_data.init_sink_source_flow[1] += dep_data.init_flow[1];
+            }
+            chl_data.parents[0] -= top_side;
+        }
+    }
+
+    template<bool Reverse>
+    void UndoFlows(const SetType& group) noexcept
+    {
+        for (auto i : group) {
+            m_total_cost += 1;
+            auto& tx_data = m_tx_data[i];
+            tx_data.sink_source_flow[Reverse] = tx_data.init_sink_source_flow[Reverse];
+            tx_data.excess[Reverse] = tx_data.init_excess[Reverse];
+            tx_data.unsaturated[Reverse] = tx_data.parents[Reverse];
+            for (auto chl : tx_data.parents[!Reverse]) {
+                m_total_cost += 2;
+                auto dep = tx_data.deps[chl];
+                auto& dep_data = m_dep_data[dep];
+                dep_data.flow[Reverse] = dep_data.init_flow[Reverse];
+                if (dep_data.flow[Reverse] > 0) tx_data.unsaturated[Reverse].Set(chl);
+            }
+        }
+    }
+
+    template<bool Reverse>
+    void AcceptFlows(const SetType& group) noexcept
+    {
+        for (auto i : group) {
+            m_total_cost += 1;
+            auto& tx_data = m_tx_data[i];
+            tx_data.init_sink_source_flow[Reverse] = tx_data.sink_source_flow[Reverse];
+            tx_data.init_excess[Reverse] = tx_data.excess[Reverse];
+            for (auto chl : tx_data.parents[!Reverse]) {
+                m_total_cost += 2;
+                auto dep = tx_data.deps[chl];
+                auto& dep_data = m_dep_data[dep];
+                dep_data.init_flow[Reverse] = dep_data.flow[Reverse];
+            }
+        }
+    }
+
+    int FasterDirection() const noexcept { return m_cost[1] < m_cost[0]; }
+    bool MayBeOptimal() const noexcept { return m_optimal; }
+    uint64_t CountDeps() const noexcept { return m_dep_data.size(); }
+    uint64_t GetCost() const noexcept { return m_total_cost; }
+};
+
+/** Find an optimal linearization for a cluster.
+ *
+ * @param[in] depgraph            Dependency graph of the cluster to be linearized.
+ * @param[in] rng_seed            A random number seed to control search order. This prevents peers
+ *                                from predicting exactly which clusters would be hard for us to
+ *                                linearize.
+ * @return                        A tuple of:
+ *                                - The resulting linearization. It is guaranteed to be at least as
+ *                                  good (in the feerate diagram sense) as old_linearization.
+ *                                - A boolean indicating whether the result is guaranteed to be
+ *                                  optimal.
+ *                                - How many optimization steps were actually performed.
+ *
+ * Complexity: O(N^2 sqrt(M)), where N=depgraph.TxCount(), M=number of reduced dependencies (N-1 <= M <= N^2/4).
+ */
+template<typename SetType>
+std::tuple<std::vector<DepGraphIndex>, bool, uint64_t> GGTLinearize(const DepGraph<SetType>& depgraph, uint64_t rng_seed) noexcept
+{
+    if (depgraph.PositionRange() == 0) return {{}, true, 0};
+    std::vector<DepGraphIndex> lin;
+    std::vector<SetType> groups;
+    lin.reserve(depgraph.TxCount());
+    MinCutState state(depgraph, rng_seed);
+    groups.push_back(state.FullGroup());
+    while (!groups.empty()) {
+        auto group = groups.back();
+        groups.pop_back();
+        Assume(group.Any());
+
+        state.template InitMinCut<false>(group);
+        state.template InitMinCut<true>(group);
+        SetType top_side, bottom_side;
+        while (true) {
+            state.template SanityCheck<false>();
+            state.template SanityCheck<true>();
+            if (state.FasterDirection() == 0) {
+                // Do a step in the forward direction.
+                if (state.template StepMinCut<false>()) {
+                    // Get the cut, if it completes.
+                    std::tie(top_side, bottom_side) = state.template GetCut<false>();
+                    // Complete the backward direction if its source side is more than half the graph.
+                    if (bottom_side.Any() && top_side.Count() * 2 > group.Count()) {
+                        while (!state.template StepMinCut<true>()) {}
+                    }
+                    break;
+                }
+            } else {
+                // Do a step in the reverse direction.
+                if (state.template StepMinCut<true>()) {
+                    // Get the cut, if it completes.
+                    std::tie(top_side, bottom_side) = state.template GetCut<true>();
+                    // Complete the forward direction if its source side is more than half the graph.
+                    if (top_side.Any() && bottom_side.Count() * 2 > group.Count()) {
+                        while (!state.template StepMinCut<false>()) {}
+                    }
+                    break;
+                }
+            }
+        }
+
+        if (bottom_side.None()) {
+            auto it_begin = lin.end();
+            for (auto i : state.OriginalIndexes(top_side)) lin.push_back(i);
+            auto it_end = lin.end();
+            std::sort(it_begin, it_end, [&](auto a, auto b) noexcept { return depgraph.Ancestors(a).Count() < depgraph.Ancestors(b).Count(); });
+        } else if (top_side.None()) {
+            auto it_begin = lin.end();
+            for (auto i : state.OriginalIndexes(bottom_side)) lin.push_back(i);
+            auto it_end = lin.end();
+            std::sort(it_begin, it_end, [&](auto a, auto b) noexcept { return depgraph.Ancestors(a).Count() < depgraph.Ancestors(b).Count(); });
+        } else {
+            state.SplitGraph(top_side, bottom_side);
+            state.template UndoFlows<false>(top_side);
+            state.template AcceptFlows<false>(bottom_side);
+            state.template UndoFlows<true>(bottom_side);
+            state.template AcceptFlows<true>(top_side);
+            Assume(bottom_side.Any());
+            Assume(top_side.Any());
+            groups.push_back(bottom_side);
+            groups.push_back(top_side);
+        }
+        state.AccountForPushes();
+    }
+
+    return {std::move(lin), state.MayBeOptimal(), state.GetCost()};
+}
+
+template<typename SetType>
+std::tuple<std::vector<DepGraphIndex>, bool, uint64_t> GGT1Linearize(const DepGraph<SetType>& depgraph, uint64_t rng_seed) noexcept
+{
+    if (depgraph.PositionRange() == 0) return {{}, true, 0};
+    std::vector<DepGraphIndex> lin;
+    std::vector<SetType> groups;
+    lin.reserve(depgraph.TxCount());
+    MinCutState state(depgraph, rng_seed);
+    groups.push_back(state.FullGroup());
+    while (!groups.empty()) {
+        auto group = groups.back();
+        groups.pop_back();
+        Assume(group.Any());
+
+        state.template InitMinCut<false>(group);
+        SetType top_side, bottom_side;
+        while (true) {
+            state.template SanityCheck<false>();
+            // Do a step in the forward direction.
+            if (state.template StepMinCut<false>()) {
+                // Get the cut, if it completes.
+                std::tie(top_side, bottom_side) = state.template GetCut<false>();
+                break;
+            }
+        }
+
+        if (bottom_side.None()) {
+            auto it_begin = lin.end();
+            for (auto i : state.OriginalIndexes(top_side)) lin.push_back(i);
+            auto it_end = lin.end();
+            std::sort(it_begin, it_end, [&](auto a, auto b) noexcept { return depgraph.Ancestors(a).Count() < depgraph.Ancestors(b).Count(); });
+        } else if (top_side.None()) {
+            auto it_begin = lin.end();
+            for (auto i : state.OriginalIndexes(bottom_side)) lin.push_back(i);
+            auto it_end = lin.end();
+            std::sort(it_begin, it_end, [&](auto a, auto b) noexcept { return depgraph.Ancestors(a).Count() < depgraph.Ancestors(b).Count(); });
+        } else {
+            state.SplitGraph(top_side, bottom_side);
+            state.template UndoFlows<false>(top_side);
+            state.template AcceptFlows<false>(bottom_side);
+            Assume(bottom_side.Any());
+            Assume(top_side.Any());
+            groups.push_back(bottom_side);
+            groups.push_back(top_side);
+        }
+        state.AccountForPushes();
+    }
+
+    return {std::move(lin), state.MayBeOptimal(), state.GetCost()};
+}
+
+enum class LinearizeAlgorithm {
+    CSS,
+    SFL,
+    GGT,
+    GGT1
+};
+
+template<typename SetType>
+std::tuple<std::vector<DepGraphIndex>, bool, uint64_t> Linearize(const DepGraph<SetType>& depgraph, uint64_t max_iterations, uint64_t rng_seed, std::span<const DepGraphIndex> old_linearization = {}, LinearizeAlgorithm linalg = LinearizeAlgorithm::SFL) noexcept
+{
+    switch (linalg) {
+    case LinearizeAlgorithm::CSS:
+        return CSSLinearize(depgraph, max_iterations, rng_seed, old_linearization);
+    case LinearizeAlgorithm::SFL:
+        return SFLLinearize(depgraph, max_iterations, rng_seed, old_linearization);
+    case LinearizeAlgorithm::GGT:
+        return GGTLinearize(depgraph, rng_seed);
+    case LinearizeAlgorithm::GGT1:
+        return GGT1Linearize(depgraph, rng_seed);
+    }
+    return {{}, false, 0};
 }
 
 /** Improve a given linearization.
