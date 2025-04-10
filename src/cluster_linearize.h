@@ -667,27 +667,18 @@ private:
     /** Data type to represent indexing into m_tx_data. */
     using TxIdx = uint32_t;
     /** Data type to represent indexing into m_dep_data. */
-    using DepIdx = uint32_t;
+    using DepIdx = std::conditional_t<SetType::Size() <= 32, uint8_t, std::conditional_t<SetType::Size() <= 512, uint16_t, uint32_t>>;
 
     /** Structure with information about a single transaction and possibly chunk. */
     struct TxData {
-        /** The dependencies involving this transaction as child. All active ones (see
-         *  parent_deps_active) appear first. */
-        std::span<DepIdx> parent_deps;
-        /** The dependencies involving this transaction as parent. All active ones (see
-         *  parent_deps_active) appear first. */
-        std::span<DepIdx> child_deps;
-        /** The number of active dependencies involving this transaction as child. */
-        DepIdx parent_deps_active;
-        /** The number of active dependencies involving this transaction as parent. */
-        DepIdx child_deps_active;
-        /** The set of parent transactions of this transaction. Immutable after construction. */
+        /** Indexes of dependencies involving this transaction as parent or child, by peer TxIdx (immutable). */
+        std::array<DepIdx, SetType::Size()> deps;
+        /** Which transactions are (direct) parents of this one (immutable). */
         SetType parents;
-        /** The set of child transactions of this transaction. Immutable after construction. */
+        /** Which transactions are (direct) children of this one (immutable). */
         SetType children;
-        /** The set of parent transactions of this transaction reachable through active
-         *  dependencies. */
-        SetType active_parents;
+        /** Which transactions are parents/children this transaction has an active dependency with. */
+        SetType active;
         /** Which transaction holds the chunk_setinfo for the chunk this transaction is in
          *  (the representative for the chunk). */
         TxIdx chunk_rep;
@@ -705,10 +696,6 @@ private:
         bool active;
         /** What the parent and child transactions are. Immutable after construction. */
         TxIdx parent, child;
-        /** Index into the parent's TxData::parent_deps where this dependency appears. */
-        DepIdx parent_pos;
-        /** Index into the child's TxData::child_deps where this dependency appears. */
-        DepIdx child_pos;
         /** (Only if this dependency is active). The top chunk that would be formed if this
          *  dependency were deactivated. */
         SetInfo<SetType> top_setinfo;
@@ -723,10 +710,6 @@ private:
     std::vector<TxData> m_tx_data;
     /** Information about each dependency. Indexed by DepIdx. */
     std::vector<DepData> m_dep_data;
-    /** The concatenation of all transactions' parent_deps (which are spans mapping into this). */
-    std::vector<DepIdx> m_parent_deps;
-    /** The concatenation of all transactions' child_deps (which are spans mapping into this). */
-    std::vector<DepIdx> m_child_deps;
 
     /** Rough number of set operations performed (insertions, removals, bitwise ops). */
     uint64_t m_stat_setops{0};
@@ -749,50 +732,19 @@ private:
                 auto& tx_data = m_tx_data[tx_idx];
                 done.Set(tx_idx);
                 visit_tx(tx_idx);
-                // Mark all active parents as to be processed.
-                todo |= tx_data.active_parents;
+                // Mark all active parents and children as to be processed.
+                todo |= (tx_data.parents | tx_data.children) & tx_data.active;
                 todo -= done;
                 // Iterate over all its active child dependencies.
-                auto child_deps = tx_data.child_deps.first(tx_data.child_deps_active);
-                for (auto dep_idx : child_deps) {
-                    auto& dep_entry = m_dep_data[dep_idx];
-                    Assume(dep_entry.parent == tx_idx);
-                    Assume(dep_entry.active);
-                    // If this is the first time reaching the child, mark it as todo, and invoke
-                    // the downward dependency visitor for it. We do not need to check if it isn't
-                    // already in todo here, because there cannot be multiple dependencies that
-                    // reach the same transaction; the !done check is purely to prevent travelling
-                    // an already-travelled dependency back in reverse direction.
-                    if (!done[dep_entry.child]) {
-                        Assume(!todo[dep_entry.child]);
-                        todo.Set(dep_entry.child);
-                        visit_dep_down(dep_idx);
-                        added_setops += 1;
-                    }
+                for (auto child : (tx_data.children & tx_data.active) - done) {
+                    auto dep_idx = tx_data.deps[child];
+                    visit_dep_down(dep_idx);
                     added_setops += 1;
                 }
-                added_setops += 3;
+                added_setops += 6;
             }
         } while (todo.Any());
         m_stat_setops += added_setops;
-    }
-
-    /** Swap two dependencies in a given transaction's implied list of parent deps. */
-    void SwapParentDeps(TxData& tx_data, DepIdx pos1, DepIdx pos2) noexcept
-    {
-        if (pos1 == pos2) return;
-        std::swap(tx_data.parent_deps[pos1], tx_data.parent_deps[pos2]);
-        m_dep_data[tx_data.parent_deps[pos1]].parent_pos = pos1;
-        m_dep_data[tx_data.parent_deps[pos2]].parent_pos = pos2;
-    }
-
-    /** Swap two dependencies in a given transaction's implied list of child deps. */
-    void SwapChildDeps(TxData& tx_data, DepIdx pos1, DepIdx pos2) noexcept
-    {
-        if (pos1 == pos2) return;
-        std::swap(tx_data.child_deps[pos1], tx_data.child_deps[pos2]);
-        m_dep_data[tx_data.child_deps[pos1]].child_pos = pos1;
-        m_dep_data[tx_data.child_deps[pos2]].child_pos = pos2;
     }
 
     /** Make a specified inactive dependency active. */
@@ -801,12 +753,8 @@ private:
         uint64_t added_setops{0};
         auto& dep_data = m_dep_data[dep_idx];
         Assume(!dep_data.active);
-        // Make dep_idx the first inactive dependency in the child's list of parent deps.
         auto& child_tx_data = m_tx_data[dep_data.child];
-        SwapParentDeps(child_tx_data, dep_data.parent_pos, child_tx_data.parent_deps_active);
-        // Make dep_idx the first inactive dependency in the parent's list of child deps.
         auto& parent_tx_data = m_tx_data[dep_data.parent];
-        SwapChildDeps(parent_tx_data, dep_data.child_pos, parent_tx_data.child_deps_active);
 
         // Gather information about the parent and child chunks.
         Assume(parent_tx_data.chunk_rep != child_tx_data.chunk_rep);
@@ -829,12 +777,9 @@ private:
         // Make active.
         dep_data.active = true;
         dep_data.top_setinfo = top_part;
-        child_tx_data.parent_deps_active += 1;
-        child_tx_data.active_parents.Set(dep_data.parent);
-        added_setops += 1;
-        Assume(child_tx_data.parent_deps_active <= child_tx_data.parent_deps.size());
-        parent_tx_data.child_deps_active += 1;
-        Assume(parent_tx_data.child_deps_active <= parent_tx_data.child_deps.size());
+        child_tx_data.active.Set(dep_data.parent);
+        parent_tx_data.active.Set(dep_data.child);
+        added_setops += 2;
         m_stat_setops += added_setops;
     }
 
@@ -844,20 +789,13 @@ private:
         uint64_t added_setops{0};
         auto& dep_data = m_dep_data[dep_idx];
         Assume(dep_data.active);
-        // Make dep_idx the last active dependency in the child's list of parent deps.
         auto& child_tx_data = m_tx_data[dep_data.child];
-        Assume(child_tx_data.parent_deps_active >= 1);
-        SwapParentDeps(child_tx_data, dep_data.parent_pos, child_tx_data.parent_deps_active - 1);
-        // Make dep_idx the last active dependency in the parent's list of child deps.
         auto& parent_tx_data = m_tx_data[dep_data.parent];
-        Assume(parent_tx_data.child_deps_active >= 1);
-        SwapChildDeps(parent_tx_data, dep_data.child_pos, parent_tx_data.child_deps_active - 1);
         // Make inactive.
         dep_data.active = false;
-        child_tx_data.parent_deps_active -= 1;
-        child_tx_data.active_parents.Reset(dep_data.parent);
-        added_setops += 1;
-        parent_tx_data.child_deps_active -= 1;
+        child_tx_data.active.Reset(dep_data.parent);
+        parent_tx_data.active.Reset(dep_data.child);
+        added_setops += 2;
         // Update representatives.
         auto& chunk_data = m_tx_data[parent_tx_data.chunk_rep];
         auto top_part = dep_data.top_setinfo;
@@ -927,12 +865,13 @@ private:
             // activated. We already know which transaction it in the current chunk it attaches
             // to, and what the chunk feerate of the dependency is. By separating this out from
             // the loop above, we have two O(num_tx) loops rather than a single O(num_deps) loop.
-            auto inactive = DownWard ? best_tx_data.child_deps.subspan(best_tx_data.child_deps_active)
-                                     : best_tx_data.parent_deps.subspan(best_tx_data.parent_deps_active);
+            auto inactive = DownWard ? best_tx_data.children - best_tx_data.active
+                                     : best_tx_data.parents - best_tx_data.active;
+            ++added_setops;
             bool found{false};
-            for (auto dep_idx : inactive) {
-                auto& dep_data = m_dep_data[dep_idx];
-                auto& reached = m_tx_data[m_tx_data[DownWard ? dep_data.child : dep_data.parent].chunk_rep].chunk_setinfo;
+            for (auto tx_idx : inactive) {
+                auto dep_idx = best_tx_data.deps[tx_idx];
+                auto& reached = m_tx_data[m_tx_data[tx_idx].chunk_rep].chunk_setinfo;
                 if (reached.feerate == best->second) {
                     Activate(dep_idx);
                     found = true;
@@ -956,9 +895,10 @@ private:
             ++added_setops;
             auto& tx_data = m_tx_data[tx];
             auto& chunk_feerate = m_tx_data[tx_data.chunk_rep].chunk_setinfo.feerate;
-            auto active_parents = tx_data.parent_deps.first(tx_data.parent_deps_active);
-            for (auto dep : active_parents) {
-                auto& dep_data = m_dep_data[dep];
+            added_setops += 1;
+            for (auto parent : tx_data.parents & tx_data.active) {
+                auto dep_idx = tx_data.deps[parent];
+                auto& dep_data = m_dep_data[dep_idx];
                 added_feeops += 1;
                 dep_data.top_gain = FeeFrac::ScaledDifference(dep_data.top_setinfo.feerate, chunk_feerate);
             }
@@ -997,57 +937,17 @@ public:
             tx_data.chunk_setinfo = SetInfo(depgraph, tx);
             tx_data.parents = depgraph.GetReducedParents(tx);
             for (auto par : tx_data.parents) {
-                auto& dep = m_dep_data.emplace_back();
-                dep.active = false;
-                dep.parent = par;
-                dep.child = tx;
+                DepIdx dep = m_dep_data.size();
+                auto& dep_data = m_dep_data.emplace_back();
+                dep_data.active = false;
+                dep_data.parent = par;
+                dep_data.child = tx;
+                tx_data.deps[par] = dep;
+                m_tx_data[par].deps[tx] = dep;
+                m_tx_data[par].children.Set(tx);
             }
         }
-
-        // Construct the TxData::parent_deps and TxData::child_deps spans for each transaction.
-        m_parent_deps.resize(m_dep_data.size());
-        m_child_deps.resize(m_dep_data.size());
-        for (DepIdx idx = 0; idx < m_dep_data.size(); ++idx) {
-            m_parent_deps[idx] = idx;
-            m_child_deps[idx] = idx;
-        }
-        // Group the dependencies in m_child_deps by child, as they've been added in by-parent
-        // order. The m_parent_deps are already in the right order.
-        std::sort(m_child_deps.begin(), m_child_deps.end(), [&](auto a, auto b) noexcept { return m_dep_data[a].parent < m_dep_data[b].parent; });
-        DepIdx parent_deps_used = 0;
-        DepIdx child_deps_used = 0;
-        // Loop over all transactions to fill in m_parent_deps and m_child_deps.
-        for (auto tx : m_transactions) {
-            auto& tx_data = m_tx_data[tx];
-            // Fill in m_parent_deps.
-            tx_data.parent_deps_active = 0;
-            auto parent_deps_offset = parent_deps_used;
-            while (parent_deps_used < m_parent_deps.size() && m_dep_data[m_parent_deps[parent_deps_used]].child == tx) {
-                ++parent_deps_used;
-            }
-            tx_data.parent_deps = std::span(m_parent_deps).subspan(parent_deps_offset).first(parent_deps_used - parent_deps_offset);
-            // Randomize its order.
-            std::shuffle(tx_data.parent_deps.begin(), tx_data.parent_deps.end(), m_rng);
-            // Fill in the parent transactions' parent_pos values.
-            for (size_t i = 0; i < tx_data.parent_deps.size(); ++i) {
-                m_dep_data[tx_data.parent_deps[i]].parent_pos = i;
-            }
-            // Fill in m_child_deps.
-            tx_data.child_deps_active = 0;
-            auto child_deps_offset = child_deps_used;
-            while (child_deps_used < m_child_deps.size() && m_dep_data[m_child_deps[child_deps_used]].parent == tx) {
-                tx_data.children.Set(m_dep_data[m_child_deps[child_deps_used]].child);
-                ++child_deps_used;
-            }
-            tx_data.child_deps = std::span(m_child_deps).subspan(child_deps_offset).first(child_deps_used - child_deps_offset);
-            // Randomize its order.
-            std::shuffle(tx_data.child_deps.begin(), tx_data.child_deps.end(), m_rng);
-            // Fill in the child transactions' child_pos values.
-            for (size_t i = 0; i < tx_data.child_deps.size(); ++i) {
-                m_dep_data[tx_data.child_deps[i]].child_pos = i;
-            }
-        }
-        m_stat_setops = m_transactions.Count() * 2 + m_dep_data.size() * 3;
+        m_stat_setops = m_transactions.Count() * 2 + m_dep_data.size() * 4;
     }
 
     /** Bring the spanning forest into a state that is at least as good as the provided
@@ -1078,11 +978,11 @@ public:
         // Find the active dependency with the highest top_gain.
         std::optional<std::pair<FeeFrac::MulType, DepIdx>> best;
         uint64_t added_feeops{0};
-        for (TxIdx tx_idx : m_transactions) {
-            const auto& tx_data = m_tx_data[tx_idx];
-            const auto active_parents = tx_data.parent_deps.first(tx_data.parent_deps_active);
-            for (DepIdx dep_idx : active_parents) {
-                const auto& dep_data = m_dep_data[dep_idx];
+        for (auto tx_idx : m_transactions) {
+            auto& tx_data = m_tx_data[tx_idx];
+            for (auto par_idx : tx_data.parents & tx_data.active) {
+                auto dep_idx = tx_data.deps[par_idx];
+                auto& dep_data = m_dep_data[dep_idx];
                 Assume(dep_data.active);
                 if (!best.has_value() || dep_data.top_gain > best->first) {
                     best = {dep_data.top_gain, dep_idx};
@@ -1112,7 +1012,7 @@ public:
         // into the heap. Do not heapify yet; that is done at once later.
         for (TxIdx idx : m_transactions) {
             auto& tx_data = m_tx_data[idx];
-            tx_data.unmet_deps = tx_data.parent_deps.size();
+            tx_data.unmet_deps = tx_data.parents.Count();
             if (tx_data.unmet_deps == 0) {
                 heap.push_back(idx);
             }
@@ -1147,8 +1047,7 @@ public:
             heap.pop_back();
             ret.push_back(idx);
             // Decrease the TxData::unmet_deps for each child of the included transactions.
-            for (auto dep_idx : m_tx_data[idx].child_deps) {
-                auto child_idx = m_dep_data[dep_idx].child;
+            for (auto child_idx : m_tx_data[idx].children) {
                 auto& child_data = m_tx_data[child_idx];
                 Assume(child_data.unmet_deps > 0);
                 --child_data.unmet_deps;
