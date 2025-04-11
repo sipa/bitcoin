@@ -1180,16 +1180,17 @@ public:
  *                                linearize.
  * @param[in] old_linearization   An existing linearization for the cluster (which must be
  *                                topologically valid), or empty.
- * @return                        A pair of:
+ * @return                        A tuple of:
  *                                - The resulting linearization. It is guaranteed to be at least as
  *                                  good (in the feerate diagram sense) as old_linearization.
  *                                - A boolean indicating whether the result is guaranteed to be
  *                                  optimal.
+ *                                - The number of operations actually performed.
  *
  * Complexity: possibly somewhere between O(N^4) and O(N^6), where N=depgraph.TxCount().
  */
 template<typename SetType>
-std::pair<std::vector<DepGraphIndex>, bool> Linearize(const DepGraph<SetType>& depgraph, uint64_t max_iterations, uint64_t rng_seed, std::span<const DepGraphIndex> old_linearization = {}) noexcept
+std::tuple<std::vector<DepGraphIndex>, bool, uint64_t> Linearize(const DepGraph<SetType>& depgraph, uint64_t max_iterations, uint64_t rng_seed, std::span<const DepGraphIndex> old_linearization = {}) noexcept
 {
     SpanningForestState forest(depgraph, rng_seed);
     if (old_linearization.empty()) {
@@ -1198,16 +1199,17 @@ std::pair<std::vector<DepGraphIndex>, bool> Linearize(const DepGraph<SetType>& d
         forest.LoadLinearization(old_linearization);
     }
     bool optimal{false};
+    uint64_t cost{0};
     while (true) {
         auto [setops, feeops] = forest.GetStats();
-        uint64_t cost = setops + 3 * feeops;
+        cost = setops + 3 * feeops;
         if (cost > max_iterations) break;
         if (!forest.OptimalStep()) {
             optimal = true;
             break;
         }
     }
-    return {forest.GetLinearization(), optimal};
+    return {forest.GetLinearization(), optimal, cost};
 }
 
 /** Improve a given linearization.

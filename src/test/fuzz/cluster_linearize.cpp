@@ -951,7 +951,7 @@ FUZZ_TARGET(clusterlin_linearize)
 
     // Invoke Linearize().
     iter_count &= 0x7ffff;
-    auto [linearization, optimal] = Linearize(depgraph, iter_count, rng_seed, old_linearization);
+    auto [linearization, optimal, _cost] = Linearize(depgraph, iter_count, rng_seed, old_linearization);
     SanityCheck(depgraph, linearization);
     auto chunking = ChunkLinearization(depgraph, linearization);
 
@@ -1095,7 +1095,7 @@ FUZZ_TARGET(clusterlin_postlinearize_tree)
 
     // Try to find an even better linearization directly. This must not change the diagram for the
     // same reason.
-    auto [opt_linearization, _optimal] = Linearize(depgraph_tree, 100000, rng_seed, post_linearization);
+    auto [opt_linearization, _optimal, _cost] = Linearize(depgraph_tree, 100000, rng_seed, post_linearization);
     auto opt_chunking = ChunkLinearization(depgraph_tree, opt_linearization);
     auto cmp_opt = CompareChunks(opt_chunking, post_chunking);
     assert(cmp_opt == 0);
