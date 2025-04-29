@@ -1178,6 +1178,8 @@ private:
         /** (Only if this transaction is the representative for the chunk it is in) The total
          *  chunk set and feerate. */
         SetInfo<SetType> chunk_setinfo;
+        /** Whether this transaction appears in m_suboptimal_chunks. */
+        bool suboptimal{false};
     };
 
     /** Structure with information about a single dependency. */
@@ -1198,10 +1200,8 @@ private:
         FeeFrac::MulType top_gain;
     };
 
-    /** The set of transactions being linearized. Immutable after construction. */
-    TxIdx m_num_transactions{0};
-    /** Which transaction is next to be improved. */
-    TxIdx m_next_transaction{0};
+    /** A FIFO of chunk representatives of chunks that may be improved still. */
+    VecDeque<TxIdx> m_suboptimal_chunks;
     /** Information about each transaction (and chunks). Indexed by TxIdx. */
     std::vector<TxData> m_tx_data;
     /** Information about each dependency. Indexed by DepIdx. */
@@ -1422,6 +1422,10 @@ private:
                 dep_data.top_gain = FeeFrac::ScaledDifference(dep_data.top_setinfo.feerate, chunk_feerate);
                 m_cost += 2;
             }
+            if (tx_data.chunk_rep == tx && !tx_data.suboptimal) {
+                m_suboptimal_chunks.push_back(tx);
+                tx_data.suboptimal = true;
+            }
         }
     }
 
@@ -1450,9 +1454,9 @@ public:
         new_to_old.reserve(depgraph.TxCount());
         for (auto i : depgraph.Positions()) new_to_old.push_back(i);
         std::shuffle(new_to_old.begin(), new_to_old.end(), m_rng);
-        m_num_transactions = 0;
+        TxIdx num_transactions = 0;
         for (auto i : new_to_old) {
-            old_to_new[i] = m_num_transactions++;
+            old_to_new[i] = num_transactions++;
         }
         m_cost = 100 + 40 * old_to_new.size();
         // If no existing linearization is provided, construct a randomized topological ordering.
@@ -1464,8 +1468,8 @@ public:
             old_linearization = std::span{load_order};
         }
         // Add transactions one by one, in order of existing linearization.
-        m_tx_data.resize(m_num_transactions);
-        m_dep_data.reserve(((m_num_transactions + 1) / 2) * (m_num_transactions / 2));
+        m_tx_data.resize(num_transactions);
+        m_dep_data.reserve(((num_transactions + 1) / 2) * (num_transactions / 2));
         DepGraphIndex num_done = 0;
         for (DepGraphIndex old_tx : old_linearization) {
             auto new_tx = old_to_new[old_tx];
@@ -1502,43 +1506,41 @@ public:
             // Start a merge sequence on the new transaction to make the graph topological.
             MergeSequence<false>(new_tx);
         }
-        Requalify(SetType::Fill(m_num_transactions));
+        Requalify(SetType::Fill(num_transactions));
+        for (TxIdx i = 0; i < m_suboptimal_chunks.size(); ++i) {
+            TxIdx j = i + m_rng.randrange<TxIdx>(m_suboptimal_chunks.size() - i);
+            if (i != j) std::swap(m_suboptimal_chunks[i], m_suboptimal_chunks[j]);
+        }
     }
 
     /** Perform one improvement step. */
     bool Step() noexcept
     {
-        if (m_tx_data.empty()) return false;
-        // Iterate over the transactions in a round-robin fashion, until one is found with one or
-        // more improvable dependencies, and then pick the one with the highest top_gain (i.e.,
-        // the one which would cause the highest increase in area under the fee-size diagram,
-        // assuming the split does not trigger a self-merge.
-        // By using a round-robin approach as opposed to picking the highest-increase dependency
-        // over the whole graph, we distribute the computational work in improving the graph more
-        // fairly over all transactions.
-        TxIdx prev_next_transaction = m_next_transaction;
         while (true) {
+            if (m_suboptimal_chunks.empty()) return false;
+            TxIdx chunk = m_suboptimal_chunks.front();
+            m_suboptimal_chunks.pop_front();
+            auto& chunk_data = m_tx_data[chunk];
+            chunk_data.suboptimal = false;
+            if (chunk_data.chunk_rep != chunk) continue;
             // Find the active dependency with the highest top_gain.
             std::optional<std::pair<FeeFrac::MulType, DepIdx>> best;
-            const auto& tx_data = m_tx_data[m_next_transaction];
-            if (++m_next_transaction == m_tx_data.size()) m_next_transaction = 0;
-            const auto active_children = std::span{tx_data.child_deps}.first(tx_data.child_deps_active);
-            for (DepIdx dep_idx : active_children) {
-                const auto& dep_data = m_dep_data[dep_idx];
-                Assume(dep_data.active);
-                if (!best.has_value() || dep_data.top_gain > best->first) {
-                    best = {dep_data.top_gain, dep_idx};
+            for (auto tx : chunk_data.chunk_setinfo.transactions) {
+                const auto& tx_data = m_tx_data[tx];
+                const auto active_children = std::span{tx_data.child_deps}.first(tx_data.child_deps_active);
+                for (DepIdx dep_idx : active_children) {
+                    const auto& dep_data = m_dep_data[dep_idx];
+                    Assume(dep_data.active);
+                    if (!best.has_value() || dep_data.top_gain > best->first) {
+                        best = {dep_data.top_gain, dep_idx};
+                    }
                 }
+                m_cost += active_children.size();
             }
-            m_cost += active_children.size();
-            // Perform an improvement step if the best found dependency has positive gain.
             if (best.has_value() && best->first > 0) {
                 Improve(best->second);
-                return true;
             }
-            // If we have done a loop over the entire set of transactions without making any
-            // changes, we are done.
-            if (m_next_transaction == prev_next_transaction) return false;
+            return true;
         }
     }
 
@@ -1556,7 +1558,7 @@ public:
         /** The set of all chunk representatives. */
         SetType chunk_reps;
         // Populate chunk_deps[c] with the number of out-of-chunk dependencies the chunk has.
-        for (TxIdx chl_idx = 0; chl_idx < m_num_transactions; ++chl_idx) {
+        for (TxIdx chl_idx = 0; chl_idx < m_tx_data.size(); ++chl_idx) {
             const auto& chl_data = m_tx_data[chl_idx];
             auto chl_chunk_rep = chl_data.chunk_rep;
             chunk_reps.Set(chl_chunk_rep);
@@ -1614,7 +1616,7 @@ public:
                 return m_tx_data[a].original_pos < m_tx_data[b].original_pos;
             });
         }
-        Assume(ret.size() == m_num_transactions);
+        Assume(ret.size() == m_tx_data.size());
         // Convert to DepGraphIndexes.
         for (auto& val : ret) {
             val = m_tx_data[val].original_idx;
