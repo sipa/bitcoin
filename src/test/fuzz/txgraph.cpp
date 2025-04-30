@@ -864,7 +864,7 @@ FUZZ_TARGET(txgraph)
         // that calling Linearize on it does not improve it further.
         if (sims[0].real_is_optimal) {
             auto real_diagram = ChunkLinearization(sims[0].graph, vec1);
-            auto [sim_lin, _optimal, _cost] = Linearize(sims[0].graph, 300000, rng.rand64(), vec1);
+            auto [sim_lin, _optimal, _cost, _tim] = Linearize(sims[0].graph, 300000, rng.rand64(), vec1);
             auto sim_diagram = ChunkLinearization(sims[0].graph, sim_lin);
             auto cmp = CompareChunks(real_diagram, sim_diagram);
             assert(cmp == 0);

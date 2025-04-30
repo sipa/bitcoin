@@ -4,6 +4,7 @@
 
 #include <bench/bench.h>
 #include <cluster_linearize.h>
+#include <hash.h>
 #include <test/util/cluster_linearize.h>
 #include <util/bitset.h>
 #include <util/strencodings.h>
@@ -12,6 +13,10 @@
 #include <cassert>
 #include <cstdint>
 #include <vector>
+
+#include <fstream>
+#include <sstream>
+#include <string>
 
 using namespace cluster_linearize;
 using namespace util::hex_literals;
@@ -165,7 +170,7 @@ void BenchLinearizeOptimally(benchmark::Bench& bench, const std::array<uint8_t, 
         reader >> Using<DepGraphFormatter>(depgraph);
         uint64_t rng_seed = 0;
         bench.run([&] {
-            auto [_lin, optimal, _cost] = Linearize(depgraph, /*max_iterations=*/10000000, rng_seed++);
+            auto [_lin, optimal, _cost, _tim] = Linearize(depgraph, /*max_iterations=*/10000000, rng_seed++);
             assert(optimal);
         });
     };
@@ -299,3 +304,232 @@ BENCHMARK(LinearizeOptimallyExample16, benchmark::PriorityLevel::HIGH);
 BENCHMARK(LinearizeOptimallyExample17, benchmark::PriorityLevel::HIGH);
 BENCHMARK(LinearizeOptimallyExample18, benchmark::PriorityLevel::HIGH);
 BENCHMARK(LinearizeOptimallyExample19, benchmark::PriorityLevel::HIGH);
+
+static constexpr int NUM_SEEDS = 100;
+static constexpr int NUM_MEDS = 13;
+static constexpr int NUM_LOOPS = 3;
+static constexpr int NUM_STYLES = 6;
+static const std::array<std::string, NUM_STYLES> STYLE_NAMES = {"CSS(scratch)", "CSS(optin)", "SFL(scratch)", "SFL(optin)", "GGT1", "GGT"};
+
+static void BenchDataSet(benchmark::Bench& bench, const std::string& filename)
+{
+    std::ifstream infile(filename);
+    std::string line;
+    uint64_t lines{0};
+
+    std::vector<std::vector<DepGraphIndex>> optins;
+    optins.resize(NUM_LOOPS * NUM_SEEDS);
+
+    struct Data
+    {
+        uint64_t runs = 0;
+        double min_rndtime = std::numeric_limits<double>::max();
+        double max_rndtime = std::numeric_limits<double>::min();
+        double sum_rndtime = 0;
+        double min_rndcost = std::numeric_limits<double>::max();
+        double max_rndcost = std::numeric_limits<double>::min();
+        double min_rndfrac = std::numeric_limits<double>::max();
+        double max_rndfrac = std::numeric_limits<double>::min();
+        double min_indtime = std::numeric_limits<double>::max();
+        double max_indtime = std::numeric_limits<double>::min();
+        double min_indcost = std::numeric_limits<double>::max();
+        double max_indcost = std::numeric_limits<double>::min();
+        double min_indfrac = std::numeric_limits<double>::max();
+        double max_indfrac = std::numeric_limits<double>::min();
+    };
+
+    /** (ntx, style) -> data */
+    std::map<std::pair<int, int>, Data> datas;
+
+    struct Entry
+    {
+        int seed;
+        int med;
+        int loop;
+        int style;
+        uint64_t rng_seed;
+        std::span<const DepGraphIndex> optin;
+
+        uint64_t ns;
+        uint64_t cost;
+    };
+
+    std::vector<Entry> entrys;
+    entrys.reserve(NUM_SEEDS * NUM_MEDS * NUM_LOOPS * NUM_STYLES);
+    uint64_t sumtimes = 0;
+    uint64_t lastprint = 0;
+
+    auto print_fn = [&]() {
+        std::cerr << "\n";
+        for (const auto& [key, data] : datas) {
+            auto [style, ntx] = key;
+            std::cerr << "TX=" << ntx << 
+                         " STYLE=" << STYLE_NAMES[style] <<
+                         " runs=" << data.runs <<
+                         " avg_rndtime=" << (data.sum_rndtime / data.runs) <<
+                         " min_rndtime=" << (data.min_rndtime) <<
+                         " max_rndtime=" << (data.max_rndtime) <<
+                         " min_rndcost=" << (data.min_rndcost) <<
+                         " max_rndcost=" << (data.max_rndcost) <<
+                         " min_rndfrac=" << (data.min_rndfrac) <<
+                         " max_rndfrac=" << (data.max_rndfrac) <<
+                         " min_indtime=" << (data.min_indtime) <<
+                         " max_indtime=" << (data.max_indtime) <<
+                         " min_indcost=" << (data.min_indcost) <<
+                         " max_indcost=" << (data.max_indcost) <<
+                         " min_indfrac=" << (data.min_indfrac) <<
+                         " max_indfrac=" << (data.max_indfrac) <<
+                         "\n";
+        }
+        std::cerr << "LINES=" << lines << "\n\n";
+    };
+
+    while (std::getline(infile, line)) {
+        ++lines;
+        std::vector<uint8_t> serdata = ParseHex<uint8_t>(line);
+        HashWriter hasher;
+        hasher << std::span{serdata};
+        InsecureRandomContext rng(hasher.GetCheapHash());
+        DepGraph<BitSet<64>> depgraph;
+        SpanReader reader(serdata);
+        reader >> Using<DepGraphFormatter>(depgraph);
+        unsigned ntx = depgraph.TxCount();
+        if (ntx < 2 || ntx > 25) continue;
+        entrys.clear();
+        for (int i = 0; i < NUM_LOOPS * NUM_SEEDS; ++i) {
+            optins[i].clear();
+            optins[i].reserve(depgraph.TxCount());
+            for (auto t : depgraph.Positions()) {
+                optins[i].push_back(t);
+            }
+            std::shuffle(optins[i].begin(), optins[i].end(), rng);
+            FixLinearization(depgraph, optins[i]);
+            PostLinearize(depgraph, optins[i]);
+            optins[i] = std::get<0>(Linearize(depgraph, 1000000000, rng.rand64(), optins[i], LinearizeAlgorithm::SFL));
+            PostLinearize(depgraph, optins[i]);
+            uint64_t rng_seed = rng.rand64();
+            for (int m = 0; m < NUM_MEDS; ++m) {
+                for (int s = 0; s < NUM_STYLES; ++s) {
+                    auto& entry = entrys.emplace_back();
+                    entry.seed = i % NUM_SEEDS;
+                    entry.loop = i / NUM_SEEDS;
+                    entry.med = m;
+                    entry.style = s;
+                    entry.rng_seed = rng_seed;
+                    entry.optin = std::span{optins[i]};
+                }
+            }
+        }
+        std::shuffle(entrys.begin(), entrys.end(), rng);
+        for (auto& entry : entrys) {
+            switch (entry.style) {
+                case 0: {
+                    auto [lin, opt, cost, tim] = Linearize(depgraph, 1000000000, entry.rng_seed, {}, LinearizeAlgorithm::CSS);
+                    entry.ns = tim;
+                    entry.cost = cost;
+                    break;
+                }
+                case 1: {
+                    auto [lin, opt, cost, tim] = Linearize(depgraph, 1000000000, entry.rng_seed, entry.optin, LinearizeAlgorithm::CSS);
+                    entry.ns = tim;
+                    entry.cost = cost;
+                    break;
+                }
+                case 2: {
+                    auto [lin, opt, cost, tim] = Linearize(depgraph, 1000000000, entry.rng_seed, {}, LinearizeAlgorithm::SFL);
+                    entry.ns = tim;
+                    entry.cost = cost;
+                    break;
+                }
+                case 3: {
+                    auto [lin, opt, cost, tim] = Linearize(depgraph, 1000000000, entry.rng_seed, entry.optin, LinearizeAlgorithm::SFL);
+                    entry.ns = tim;
+                    entry.cost = cost;
+                    break;
+                }
+                case 4: {
+                    auto [lin, opt, cost, tim] = Linearize(depgraph, 1000000000, entry.rng_seed, {}, LinearizeAlgorithm::GGT1);
+                    entry.ns = tim;
+                    entry.cost = cost;
+                    break;
+                }
+                case 5: {
+                    auto [lin, opt, cost, tim] = Linearize(depgraph, 1000000000, entry.rng_seed, {}, LinearizeAlgorithm::GGT);
+                    entry.ns = tim;
+                    entry.cost = cost;
+                    break;
+                }
+            }
+        }
+        std::sort(entrys.begin(), entrys.end(), [&](auto& a, auto& b) noexcept {
+            if (a.style != b.style) return a.style < b.style;
+            if (a.loop != b.loop) return a.loop < b.loop;
+            if (a.seed != b.seed) return a.seed < b.seed;
+            if (a.ns != b.ns) return a.ns < b.ns;
+            return a.med < b.med;
+        });
+        auto it = entrys.begin();
+        for (int style = 0; style < NUM_STYLES; ++style) {
+            auto& data = datas[{style, ntx}];
+            for (int loop = 0; loop < NUM_LOOPS; ++loop) {
+                uint64_t sumtime{0};
+                uint64_t sumcost{0};
+                for (int seed = 0; seed < NUM_SEEDS; ++seed) {
+                    auto& entry = *(it + (NUM_MEDS / 2));
+                    assert(entry.seed == seed);
+                    assert(entry.loop == loop);
+                    assert(entry.style == style);
+                    it += NUM_MEDS;
+                    double indtime = entry.ns;
+                    double indcost = entry.cost;
+                    double indfrac = indtime / indcost;
+                    bool ind_updated{false};
+                    if (indtime < data.min_indtime) { ind_updated = true; data.min_indtime = indtime; }
+                    if (indtime > data.max_indtime) { ind_updated = true; data.max_indtime = indtime; }
+                    if (indcost < data.min_indcost) { ind_updated = true; data.min_indcost = indcost; }
+                    if (indcost > data.max_indcost) { ind_updated = true; data.max_indcost = indcost; }
+                    if (indfrac < data.min_indfrac) { ind_updated = true; data.min_indfrac = indfrac; }
+                    if (indfrac > data.max_indfrac) { ind_updated = true; data.max_indfrac = indfrac; }
+                    if (ind_updated) {
+                        std::cerr << "IND_RECORD TX=" << ntx << " STYLE=" << STYLE_NAMES[style] << " indtime=" << indtime << " indcost=" << indcost << " indfrac=" << indfrac << " hex=" << line << "\n";
+                    }
+                    sumtime += entry.ns;
+                    sumcost += entry.cost;
+                    sumtimes += entry.ns * NUM_MEDS;
+                }
+                double rndtime = double(sumtime) / NUM_SEEDS;
+                double rndcost = double(sumcost) / NUM_SEEDS;
+                double rndfrac = rndtime / rndcost;
+                bool rnd_updated{false};
+                if (rndtime < data.min_rndtime) { rnd_updated = true; data.min_rndtime = rndtime; }
+                if (rndtime > data.max_rndtime) { rnd_updated = true; data.max_rndtime = rndtime; }
+                if (rndcost < data.min_rndcost) { rnd_updated = true; data.min_rndcost = rndcost; }
+                if (rndcost > data.max_rndcost) { rnd_updated = true; data.max_rndcost = rndcost; }
+                if (rndfrac < data.min_rndfrac) { rnd_updated = true; data.min_rndfrac = rndfrac; }
+                if (rndfrac > data.max_rndfrac) { rnd_updated = true; data.max_rndfrac = rndfrac; }
+                if (rnd_updated) {
+                    std::cerr << "RND_RECORD TX=" << ntx << " STYLE=" << STYLE_NAMES[style] << " rndtime=" << rndtime << " rndcost=" << rndcost << " rndfrac=" << rndfrac << " hex=" << line << "\n";
+                }
+                data.sum_rndtime += rndtime;
+                data.runs += 1;
+            }
+        }
+        if (sumtimes > lastprint + 10000000000) {
+            lastprint = sumtimes;
+            print_fn();
+        }
+    }
+    print_fn();
+}
+
+static void BenchDataSim2023(benchmark::Bench& bench) { BenchDataSet(bench, "/home/pw/clusters_sim2023"); }
+static void BenchDataBipartite(benchmark::Bench& bench) { BenchDataSet(bench, "/home/pw/clusters_bipartite"); }
+static void BenchDataMedium(benchmark::Bench& bench) { BenchDataSet(bench, "/home/pw/clusters_medium"); }
+static void BenchDataSpanning(benchmark::Bench& bench) { BenchDataSet(bench, "/home/pw/clusters_spanning"); }
+static void BenchDataMix(benchmark::Bench& bench) { BenchDataSet(bench, "/home/pw/clusters_mix"); }
+
+BENCHMARK(BenchDataSim2023, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchDataBipartite, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchDataMedium, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchDataSpanning, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchDataMix, benchmark::PriorityLevel::LOW);

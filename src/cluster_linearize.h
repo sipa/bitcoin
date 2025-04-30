@@ -1132,6 +1132,13 @@ std::tuple<std::vector<DepGraphIndex>, bool, uint64_t> CSSLinearize(const DepGra
     return {std::move(linearization), optimal, max_iterations - iterations_left};
 }
 
+static inline uint64_t rdtsc() noexcept
+{
+    uint32_t rdtsc_hi, rdtsc_lo;
+    __asm__ volatile ("rdtsc" : "=a" (rdtsc_lo), "=d" (rdtsc_hi));
+    return uint64_t{rdtsc_hi} << 32 | rdtsc_lo;
+}
+
 /** Class to represent the internal state of the spanning-forest linearization algorithm. */
 template<typename SetType>
 class SpanningForestState
@@ -1646,7 +1653,7 @@ public:
  * Complexity: possibly somewhere between O(N^4) and O(N^6), where N=depgraph.TxCount().
  */
 template<typename SetType>
-std::tuple<std::vector<DepGraphIndex>, bool, uint64_t> SFLLinearize(const DepGraph<SetType>& depgraph, uint64_t max_iterations, uint64_t rng_seed, std::span<const DepGraphIndex> old_linearization = {}) noexcept
+std::tuple<std::vector<DepGraphIndex>, bool, uint64_t, uint64_t> SFLLinearize(const DepGraph<SetType>& depgraph, uint64_t max_iterations, uint64_t rng_seed, std::span<const DepGraphIndex> old_linearization = {}) noexcept
 {
     SpanningForestState forest(depgraph, rng_seed, old_linearization);
     bool optimal{false};
@@ -1659,7 +1666,7 @@ std::tuple<std::vector<DepGraphIndex>, bool, uint64_t> SFLLinearize(const DepGra
             break;
         }
     }
-    return {forest.GetLinearization(), optimal, forest.GetCost()};
+    return {forest.GetLinearization(), optimal, forest.GetCost(), 0};
 }
 
 /** Class to represent the internal state of the min-cut algorithm (matrix version). */
@@ -2294,19 +2301,32 @@ enum class LinearizeAlgorithm {
 };
 
 template<typename SetType>
-std::tuple<std::vector<DepGraphIndex>, bool, uint64_t> Linearize(const DepGraph<SetType>& depgraph, uint64_t max_iterations, uint64_t rng_seed, std::span<const DepGraphIndex> old_linearization = {}, LinearizeAlgorithm linalg = LinearizeAlgorithm::SFL) noexcept
+std::tuple<std::vector<DepGraphIndex>, bool, uint64_t, uint64_t> Linearize(const DepGraph<SetType>& depgraph, uint64_t max_iterations, uint64_t rng_seed, std::span<const DepGraphIndex> old_linearization = {}, LinearizeAlgorithm linalg = LinearizeAlgorithm::SFL) noexcept
 {
+    auto start = rdtsc();
     switch (linalg) {
-    case LinearizeAlgorithm::CSS:
-        return CSSLinearize(depgraph, max_iterations, rng_seed, old_linearization);
-    case LinearizeAlgorithm::SFL:
-        return SFLLinearize(depgraph, max_iterations, rng_seed, old_linearization);
-    case LinearizeAlgorithm::GGT:
-        return GGTLinearize(depgraph, rng_seed);
-    case LinearizeAlgorithm::GGT1:
-        return GGT1Linearize(depgraph, rng_seed);
+    case LinearizeAlgorithm::CSS: {
+        auto [lin, opt, cost] = CSSLinearize(depgraph, max_iterations, rng_seed, old_linearization);
+        auto stop = rdtsc();
+        return {std::move(lin), opt, cost, stop - start};
     }
-    return {{}, false, 0};
+    case LinearizeAlgorithm::SFL: {
+        auto [lin, opt, cost, tim] = SFLLinearize(depgraph, max_iterations, rng_seed, old_linearization);
+        auto stop = rdtsc();
+        return {std::move(lin), opt, cost, stop - start};
+    }
+    case LinearizeAlgorithm::GGT: {
+        auto [lin, opt, cost] = GGTLinearize(depgraph, rng_seed);
+        auto stop = rdtsc();
+        return {std::move(lin), opt, cost, stop - start};
+    }
+    case LinearizeAlgorithm::GGT1: {
+        auto [lin, opt, cost] = GGT1Linearize(depgraph, rng_seed);
+        auto stop = rdtsc();
+        return {std::move(lin), opt, cost, stop - start};
+    }
+    }
+    return {{}, false, 0, 0};
 }
 
 /** Improve a given linearization.

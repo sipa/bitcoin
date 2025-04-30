@@ -1657,7 +1657,7 @@ std::pair<uint64_t, bool> Cluster::Relinearize(TxGraphImpl& graph, uint64_t max_
     if (IsOptimal()) return {0, true};
     // Invoke the actual linearization algorithm (passing in the existing one).
     uint64_t rng_seed = graph.m_rng.rand64();
-    auto [linearization, optimal, cost] = Linearize(m_depgraph, max_iters, rng_seed, m_linearization);
+    auto [linearization, optimal, cost, tim] = Linearize(m_depgraph, max_iters, rng_seed, m_linearization);
     // Postlinearize if the result isn't optimal already. This guarantees (among other things)
     // that the chunks of the resulting linearization are all connected.
     if (!optimal) PostLinearize(m_depgraph, linearization);
