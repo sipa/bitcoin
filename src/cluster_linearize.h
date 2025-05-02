@@ -1634,6 +1634,391 @@ public:
     uint64_t GetCost() const noexcept { return m_cost; }
 };
 
+/** Class to represent the internal state of the spanning-forest linearization algorithm. */
+template<typename SetType>
+class SpanningForestStateAnalyze
+{
+private:
+    /** Data type to represent indexing into m_tx_data. */
+    using TxIdx = uint32_t;
+    /** Data type to represent indexing into m_dep_data. */
+    using DepIdx = std::conditional_t<(SetType::Size() <= 32), uint8_t, std::conditional_t<(SetType::Size() <= 512), uint16_t, uint32_t>>;
+
+    /** Structure with information about a single transaction and possibly chunk. */
+    struct TxData {
+        /** The dependencies involving this transaction as child. All active ones (see
+         *  parent_deps_active) appear first. */
+        std::array<DepIdx, SetType::Size() - 1> parent_deps;
+        /** The total number of dependencies involving this transaction as child. */
+        TxIdx parent_deps_total{0};
+        /** The number of active dependencies involving this transaction as child. */
+        TxIdx parent_deps_active{0};
+        SetType active_parents;
+        /** The dependencies involving this transaction as parent. All active ones (see
+         *  parent_deps_active) appear first. */
+        std::array<DepIdx, SetType::Size() - 1> child_deps;
+        /** The total number of dependencies involving this transaction as parent. */
+        TxIdx child_deps_total{0};
+        /** The number of active dependencies involving this transaction as parent. */
+        TxIdx child_deps_active{0};
+        /** Which transaction holds the chunk_setinfo for the chunk this transaction is in
+         *  (the representative for the chunk). */
+        TxIdx chunk_rep;
+        /** (Only if this transaction is the representative for the chunk it is in) The total
+         *  chunk set and feerate. */
+        SetInfo<SetType> chunk_setinfo;
+    };
+
+    /** Structure with information about a single dependency. */
+    struct DepData {
+        /** Whether this dependency is active. */
+        bool active;
+        /** What the parent and child transactions are. Immutable after construction. */
+        TxIdx parent, child;
+        /** Index into the parent's TxData::parent_deps where this dependency appears. */
+        DepIdx parent_pos;
+        /** Index into the child's TxData::child_deps where this dependency appears. */
+        DepIdx child_pos;
+        /** (Only if this dependency is active). The top chunk that would be formed if this
+         *  dependency were deactivated. */
+        SetInfo<SetType> top_setinfo;
+        /** (Only if this dependency is active and Requalify has been called). The ScaledDifference
+         *  between the top_setinfo.feerate and the existing chunk's chunk_setinfo.feerate. */
+        FeeFrac::MulType top_gain;
+    };
+
+    /** Information about each transaction (and chunks). Indexed by TxIdx. */
+    std::vector<TxData> m_tx_data;
+    /** Information about each dependency. Indexed by DepIdx. */
+    std::vector<DepData> m_dep_data;
+    SetType m_transactions;
+
+    /** Walk a chunk, starting from transaction start. visit_tx(idx) is called for each encountered
+     *  transaction. visit_dep_down(dep) is called for each encountered dependency that is traversed
+     *  in the parent-to-child (downward) direction. */
+    void Walk(TxIdx start, std::invocable<TxData&> auto visit_tx, std::invocable<DepData&> auto visit_dep_down) noexcept
+    {
+        /** The set of transactions we still have to process. */
+        SetType todo = SetType::Singleton(start);
+        /** The set of transactions we have already processed. */
+        SetType done;
+        do {
+            for (auto tx_idx : todo) {
+                // Mark the transaction as processed, and invoke the visitor for it.
+                auto& tx_data = m_tx_data[tx_idx];
+                done.Set(tx_idx);
+                visit_tx(tx_data);
+                // Mark all active parents as to be processed.
+                todo |= tx_data.active_parents;
+                todo -= done;
+                // Iterate over all its active child dependencies.
+                auto child_deps = std::span{tx_data.child_deps}.first(tx_data.child_deps_active);
+                for (auto dep_idx : child_deps) {
+                    auto& dep_entry = m_dep_data[dep_idx];
+                    Assume(dep_entry.parent == tx_idx);
+                    Assume(dep_entry.active);
+                    // If this is the first time reaching the child, mark it as todo, and invoke
+                    // the downward dependency visitor for it. We do not need to check if it isn't
+                    // already in todo here, because there cannot be multiple dependencies that
+                    // reach the same transaction; the !done check is purely to prevent travelling
+                    // an already-travelled dependency back in reverse direction.
+                    if (!done[dep_entry.child]) {
+                        Assume(!todo[dep_entry.child]);
+                        todo.Set(dep_entry.child);
+                        visit_dep_down(dep_entry);
+                    }
+                }
+            }
+        } while (todo.Any());
+    }
+
+    /** Swap two dependencies in a given transaction's implied list of parent deps. */
+    void SwapParentDeps(TxData& tx_data, DepIdx pos1, DepIdx pos2) noexcept
+    {
+        if (pos1 == pos2) return;
+        std::swap(tx_data.parent_deps[pos1], tx_data.parent_deps[pos2]);
+        m_dep_data[tx_data.parent_deps[pos1]].parent_pos = pos1;
+        m_dep_data[tx_data.parent_deps[pos2]].parent_pos = pos2;
+    }
+
+    /** Swap two dependencies in a given transaction's implied list of child deps. */
+    void SwapChildDeps(TxData& tx_data, DepIdx pos1, DepIdx pos2) noexcept
+    {
+        if (pos1 == pos2) return;
+        std::swap(tx_data.child_deps[pos1], tx_data.child_deps[pos2]);
+        m_dep_data[tx_data.child_deps[pos1]].child_pos = pos1;
+        m_dep_data[tx_data.child_deps[pos2]].child_pos = pos2;
+    }
+
+    /** Make a specified inactive dependency active. */
+    void Activate(DepIdx dep_idx) noexcept
+    {
+        auto& dep_data = m_dep_data[dep_idx];
+        Assume(!dep_data.active);
+        // Make dep_idx the first inactive dependency in the child's list of parent deps.
+        auto& child_tx_data = m_tx_data[dep_data.child];
+        SwapParentDeps(child_tx_data, dep_data.parent_pos, child_tx_data.parent_deps_active);
+        // Make dep_idx the first inactive dependency in the parent's list of child deps.
+        auto& parent_tx_data = m_tx_data[dep_data.parent];
+        SwapChildDeps(parent_tx_data, dep_data.child_pos, parent_tx_data.child_deps_active);
+
+        // Gather information about the parent and child chunks.
+        Assume(parent_tx_data.chunk_rep != child_tx_data.chunk_rep);
+        auto& par_chunk_data = m_tx_data[parent_tx_data.chunk_rep];
+        auto& chl_chunk_data = m_tx_data[child_tx_data.chunk_rep];
+        TxIdx top_rep = parent_tx_data.chunk_rep;
+        auto top_part = par_chunk_data.chunk_setinfo;
+        auto bottom_part = chl_chunk_data.chunk_setinfo;
+        // Update the parent chunk to also contain the child.
+        par_chunk_data.chunk_setinfo |= bottom_part;
+        // Add bottom component to top transactions.
+        Walk(dep_data.parent,
+             [](TxData&) noexcept {},
+             [&](DepData& depdata) noexcept { depdata.top_setinfo |= bottom_part; });
+        // Add top component to bottom transactions.
+        Walk(dep_data.child,
+             [&](TxData& txdata) noexcept { txdata.chunk_rep = top_rep; },
+             [&](DepData& depdata) noexcept { depdata.top_setinfo |= top_part; });
+        // Make active.
+        dep_data.active = true;
+        dep_data.top_setinfo = top_part;
+        child_tx_data.parent_deps_active += 1;
+        child_tx_data.active_parents.Set(dep_data.parent);
+        Assume(child_tx_data.parent_deps_active <= child_tx_data.parent_deps_total);
+        parent_tx_data.child_deps_active += 1;
+        Assume(parent_tx_data.child_deps_active <= parent_tx_data.child_deps_total);
+    }
+
+    /** Make a specified active dependency inactive. */
+    void Deactivate(DepIdx dep_idx) noexcept
+    {
+        auto& dep_data = m_dep_data[dep_idx];
+        Assume(dep_data.active);
+        // Make dep_idx the last active dependency in the child's list of parent deps.
+        auto& child_tx_data = m_tx_data[dep_data.child];
+        Assume(child_tx_data.parent_deps_active >= 1);
+        SwapParentDeps(child_tx_data, dep_data.parent_pos, child_tx_data.parent_deps_active - 1);
+        // Make dep_idx the last active dependency in the parent's list of child deps.
+        auto& parent_tx_data = m_tx_data[dep_data.parent];
+        Assume(parent_tx_data.child_deps_active >= 1);
+        SwapChildDeps(parent_tx_data, dep_data.child_pos, parent_tx_data.child_deps_active - 1);
+        // Make inactive.
+        dep_data.active = false;
+        child_tx_data.parent_deps_active -= 1;
+        child_tx_data.active_parents.Reset(dep_data.parent);
+        parent_tx_data.child_deps_active -= 1;
+        // Update representatives.
+        auto& chunk_data = m_tx_data[parent_tx_data.chunk_rep];
+        auto top_part = dep_data.top_setinfo;
+        auto bottom_part = chunk_data.chunk_setinfo - top_part;
+        chunk_data.chunk_setinfo = top_part;
+        TxIdx bottom_rep = dep_data.child;
+        auto& bottom_chunk_data = m_tx_data[bottom_rep];
+        bottom_chunk_data.chunk_setinfo = bottom_part;
+        TxIdx top_rep = dep_data.parent;
+        auto& top_chunk_data = m_tx_data[top_rep];
+        top_chunk_data.chunk_setinfo = top_part;
+        // Remove bottom component from top transactions, and make top_rep the representative for
+        // all of them.
+        Walk(dep_data.parent,
+             [&](TxData& txdata) noexcept { txdata.chunk_rep = top_rep; },
+             [&](DepData& depdata) noexcept { depdata.top_setinfo -= bottom_part; });
+        // Remove top component from bottom transactions, and make bottom_rep the representative
+        // for all of them.
+        Walk(dep_data.child,
+             [&](TxData& txdata) noexcept { txdata.chunk_rep = bottom_rep; },
+             [&](DepData& depdata) noexcept { depdata.top_setinfo -= top_part; });
+    }
+
+    /** Recompute the DepData::top_gain values for a subset of transactions. */
+    void Requalify(const SetType& requalify) noexcept
+    {
+        for (auto tx : requalify) {
+            auto& tx_data = m_tx_data[tx];
+            auto& chunk_feerate = m_tx_data[tx_data.chunk_rep].chunk_setinfo.feerate;
+            auto active_parents = std::span{tx_data.parent_deps}.first(tx_data.parent_deps_active);
+            for (auto dep : active_parents) {
+                auto& dep_data = m_dep_data[dep];
+                dep_data.top_gain = FeeFrac::ScaledDifference(dep_data.top_setinfo.feerate, chunk_feerate);
+            }
+        }
+    }
+
+public:
+    /** Construct a spanning forest for the given DepGraph, with all transactions in their own
+     *  chunk. The graph must be made topological before OptimalStep can be called, using either
+     *  LoadLinearization() or LoadRandom. */
+    explicit SpanningForestStateAnalyze(const DepGraph<SetType>& depgraph) noexcept
+    {
+        unsigned num_transactions = depgraph.TxCount();
+        // Add transactions one by one.
+        m_tx_data.resize(depgraph.PositionRange());
+        m_dep_data.reserve(((num_transactions + 1) / 2) * (num_transactions / 2));
+        m_transactions = depgraph.Positions();
+        for (DepGraphIndex tx : m_transactions) {
+            // Fill in transaction data.
+            auto& tx_data = m_tx_data[tx];
+            tx_data.chunk_rep = tx;
+            tx_data.chunk_setinfo.transactions = SetType::Singleton(tx);
+            tx_data.chunk_setinfo.feerate = depgraph.FeeRate(tx);
+            // Add its dependencies.
+            auto parents = depgraph.GetReducedParents(tx);
+            for (auto par : parents) {
+                auto& par_tx_data = m_tx_data[par];
+                auto dep_idx = m_dep_data.size();
+                // Construct new dependency.
+                auto& dep = m_dep_data.emplace_back();
+                dep.active = false;
+                dep.parent = par;
+                dep.child = tx;
+                // Add it as parent of the child.
+                dep.parent_pos = tx_data.parent_deps_total;
+                tx_data.parent_deps[tx_data.parent_deps_total++] = dep_idx;
+                // Add it as child of the parent.
+                dep.child_pos = par_tx_data.child_deps_total;
+                par_tx_data.child_deps[par_tx_data.child_deps_total++] = dep_idx;
+            }
+        }
+    }
+
+    void LoadRandom(FastRandomContext& rng) noexcept
+    {
+        for (DepIdx dep = 0; dep < m_dep_data.size(); ++dep) {
+            auto& dep_data = m_dep_data[dep];
+            if (dep_data.active) Deactivate(dep);
+        }
+        std::vector<DepIdx> deps;
+        deps.resize(m_dep_data.size());
+        for (DepIdx dep = 0; dep < m_dep_data.size(); ++dep) deps[dep] = dep;
+        std::shuffle(deps.begin(), deps.end(), rng);
+        for (auto dep : deps) {
+            auto& dep_data = m_dep_data[dep];
+            if (dep_data.active) continue;
+            if (m_tx_data[dep_data.parent].chunk_rep == m_tx_data[dep_data.child].chunk_rep) continue;
+            Activate(dep);
+        }
+        Requalify(m_transactions);
+    }
+
+    std::vector<uint8_t> Encode(std::vector<std::pair<TxIdx, TxIdx>>&& vals) const noexcept
+    {
+        std::sort(vals.begin(), vals.end());
+        std::vector<uint8_t> enc;
+        if (m_tx_data.size() < 256) {
+            for (auto [par, chl] : vals) {
+                enc.push_back(par);
+                enc.push_back(chl);
+            }
+        } else {
+            assert(false);
+        }
+        return enc;
+    }
+
+    std::vector<std::pair<TxIdx, TxIdx>> Decode(std::span<const uint8_t> enc) const noexcept
+    {
+        std::vector<std::pair<TxIdx, TxIdx>> ret;
+        auto it = enc.begin();
+        if (m_tx_data.size() < 256) {
+            while (it != enc.end()) {
+                uint8_t par = *(it++);
+                uint8_t chl = *(it++);
+                ret.emplace_back(par, chl);
+            }
+        } else {
+            assert(false);
+        }
+        return ret;
+    }
+
+    std::string Diff(std::span<const uint8_t> a, std::span<const uint8_t> b) const noexcept
+    {
+        auto dec_a = Decode(a);
+        auto dec_b = Decode(b);
+        std::vector<std::pair<TxIdx, TxIdx>> removed, added;
+        std::set_difference(dec_a.begin(), dec_a.end(), dec_b.begin(), dec_b.end(), std::back_inserter(removed));
+        std::set_difference(dec_b.begin(), dec_b.end(), dec_a.begin(), dec_a.end(), std::back_inserter(added));
+        std::ostringstream ret;
+        for (auto [par, chl] : removed) {
+            ret << "-T" << chl << "T" << par;
+        }
+        for (auto [par, chl] : added) {
+            ret << "+T" << chl << "T" << par;
+        }
+        return ret.str();
+    }
+
+    std::vector<uint8_t> Save() const noexcept
+    {
+        std::vector<std::pair<TxIdx, TxIdx>> vals;
+        for (DepIdx dep = 0; dep < m_dep_data.size(); ++dep) {
+            auto& dep_data = m_dep_data[dep];
+            if (dep_data.active) vals.emplace_back(dep_data.parent, dep_data.child);
+        }
+        return Encode(std::move(vals));
+    }
+
+    void Load(std::span<const uint8_t> enc) noexcept
+    {
+        for (DepIdx dep = 0; dep < m_dep_data.size(); ++dep) {
+            auto& dep_data = m_dep_data[dep];
+            if (dep_data.active) Deactivate(dep);
+        }
+        auto dec = Decode(enc);
+        for (auto [par, chl] : dec) {
+            auto& par_data = m_tx_data[par];
+            for (auto dep : std::span{par_data.child_deps}.first(par_data.child_deps_total).subspan(par_data.child_deps_active)) {
+                auto& dep_data = m_dep_data[dep];
+                assert(!dep_data.active);
+                assert(dep_data.parent == par);
+                if (dep_data.child == chl) {
+                    Activate(dep);
+                    break;
+                }
+            }
+        }
+        Requalify(m_transactions);
+    }
+
+    std::vector<std::vector<uint8_t>> GetSuccessors(bool max_q) noexcept
+    {
+        std::vector<std::vector<uint8_t>> ret;
+        std::vector<std::pair<TxIdx, TxIdx>> vals;
+        __int128 min_score = 1;
+        if (max_q) {
+            for (DepIdx dep = 0; dep < m_dep_data.size(); ++dep) {
+                auto& dep_data = m_dep_data[dep];
+                if (dep_data.active) {
+                    if (dep_data.top_gain > min_score) min_score = dep_data.top_gain;
+                }
+            }
+        }
+        for (DepIdx dep = 0; dep < m_dep_data.size(); ++dep) {
+            auto& dep_data = m_dep_data[dep];
+            if (dep_data.active) {
+                if (dep_data.top_gain >= min_score) {
+                    auto top_set = dep_data.top_setinfo.transactions;
+                    Deactivate(dep);
+                    for (DepIdx dep2 = 0; dep2 < m_dep_data.size(); ++dep2) {
+                        auto& dep2_data = m_dep_data[dep2];
+                        if (!dep2_data.active && top_set[dep2_data.child] && !top_set[dep2_data.parent]) {
+                            vals.clear();
+                            vals.emplace_back(dep2_data.parent, dep2_data.child);
+                            for (DepIdx dep3 = 0; dep3 < m_dep_data.size(); ++dep3) {
+                                auto& dep3_data = m_dep_data[dep3];
+                                if (dep3_data.active) vals.emplace_back(dep3_data.parent, dep3_data.child);
+                            }
+                            ret.push_back(Encode(std::move(vals)));
+                        }
+                    }
+                    Activate(dep);
+                }
+            }
+        }
+        return ret;
+    }
+};
+
 /** Find or improve a linearization for a cluster.
  *
  * @param[in] depgraph            Dependency graph of the cluster to be linearized.

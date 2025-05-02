@@ -5,14 +5,21 @@
 #include <bench/bench.h>
 #include <cluster_linearize.h>
 #include <hash.h>
+#include <crypto/siphash.h>
 #include <test/util/cluster_linearize.h>
 #include <util/bitset.h>
 #include <util/strencodings.h>
+
+#include <boost/multi_index/hashed_index.hpp>
+#include <boost/multi_index/indexed_by.hpp>
+#include <boost/multi_index_container.hpp>
+#include <boost/tuple/tuple.hpp>
 
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
 #include <vector>
+#include <cmath>
 
 #include <fstream>
 #include <sstream>
@@ -22,6 +29,15 @@ using namespace cluster_linearize;
 using namespace util::hex_literals;
 
 namespace {
+
+static constexpr int MIN_NTX = 8;
+static constexpr int MAX_NTX = 16;
+static constexpr int MIN_DEPS = 12;
+static constexpr int MAX_DEPS = 48;
+static constexpr int MAX_ITERS = 10000000;
+static constexpr size_t MAX_MEM = size_t{1} << 30;
+static constexpr bool MAX_Q = true;
+
 
 /** Construct a linear graph. These are pessimal for AncestorCandidateFinder, as they maximize
  *  the number of ancestor set feerate updates. The best ancestor set is always the topmost
@@ -311,6 +327,389 @@ static constexpr int NUM_LOOPS = 3;
 static constexpr int NUM_STYLES = 6;
 static const std::array<std::string, NUM_STYLES> STYLE_NAMES = {"CSS(scratch)", "CSS(optin)", "SFL(scratch)", "SFL(optin)", "GGT1", "GGT"};
 
+template<typename SetType>
+static DepGraph<SetType> GenRandomCluster(int ntx, int ndeps, int nlevels, int group_threshold, FastRandomContext& rng)
+{
+    DepGraph<SetType> ret;
+    assert(ntx >= nlevels);
+    assert(ndeps >= ntx - 1);
+    assert(ndeps <= ((ntx + 1) >> 1) * (ntx >> 1));
+    std::vector<std::pair<DepGraphIndex, DepGraphIndex>> candidate_deps;
+    std::vector<std::pair<DepGraphIndex, DepGraphIndex>> active_deps;
+    std::vector<uint32_t> order;
+    order.resize(ntx);
+    std::vector<SetType> component_map;
+    component_map.resize(ntx);
+    for (int i = 0; i < ntx; ++i) {
+        order[i] = i;
+        component_map[i] = BitSet<32>::Singleton(i);
+        int32_t size = rng.randrange<int32_t>(1000) + 100;
+        int32_t ran = sqrt(size * size * (double)ntx);
+        int32_t fee = int32_t(rng.randrange<uint32_t>(2 * ran + 1)) - ran;
+        auto tx = ret.AddTransaction(FeeFrac{fee, size});
+        assert(tx == (unsigned)i);
+    }
+    std::shuffle(order.begin(), order.end(), rng);
+    if (nlevels == 0) {
+        for (int p = 0; p < ntx; ++p) {
+            for (int c = 0; c < ntx; ++c) {
+                if (p != c) candidate_deps.emplace_back(p, c);
+            }
+        }
+    } else {
+        std::vector<std::vector<uint32_t>> by_level;
+        by_level.resize(nlevels);
+        for (int i = 0; i < nlevels; ++i) {
+            by_level[i].push_back(order[i]);
+        }
+        for (int p = nlevels; p < ntx; ++p) {
+            by_level[rng.randrange(nlevels)].push_back(order[p]);
+        }
+        for (int l = 1; l < nlevels; ++l) {
+            for (auto p : by_level[l - 1]) {
+                for (auto c : by_level[l]) {
+                    candidate_deps.emplace_back(p, c);
+                }
+            }
+        }
+    }
+    int max_size_sum = group_threshold + 2;
+    while (active_deps.size() + 1 < (size_t)ntx) {
+        bool found = false;
+        bool avail = false;
+        for (size_t pos = 0; pos < candidate_deps.size(); ++pos) {
+            size_t pick = rng.randrange(candidate_deps.size() - pos) + pos;
+            if (pick != pos) std::swap(candidate_deps[pos], candidate_deps[pick]);
+            auto [p, c] = candidate_deps[pos];
+            auto p_comp = component_map[p];
+            auto c_comp = component_map[c];
+            if (p_comp == c_comp) continue;
+            avail = true;
+            if (p_comp.Count() + c_comp.Count() > (unsigned)max_size_sum) continue;
+            ret.AddDependencies(SetType::Singleton(p), c);
+            active_deps.emplace_back(p, c);
+            SetType comp = p_comp | c_comp;
+            for (auto i : p_comp) {
+                component_map[i] = comp;
+            }
+            for (auto i : c_comp) {
+                component_map[i] = comp;
+            }
+            found = true;
+        }
+        assert(avail);
+        if (!found) ++max_size_sum;
+    }
+    while (active_deps.size() < (size_t)ndeps && !candidate_deps.empty()) {
+        size_t pick = rng.randrange(candidate_deps.size());
+        if (pick != candidate_deps.size() - 1) std::swap(candidate_deps[pick], candidate_deps.back());
+        auto [p, c] = candidate_deps.back();
+        candidate_deps.pop_back();
+        if (ret.Ancestors(c)[p]) continue;
+        if (ret.Descendants(c)[p]) continue;
+        bool bad = false;
+        for (auto [ap, ac] : active_deps) {
+            if (ret.Ancestors(p)[ap] && ret.Descendants(c)[ac]) {
+                bad = true;
+                break;
+            }
+        }
+        if (bad) continue;
+        ret.AddDependencies(SetType::Singleton(p), c);
+        active_deps.emplace_back(p, c);
+    }
+    return ret;
+}
+
+template<typename SetType>
+static void AnalyzeCycles(const DepGraph<SetType>& depgraph, FastRandomContext& rng, size_t limit, bool max_q)
+{
+    SpanningForestStateAnalyze state(depgraph);
+    size_t state_len{0};
+    std::vector<uint8_t> states;
+    state_len = 2 * (depgraph.TxCount() - 1);
+    struct Info
+    {
+        const size_t state_offset{0};
+        mutable size_t succs_offset{0};
+        mutable size_t succs_count{0};
+        mutable uint64_t index{0};
+        mutable uint64_t lowlink{0};
+        mutable int onstack{0};
+        Info() = delete;
+        Info(size_t state_offset_in) noexcept : state_offset(state_offset_in) {}
+    };
+    struct Hasher
+    {
+        size_t operator()(std::span<const uint8_t> state) const noexcept
+        {
+            return CSipHasher(0x70effc9ccb8e9d95, 0xf50fa76b1df1f33f).Write(state).Finalize();
+        }
+    };
+    struct Extractor
+    {
+        std::vector<uint8_t>& m_states;
+        size_t m_state_len;
+        using result_type = std::span<const uint8_t>;
+        result_type operator()(const Info& a) const noexcept { return std::span{m_states}.subspan(a.state_offset).first(m_state_len); }
+        Extractor(std::vector<uint8_t>& states_in, size_t state_len_in) noexcept : m_states(states_in), m_state_len(state_len_in) {}
+    };
+    struct Equality
+    {
+        bool operator()(std::span<const uint8_t> a, std::span<const uint8_t> b) const noexcept
+        {
+            return std::equal(a.begin(), a.end(), b.begin(), b.end());
+        }
+    };
+    struct Indices : boost::multi_index::indexed_by<boost::multi_index::hashed_unique<Extractor, Hasher, Equality>> {};
+    using index_type = boost::multi_index_container<Info, Indices>;
+    Extractor extractor{states, state_len};
+    index_type index(boost::make_tuple(boost::make_tuple(limit / 128, extractor, Hasher{}, Equality{})));
+    using iter_type = index_type::iterator;
+    std::vector<iter_type> succs_data;
+    uint64_t done_states{0};
+    uint64_t term_states{0};
+    std::vector<iter_type> new_stuff;
+    auto insert_fn = [&](std::span<const uint8_t> state) noexcept -> std::pair<iter_type, bool> {
+        assert(state.size() == state_len);
+        auto it = index.find(state);
+        if (it != index.end()) return {it, false};
+        auto state_offset = states.size();
+        states.insert(states.end(), state.begin(), state.end());
+        auto [it_new, added] = index.emplace(state_offset);
+        new_stuff.push_back(it_new);
+        assert(added);
+        return {it_new, true};
+    };
+    uint64_t num_fails = 0;
+    bool complete = true;
+    uint64_t starts = 0;
+    uint64_t start_attempts = 0;
+    while (true) {
+        if (new_stuff.empty()) {
+            state.LoadRandom(rng);
+            auto [it, added] = insert_fn(state.Save());
+            start_attempts += 1;
+            if (added) {
+                num_fails = 0;
+                starts += 1;
+            } else {
+                num_fails += 1;
+                if (num_fails > 1000) break;
+                continue;
+            }
+        }
+        size_t pick = rng.randrange(new_stuff.size());
+        if (pick != new_stuff.size() - 1) std::swap(new_stuff[pick], new_stuff.back());
+        auto it = new_stuff.back();
+        new_stuff.pop_back();
+        auto& info = *it;
+        state.Load(extractor(info));
+        auto succs = state.GetSuccessors(max_q);
+        done_states += 1;
+        term_states += succs.empty();
+        info.succs_offset = succs_data.size();
+        info.succs_count = succs.size();
+        for (auto& succ : succs) {
+            auto [it_succ, added_succ] = insert_fn(succ);
+            succs_data.push_back(it_succ);
+        }
+        if (index.size() * 128 + succs_data.size() * 8 > limit) {
+            complete = false;
+            break;
+        }
+    }
+
+    std::vector<iter_type> scc_stack;
+    std::vector<std::pair<iter_type, size_t>> scc_callstack;
+    uint64_t next_index{0};
+    struct SCCData {
+        size_t scc_size{0};
+        double frac{0.0};
+        iter_type loop_start;
+    };
+    SCCData found_scc;
+    found_scc.loop_start = index.end();
+    
+    size_t num_scc{0};
+    auto scc_run = [&]() noexcept {
+        auto& [v, idx] = scc_callstack.back();
+        auto succs = std::span{succs_data}.subspan(v->succs_offset).first(v->succs_count);
+        if (idx == 0) {
+            ++next_index;
+            assert(v->index == 0);
+            v->index = next_index;
+            v->lowlink = next_index;
+            scc_stack.push_back(v);
+            v->onstack = 1;
+            std::shuffle(succs.begin(), succs.end(), rng);
+        }
+        while (idx < succs.size()) {
+            auto w = succs[idx++];
+            if (w->index == 0) {
+                scc_callstack.emplace_back(w, 0);
+                return;
+            } else if (w->onstack == 1) {
+                v->lowlink = std::min(v->lowlink, w->index);
+            }
+        }
+        if (v->lowlink == v->index) {
+            std::vector<std::pair<iter_type, std::pair<double, double>>> evec;
+
+            while (true) {
+                auto w = scc_stack.back();
+                scc_stack.pop_back();
+                w->onstack = -1;
+                evec.emplace_back(w, std::pair<double, double>{1.0, 0.0});
+                if (w == v) break;
+            }
+            std::sort(evec.begin(), evec.end(), [](auto& a, auto& b) noexcept { return a.first->index < b.first->index; });
+            double inv = 1.0 / evec.size();
+            for (auto& [key, val] : evec) val.first *= inv;
+
+            double frac = 0.0;
+            for (int i = 0; i < 10; ++i) {
+                for (auto& [key, val] : evec) {
+                    auto key_succs = std::span{succs_data}.subspan(key->succs_offset).first(key->succs_count);
+                    if (key_succs.size() > 0) {
+                        double isuccs = 1.0 / key_succs.size();
+                        for (auto key_succ : key_succs) {
+                            if (key_succ->onstack == -1) {
+                                auto it = std::lower_bound(evec.begin(), evec.end(), key_succ, [](auto& a, iter_type b) noexcept { return a.first->index < b->index; });
+                                assert(it != evec.end() && it->first == key_succ);
+                                it->second.second += val.first * isuccs;
+                            }
+                        }
+                    }
+                }
+                frac = 0.0;
+                for (auto& [key, val] : evec) frac += val.second;
+                if (frac <= 0.0) break;
+                double ifrac = 1.0 / frac;
+                for (auto& [key, val] : evec) { val.first = val.second * ifrac; val.second = 0.0; }
+            }
+            if (frac > found_scc.frac) {
+                found_scc.scc_size = evec.size();
+                found_scc.frac = frac;
+                auto loop_start = evec[rng.randrange(evec.size())].first;
+                do {
+                    assert(loop_start->onstack == -1);
+                    loop_start->onstack = -2;
+                    auto succs = std::span{succs_data}.subspan(loop_start->succs_offset).first(loop_start->succs_count);
+                    assert(!succs.empty());
+                    std::shuffle(succs.begin(), succs.end(), rng);
+                    bool found = false;
+                    for (size_t pos = 0; pos < succs.size(); ++pos) {
+                        if (succs[pos]->onstack < 0) {
+                            if (pos != 0) std::swap(succs[0], succs[pos]);
+                            loop_start = succs[0];
+                            found = true;
+                            break;
+                        }
+                    }
+                    assert(found);
+                } while (loop_start->onstack != -2);
+                found_scc.loop_start = loop_start;
+            }
+            for (auto& [key, val] : evec) key->onstack = 0;
+            if (frac > 0) ++num_scc;
+        }
+        auto v_lowlink = v->lowlink;
+        scc_callstack.pop_back();
+        if (!scc_callstack.empty()) {
+            auto par_v = scc_callstack.back().first;
+            par_v->lowlink = std::min(par_v->lowlink, v_lowlink);
+        }
+    };
+    auto it = index.begin();
+    while (it != index.end()) {
+        if (it->index == 0) {
+            scc_callstack.emplace_back(it, 0);
+            while (!scc_callstack.empty()) scc_run();
+        }
+        ++it;
+    }
+    std::vector<uint8_t> ser;
+    VectorWriter writer(ser, 0);
+    writer << Using<DepGraphFormatter>(depgraph);
+    uint32_t ndeps = 0;
+    for (auto i : depgraph.Positions()) {
+        ndeps += depgraph.GetReducedParents(i).Count();
+    }
+    if (found_scc.frac > 0) {
+        std::string desc = state.Diff({}, extractor(*(found_scc.loop_start)));
+        auto it = found_scc.loop_start;
+        size_t steps = 0;
+        do {
+            assert(it->onstack == 0);
+            auto succs = std::span{succs_data}.subspan(it->succs_offset).first(it->succs_count);
+            desc += ',';
+            auto nit = succs[0];
+            desc += state.Diff(extractor(*it), extractor(*nit));
+            it = nit;
+            ++steps;
+        } while (it != found_scc.loop_start);
+        std::cerr << "*** LOOP: num_scc=" << num_scc << " worst_scc=" << found_scc.scc_size << " escape=1-" << found_scc.frac << " ntx=" << depgraph.TxCount() << " ndeps=" << ndeps << " hex=" << HexStr(ser) << " steps=" << desc << " ***\n";
+    }
+    std::cerr << "RESULT: states=" << index.size() << " terminal=" << term_states << "/" << done_states << " transitions=" << succs_data.size() << " starts=" << starts << "/" << start_attempts << " complete=" << complete << " ntx=" << depgraph.TxCount() << " ndeps=" << ndeps << " hex=" << HexStr(ser) << "\n";
+}
+
+
+static void BenchGenRandomCluster(benchmark::Bench& bench)
+{
+    DepGraph<BitSet<32>> dep;
+    FastRandomContext rng;
+    uint64_t times[MAX_NTX + 1] = {0};
+    std::map<std::tuple<int, int, int>, int> max_deps_map;
+    while (true) {
+        int ntx = 0;
+        for (int i = MIN_NTX; i <= MAX_NTX; ++i) {
+            if (ntx == 0 || times[i] < times[ntx]) ntx = i;
+        }
+        uint64_t start = rdtsc();
+        int nlevels = std::min(std::countr_zero(rng.rand64()), ntx - 1);
+        int group_threshold = std::countr_zero(rng.rand64());
+        nlevels += (nlevels > 0);
+        int min_deps = std::max(MIN_DEPS, ntx - 1);
+        int max_deps = std::min(MAX_DEPS, (ntx >> 1) * ((ntx + 1) >> 1));
+        std::tuple key{ntx, nlevels, group_threshold};
+        auto it = max_deps_map.find(key);
+        if (it != max_deps_map.end()) {
+            max_deps = std::min(max_deps, it->second);
+        }
+        min_deps = std::min(min_deps, max_deps);
+        int ndeps = rng.randrange(max_deps - min_deps + 1) + min_deps;
+        uint64_t iter = 0;
+        while (iter < MAX_ITERS) {
+            dep = GenRandomCluster<BitSet<32>>(ntx, ndeps, nlevels, group_threshold, rng);
+            auto [lin, opt, cost, tim] = Linearize(dep, 1000000000, rng.rand64());
+            auto diagram = ChunkLinearization(dep, lin);
+            if (diagram.size() == 1) break;
+            ++iter;
+        }
+        if (iter < MAX_ITERS) {
+            std::vector<uint8_t> ser;
+            VectorWriter writer(ser, 0);
+            writer << Using<DepGraphFormatter>(dep);
+            int actual_deps = 0;
+            for (auto i : dep.Positions()) {
+                actual_deps += dep.GetReducedParents(i).Count();
+            }
+            std::cerr << "BUILD: ntx=" << ntx << " nlevels=" << nlevels << " ndeps=" << actual_deps << "/" << ndeps << "[" << min_deps << ":" << max_deps << "] thresh=" << group_threshold << " tries=" << iter << " hex=" << HexStr(ser) << "\n";
+            if (actual_deps < ndeps || it != max_deps_map.end()) {
+                if (it != max_deps_map.end()) {
+                    it->second = std::max(it->second, actual_deps + 1);
+                } else {
+                    max_deps_map[key] = actual_deps + 1;
+                }
+            }
+            AnalyzeCycles(dep, rng, /*limit=*/MAX_MEM, /*max_q=*/MAX_Q);
+        }
+        uint64_t stop = rdtsc();
+        times[ntx] += stop - start;
+    };
+}
+
 static void BenchDataSet(benchmark::Bench& bench, const std::string& filename)
 {
     std::ifstream infile(filename);
@@ -533,3 +932,5 @@ BENCHMARK(BenchDataBipartite, benchmark::PriorityLevel::LOW);
 BENCHMARK(BenchDataMedium, benchmark::PriorityLevel::LOW);
 BENCHMARK(BenchDataSpanning, benchmark::PriorityLevel::LOW);
 BENCHMARK(BenchDataMix, benchmark::PriorityLevel::LOW);
+
+BENCHMARK(BenchGenRandomCluster, benchmark::PriorityLevel::LOW);
