@@ -1139,8 +1139,19 @@ static inline uint64_t rdtsc() noexcept
     return uint64_t{rdtsc_hi} << 32 | rdtsc_lo;
 }
 
+enum class LinearizeAlgorithm {
+    CSS,
+    SFL_RS,
+    SFL_QS,
+    SFL_QRS,
+    SFL_QQRS,
+    SFL_QQQRS,
+    GGT,
+    GGT1
+};
+
 /** Class to represent the internal state of the spanning-forest linearization algorithm. */
-template<typename SetType>
+template<unsigned QC, typename SetType>
 class SpanningForestState
 {
 private:
@@ -1154,8 +1165,6 @@ private:
 
     /** Structure with information about a single transaction and possibly chunk. */
     struct TxData {
-        /** The original index. */
-        DepGraphIndex original_idx;
         /** The position in the original linearization. */
         DepGraphIndex original_pos;
         /** The dependencies involving this transaction as child. All active ones (see
@@ -1187,6 +1196,8 @@ private:
         SetInfo<SetType> chunk_setinfo;
         /** Whether this transaction appears in m_suboptimal_chunks. */
         bool suboptimal{false};
+        /** Number of consecutive self-merges this chunk has experienced. */
+        uint32_t self_merges;
     };
 
     /** Structure with information about a single dependency. */
@@ -1207,6 +1218,8 @@ private:
         FeeFrac::MulType top_gain;
     };
 
+    /** The set of all transactions in the cluster. */
+    SetType m_transactions;
     /** A FIFO of chunk representatives of chunks that may be improved still. */
     VecDeque<TxIdx> m_suboptimal_chunks;
     /** Information about each transaction (and chunks). Indexed by TxIdx. */
@@ -1332,9 +1345,6 @@ private:
         child_tx_data.parent_deps_active -= 1;
         child_tx_data.active_parents.Reset(dep_data.parent);
         parent_tx_data.child_deps_active -= 1;
-        // Randomize the position dep_idx gets within the inactive dependencies.
-        SwapParentDeps(child_tx_data, dep_data.parent_pos, child_tx_data.parent_deps_active + m_rng.randrange(child_tx_data.parent_deps_total - child_tx_data.parent_deps_active));
-        SwapChildDeps(parent_tx_data, dep_data.child_pos, parent_tx_data.child_deps_active + m_rng.randrange(parent_tx_data.child_deps_total - parent_tx_data.child_deps_active));
         // Update representatives.
         auto& chunk_data = m_tx_data[parent_tx_data.chunk_rep];
         m_cost += chunk_data.chunk_setinfo.transactions.Count() * 4 + 6;
@@ -1370,48 +1380,68 @@ private:
             // Iterate over all transactions in the chunk, figuring out which other chunk each
             // depends on, but only testing each other chunk once. For those depended-on chunks,
             // remember the highest-feerate (if DownWard) or lowest-feerate (if !DownWard) one.
+            // If multiple equal-feerate candidate chunks to merge with exist, pick a uniformly
+            // random one among them (using random tiebreaker).
             SetType explored = chunk_txn;
-            std::optional<std::tuple<TxIdx, FeeFrac, TxIdx>> best;
+            FeeFrac best_other_chunk_feerate;
+            TxIdx best_other_chunk_rep = TxIdx(-1);
+            uint64_t best_other_chunk_tiebreak{0};
             for (auto tx : chunk_txn) {
                 auto& tx_data = m_tx_data[tx];
                 auto unreached = (DownWard ? tx_data.children : tx_data.parents) - explored;
                 while (unreached.Any()) {
                     auto chunk_rep = m_tx_data[unreached.First()].chunk_rep;
                     auto& reached = m_tx_data[m_tx_data[unreached.First()].chunk_rep].chunk_setinfo;
-                    if (!best.has_value() || (DownWard ? reached.feerate >> std::get<FeeFrac>(*best) :
-                                                         reached.feerate << std::get<FeeFrac>(*best))) {
-                        best = {tx, reached.feerate, chunk_rep};
-                    }
                     explored |= reached.transactions;
                     unreached -= explored;
-                    m_cost += 2;
+                    auto cmp = DownWard ? FeeRateCompare(best_other_chunk_feerate, reached.feerate)
+                                        : FeeRateCompare(reached.feerate, best_other_chunk_feerate);
+                    if (cmp > 0) continue;
+                    uint64_t tiebreak = m_rng.rand64();
+                    if ((cmp < 0) || (tiebreak >= best_other_chunk_tiebreak)) {
+                        best_other_chunk_feerate = reached.feerate;
+                        best_other_chunk_tiebreak = tiebreak;
+                        best_other_chunk_rep = chunk_rep;
+                    }
                 }
             }
             // Stop if all of the depended-on chunks have a lower/higher feerate than the chunk
             // that tx_idx is in.
-            if (!best.has_value()) break;
-            auto& best_tx_data = m_tx_data[std::get<0>(*best)];
-            m_cost += 2;
-            if (DownWard && std::get<FeeFrac>(*best) << chunk_data.chunk_setinfo.feerate) break;
-            if (!DownWard && std::get<FeeFrac>(*best) >> chunk_data.chunk_setinfo.feerate) break;
-            // Now do a second loop to determine exactly which inactive dependency is to be
-            // activated. We already know which transaction it in the current chunk it attaches
-            // to, and what chunk it depends on. By separating this out from the loop above, we
-            // have two O(num_tx) loops rather than a single O(num_deps) loop.
-            auto inactive = DownWard ? std::span{best_tx_data.child_deps}.first(best_tx_data.child_deps_total).subspan(best_tx_data.child_deps_active)
-                                     : std::span{best_tx_data.parent_deps}.first(best_tx_data.parent_deps_total).subspan(best_tx_data.parent_deps_active);
-            const auto& merge_chunk = m_tx_data[std::get<2>(*best)].chunk_setinfo.transactions;
-            bool found{false};
-            for (auto dep_idx : inactive) {
-                auto& dep_data = m_dep_data[dep_idx];
-                if (merge_chunk[DownWard ? dep_data.child : dep_data.parent]) {
-                    Activate(dep_idx);
-                    found = true;
+            if (best_other_chunk_feerate.IsEmpty()) break;
+            if (DownWard && best_other_chunk_feerate << chunk_data.chunk_setinfo.feerate) break;
+            if (!DownWard && best_other_chunk_feerate >> chunk_data.chunk_setinfo.feerate) break;
+            Assume(best_other_chunk_rep != TxIdx(-1));
+            auto& other_chunk = m_tx_data[best_other_chunk_rep];
+            // Count the number of dependencies between chunk and other_chunk.
+            TxIdx num_deps{0};
+            for (auto tx : chunk_txn) {
+                auto& tx_data = m_tx_data[tx];
+                num_deps += ((DownWard ? tx_data.children : tx_data.parents) & (other_chunk.chunk_setinfo.transactions)).Count();
+            }
+            // Uniformly randomly pick one of them.
+            TxIdx pick = m_rng.randrange(num_deps);
+            for (auto tx : chunk_txn) {
+                auto& tx_data = m_tx_data[tx];
+                auto intersect = (DownWard ? tx_data.children : tx_data.parents) & (other_chunk.chunk_setinfo.transactions);
+                auto count = intersect.Count();
+                if (pick < count) {
+                    auto inactive = DownWard ? std::span{tx_data.child_deps}.first(tx_data.child_deps_total).subspan(tx_data.child_deps_active)
+                                             : std::span{tx_data.parent_deps}.first(tx_data.parent_deps_total).subspan(tx_data.parent_deps_active);
+                    for (auto dep : inactive) {
+                        auto& dep_data = m_dep_data[dep];
+                        if (other_chunk.chunk_setinfo.transactions[DownWard ? dep_data.child : dep_data.parent]) {
+                            if (pick == 0) {
+                                Activate(dep);
+                                break;
+                            }
+                            --pick;
+                        }
+                    }
                     break;
                 }
-                m_cost += 1;
+                pick -= count;
             }
-            Assume(found);
+            Assume(pick == 0);
             ++ret;
         }
         return ret;
@@ -1442,11 +1472,21 @@ private:
     {
         auto& dep_data = m_dep_data[dep_idx];
         Assume(dep_data.active);
+        auto old_chunk_rep = m_tx_data[dep_data.parent].chunk_rep;
+        auto self_merges = m_tx_data[old_chunk_rep].self_merges;
         Deactivate(dep_idx);
         MergeSequence<false>(dep_data.parent);
         MergeSequence<true>(dep_data.child);
-        auto requalify = m_tx_data[m_tx_data[dep_data.parent].chunk_rep].chunk_setinfo.transactions |
-                         m_tx_data[m_tx_data[dep_data.child].chunk_rep].chunk_setinfo.transactions;
+        auto new_par_chunk_rep = m_tx_data[dep_data.parent].chunk_rep;
+        auto new_chl_chunk_rep = m_tx_data[dep_data.child].chunk_rep;
+        if (new_par_chunk_rep == new_chl_chunk_rep) {
+            m_tx_data[new_par_chunk_rep].self_merges = self_merges + 1;
+        } else {
+            m_tx_data[new_par_chunk_rep].self_merges = 0;
+            m_tx_data[new_chl_chunk_rep].self_merges = 0;
+        }
+        auto requalify = m_tx_data[new_par_chunk_rep].chunk_setinfo.transactions |
+                         m_tx_data[new_chl_chunk_rep].chunk_setinfo.transactions;
         Requalify(requalify);
     }
 
@@ -1456,64 +1496,53 @@ public:
      *  LoadLinearization() or LoadRandom. */
     explicit SpanningForestState(const DepGraph<SetType>& depgraph, uint64_t rng_seed, std::span<const DepGraphIndex> old_linearization = {}) noexcept : m_rng(rng_seed)
     {
-        std::vector<TxIdx> old_to_new(depgraph.PositionRange());
-        std::vector<DepGraphIndex> new_to_old;
-        new_to_old.reserve(depgraph.TxCount());
-        for (auto i : depgraph.Positions()) new_to_old.push_back(i);
-        std::shuffle(new_to_old.begin(), new_to_old.end(), m_rng);
-        TxIdx num_transactions = 0;
-        for (auto i : new_to_old) {
-            old_to_new[i] = num_transactions++;
-        }
-        m_cost = 100 + 40 * old_to_new.size();
+        m_transactions = depgraph.Positions();
+        auto num_transactions = m_transactions.Count();
+        m_cost = 100 + 40 * num_transactions;
         // If no existing linearization is provided, construct a randomized topological ordering.
         std::vector<DepGraphIndex> load_order;
         if (old_linearization.empty()) {
-            load_order = new_to_old;
+            load_order.reserve(m_transactions.Count());
+            for (auto i : m_transactions) load_order.push_back(i);
             std::shuffle(load_order.begin(), load_order.end(), m_rng);
             std::sort(load_order.begin(), load_order.end(), [&](TxIdx a, TxIdx b) noexcept { return depgraph.Ancestors(a).Count() < depgraph.Ancestors(b).Count(); });
             old_linearization = std::span{load_order};
         }
         // Add transactions one by one, in order of existing linearization.
-        m_tx_data.resize(num_transactions);
+        m_tx_data.resize(depgraph.PositionRange());
         m_dep_data.reserve(((num_transactions + 1) / 2) * (num_transactions / 2));
         DepGraphIndex num_done = 0;
-        for (DepGraphIndex old_tx : old_linearization) {
-            auto new_tx = old_to_new[old_tx];
+        for (DepGraphIndex tx : old_linearization) {
             // Fill in transaction data.
-            auto& tx_data = m_tx_data[new_tx];
-            tx_data.original_idx = old_tx;
+            auto& tx_data = m_tx_data[tx];
             tx_data.original_pos = num_done++;
-            tx_data.chunk_rep = new_tx;
-            tx_data.chunk_setinfo.transactions = SetType::Singleton(new_tx);
-            tx_data.chunk_setinfo.feerate = depgraph.FeeRate(old_tx);
+            tx_data.chunk_rep = tx;
+            tx_data.chunk_setinfo.transactions = SetType::Singleton(tx);
+            tx_data.chunk_setinfo.feerate = depgraph.FeeRate(tx);
+            tx_data.self_merges = 0;
             // Add its dependencies.
-            SetType old_parents = depgraph.GetReducedParents(old_tx);
-            for (auto old_par : old_parents) {
-                auto new_par = old_to_new[old_par];
-                auto& par_tx_data = m_tx_data[new_par];
+            SetType parents = depgraph.GetReducedParents(tx);
+            for (auto par : parents) {
+                auto& par_tx_data = m_tx_data[par];
                 auto dep_idx = m_dep_data.size();
                 // Construct new dependency.
                 auto& dep = m_dep_data.emplace_back();
                 dep.active = false;
-                dep.parent = new_par;
-                dep.child = new_tx;
+                dep.parent = par;
+                dep.child = tx;
                 // Add it as parent of the child.
                 dep.parent_pos = tx_data.parent_deps_total;
                 tx_data.parent_deps[tx_data.parent_deps_total++] = dep_idx;
-                tx_data.parents.Set(new_par);
+                tx_data.parents.Set(par);
                 // Add it as child of the parent.
                 dep.child_pos = par_tx_data.child_deps_total;
                 par_tx_data.child_deps[par_tx_data.child_deps_total++] = dep_idx;
-                par_tx_data.children.Set(new_tx);
-                // Move to random position within the inactive dependencies of each.
-                SwapParentDeps(tx_data, tx_data.parent_deps_active + m_rng.randrange(tx_data.parent_deps_total - tx_data.parent_deps_active), tx_data.parent_deps_total - 1);
-                SwapChildDeps(par_tx_data, par_tx_data.child_deps_active + m_rng.randrange(par_tx_data.child_deps_total - par_tx_data.child_deps_active), par_tx_data.child_deps_total - 1);
+                par_tx_data.children.Set(tx);
             }
             // Start a merge sequence on the new transaction to make the graph topological.
-            MergeSequence<false>(new_tx);
+            MergeSequence<false>(tx);
         }
-        Requalify(SetType::Fill(num_transactions));
+        Requalify(m_transactions);
         for (TxIdx i = 0; i < m_suboptimal_chunks.size(); ++i) {
             TxIdx j = i + m_rng.randrange<TxIdx>(m_suboptimal_chunks.size() - i);
             if (i != j) std::swap(m_suboptimal_chunks[i], m_suboptimal_chunks[j]);
@@ -1528,24 +1557,36 @@ public:
             TxIdx chunk = m_suboptimal_chunks.front();
             m_suboptimal_chunks.pop_front();
             auto& chunk_data = m_tx_data[chunk];
+            const bool use_max_q = (QC >= 100) ? true : ((chunk_data.self_merges % (QC+1)) < QC);
             chunk_data.suboptimal = false;
             if (chunk_data.chunk_rep != chunk) continue;
             // Find the active dependency with the highest top_gain.
-            std::optional<std::pair<FeeFrac::MulType, DepIdx>> best;
+            FeeFrac::MulType best_gain = {};
+            DepIdx best = DepIdx(-1);
+            uint64_t best_tiebreak{0};
             for (auto tx : chunk_data.chunk_setinfo.transactions) {
                 const auto& tx_data = m_tx_data[tx];
                 const auto active_children = std::span{tx_data.child_deps}.first(tx_data.child_deps_active);
                 for (DepIdx dep_idx : active_children) {
                     const auto& dep_data = m_dep_data[dep_idx];
                     Assume(dep_data.active);
-                    if (!best.has_value() || dep_data.top_gain > best->first) {
-                        best = {dep_data.top_gain, dep_idx};
+                    if (use_max_q) {
+                        if (dep_data.top_gain < best_gain) continue;
+                    } else {
+                        if (dep_data.top_gain <= 0) continue;
+                    }
+                    uint64_t tiebreak = m_rng.rand64();
+                    if ((use_max_q && dep_data.top_gain > best_gain) || tiebreak >= best_tiebreak) {
+                        best_tiebreak = tiebreak;
+                        best = dep_idx;
+                        best_gain = dep_data.top_gain;
                     }
                 }
                 m_cost += active_children.size();
             }
-            if (best.has_value() && best->first > 0) {
-                Improve(best->second);
+            if (best_gain > 0) {
+                Assume(best != DepIdx(-1));
+                Improve(best);
             }
             return true;
         }
@@ -1565,7 +1606,7 @@ public:
         /** The set of all chunk representatives. */
         SetType chunk_reps;
         // Populate chunk_deps[c] with the number of out-of-chunk dependencies the chunk has.
-        for (TxIdx chl_idx = 0; chl_idx < m_tx_data.size(); ++chl_idx) {
+        for (TxIdx chl_idx : m_transactions) {
             const auto& chl_data = m_tx_data[chl_idx];
             auto chl_chunk_rep = chl_data.chunk_rep;
             chunk_reps.Set(chl_chunk_rep);
@@ -1623,11 +1664,7 @@ public:
                 return m_tx_data[a].original_pos < m_tx_data[b].original_pos;
             });
         }
-        Assume(ret.size() == m_tx_data.size());
-        // Convert to DepGraphIndexes.
-        for (auto& val : ret) {
-            val = m_tx_data[val].original_idx;
-        }
+        Assume(ret.size() == m_transactions.Count());
         return ret;
     }
 
@@ -2037,10 +2074,10 @@ public:
  *
  * Complexity: possibly somewhere between O(N^4) and O(N^6), where N=depgraph.TxCount().
  */
-template<typename SetType>
+template<unsigned QC, typename SetType>
 std::tuple<std::vector<DepGraphIndex>, bool, uint64_t, uint64_t> SFLLinearize(const DepGraph<SetType>& depgraph, uint64_t max_iterations, uint64_t rng_seed, std::span<const DepGraphIndex> old_linearization = {}) noexcept
 {
-    SpanningForestState forest(depgraph, rng_seed, old_linearization);
+    SpanningForestState<QC, SetType> forest(depgraph, rng_seed, old_linearization);
     bool optimal{false};
     uint64_t cost{0};
     while (true) {
@@ -2436,7 +2473,7 @@ public:
     }
 
     template<bool Reverse>
-    std::pair<SetType, SetType> GetCut() noexcept
+        std::pair<SetType, SetType> GetCut() noexcept
     {
         auto sink_side = FullRelabel<Reverse>();
         auto source_side = m_current_group - sink_side;
@@ -2678,37 +2715,51 @@ std::tuple<std::vector<DepGraphIndex>, bool, uint64_t> GGT1Linearize(const DepGr
     return {std::move(lin), state.MayBeOptimal(), state.GetCost()};
 }
 
-enum class LinearizeAlgorithm {
-    CSS,
-    SFL,
-    GGT,
-    GGT1
-};
 
 template<typename SetType>
-std::tuple<std::vector<DepGraphIndex>, bool, uint64_t, uint64_t> Linearize(const DepGraph<SetType>& depgraph, uint64_t max_iterations, uint64_t rng_seed, std::span<const DepGraphIndex> old_linearization = {}, LinearizeAlgorithm linalg = LinearizeAlgorithm::SFL) noexcept
+std::tuple<std::vector<DepGraphIndex>, bool, uint64_t, uint64_t> Linearize(const DepGraph<SetType>& depgraph, uint64_t max_iterations, uint64_t rng_seed, std::span<const DepGraphIndex> old_linearization = {}, LinearizeAlgorithm linalg = LinearizeAlgorithm::SFL_QRS) noexcept
 {
-    auto start = rdtsc();
+    auto start = std::chrono::high_resolution_clock::now();
     switch (linalg) {
     case LinearizeAlgorithm::CSS: {
         auto [lin, opt, cost] = CSSLinearize(depgraph, max_iterations, rng_seed, old_linearization);
-        auto stop = rdtsc();
-        return {std::move(lin), opt, cost, stop - start};
+        auto stop = std::chrono::high_resolution_clock::now();
+        return {std::move(lin), opt, cost, std::chrono::nanoseconds(stop - start).count()};
     }
-    case LinearizeAlgorithm::SFL: {
-        auto [lin, opt, cost, tim] = SFLLinearize(depgraph, max_iterations, rng_seed, old_linearization);
-        auto stop = rdtsc();
-        return {std::move(lin), opt, cost, stop - start};
+    case LinearizeAlgorithm::SFL_RS: {
+        auto [lin, opt, cost, tim] = SFLLinearize<0>(depgraph, max_iterations, rng_seed, old_linearization);
+        auto stop = std::chrono::high_resolution_clock::now();
+        return {std::move(lin), opt, cost, std::chrono::nanoseconds(stop - start).count()};
+    }
+    case LinearizeAlgorithm::SFL_QS: {
+        auto [lin, opt, cost, tim] = SFLLinearize<255>(depgraph, max_iterations, rng_seed, old_linearization);
+        auto stop = std::chrono::high_resolution_clock::now();
+        return {std::move(lin), opt, cost, std::chrono::nanoseconds(stop - start).count()};
+    }
+    case LinearizeAlgorithm::SFL_QRS: {
+        auto [lin, opt, cost, tim] = SFLLinearize<1>(depgraph, max_iterations, rng_seed, old_linearization);
+        auto stop = std::chrono::high_resolution_clock::now();
+        return {std::move(lin), opt, cost, std::chrono::nanoseconds(stop - start).count()};
+    }
+    case LinearizeAlgorithm::SFL_QQRS: {
+        auto [lin, opt, cost, tim] = SFLLinearize<2>(depgraph, max_iterations, rng_seed, old_linearization);
+        auto stop = std::chrono::high_resolution_clock::now();
+        return {std::move(lin), opt, cost, std::chrono::nanoseconds(stop - start).count()};
+    }
+    case LinearizeAlgorithm::SFL_QQQRS: {
+        auto [lin, opt, cost, tim] = SFLLinearize<3>(depgraph, max_iterations, rng_seed, old_linearization);
+        auto stop = std::chrono::high_resolution_clock::now();
+        return {std::move(lin), opt, cost, std::chrono::nanoseconds(stop - start).count()};
     }
     case LinearizeAlgorithm::GGT: {
         auto [lin, opt, cost] = GGTLinearize(depgraph, rng_seed);
-        auto stop = rdtsc();
-        return {std::move(lin), opt, cost, stop - start};
+        auto stop = std::chrono::high_resolution_clock::now();
+        return {std::move(lin), opt, cost, std::chrono::nanoseconds(stop - start).count()};
     }
     case LinearizeAlgorithm::GGT1: {
         auto [lin, opt, cost] = GGT1Linearize(depgraph, rng_seed);
-        auto stop = rdtsc();
-        return {std::move(lin), opt, cost, stop - start};
+        auto stop = std::chrono::high_resolution_clock::now();
+        return {std::move(lin), opt, cost, std::chrono::nanoseconds(stop - start).count()};
     }
     }
     return {{}, false, 0, 0};

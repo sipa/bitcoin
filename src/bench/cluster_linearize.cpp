@@ -321,12 +321,6 @@ BENCHMARK(LinearizeOptimallyExample17, benchmark::PriorityLevel::HIGH);
 BENCHMARK(LinearizeOptimallyExample18, benchmark::PriorityLevel::HIGH);
 BENCHMARK(LinearizeOptimallyExample19, benchmark::PriorityLevel::HIGH);
 
-static constexpr int NUM_SEEDS = 100;
-static constexpr int NUM_MEDS = 13;
-static constexpr int NUM_LOOPS = 3;
-static constexpr int NUM_STYLES = 6;
-static const std::array<std::string, NUM_STYLES> STYLE_NAMES = {"CSS(scratch)", "CSS(optin)", "SFL(scratch)", "SFL(optin)", "GGT1", "GGT"};
-
 template<typename SetType>
 static DepGraph<SetType> GenRandomCluster(int ntx, int ndeps, int nlevels, int group_threshold, FastRandomContext& rng)
 {
@@ -710,6 +704,13 @@ static void BenchGenRandomCluster(benchmark::Bench& bench)
     };
 }
 
+static constexpr int NUM_SEEDS = 100;
+static constexpr int NUM_MEDS = 13;
+static constexpr int NUM_LOOPS = 3;
+static constexpr int NUM_STYLES = 6;
+static const std::array<std::string, NUM_STYLES> STYLE_NAMES = {"SFL(RS)", "SFL(QRS)", "SFL(QQRS)", "SFL(QQQRS)", "SFL(QS)", "GGT"};
+
+
 static void BenchDataSet(benchmark::Bench& bench, const std::string& filename)
 {
     std::ifstream infile(filename);
@@ -793,7 +794,8 @@ static void BenchDataSet(benchmark::Bench& bench, const std::string& filename)
         SpanReader reader(serdata);
         reader >> Using<DepGraphFormatter>(depgraph);
         unsigned ntx = depgraph.TxCount();
-        if (ntx < 2 || ntx > 25) continue;
+//        if (ntx < 2 || ntx > 25) continue;
+        if (ntx < 26) continue;
         entrys.clear();
         for (int i = 0; i < NUM_LOOPS * NUM_SEEDS; ++i) {
             optins[i].clear();
@@ -804,7 +806,7 @@ static void BenchDataSet(benchmark::Bench& bench, const std::string& filename)
             std::shuffle(optins[i].begin(), optins[i].end(), rng);
             FixLinearization(depgraph, optins[i]);
             PostLinearize(depgraph, optins[i]);
-            optins[i] = std::get<0>(Linearize(depgraph, 1000000000, rng.rand64(), optins[i], LinearizeAlgorithm::SFL));
+            optins[i] = std::get<0>(Linearize(depgraph, 1000000000, rng.rand64(), optins[i]));
             PostLinearize(depgraph, optins[i]);
             uint64_t rng_seed = rng.rand64();
             for (int m = 0; m < NUM_MEDS; ++m) {
@@ -823,31 +825,31 @@ static void BenchDataSet(benchmark::Bench& bench, const std::string& filename)
         for (auto& entry : entrys) {
             switch (entry.style) {
                 case 0: {
-                    auto [lin, opt, cost, tim] = Linearize(depgraph, 1000000000, entry.rng_seed, {}, LinearizeAlgorithm::CSS);
+                    auto [lin, opt, cost, tim] = Linearize(depgraph, 1000000000, entry.rng_seed, {}, LinearizeAlgorithm::SFL_RS);
                     entry.ns = tim;
                     entry.cost = cost;
                     break;
                 }
                 case 1: {
-                    auto [lin, opt, cost, tim] = Linearize(depgraph, 1000000000, entry.rng_seed, entry.optin, LinearizeAlgorithm::CSS);
+                    auto [lin, opt, cost, tim] = Linearize(depgraph, 1000000000, entry.rng_seed, {}, LinearizeAlgorithm::SFL_QRS);
                     entry.ns = tim;
                     entry.cost = cost;
                     break;
                 }
                 case 2: {
-                    auto [lin, opt, cost, tim] = Linearize(depgraph, 1000000000, entry.rng_seed, {}, LinearizeAlgorithm::SFL);
+                    auto [lin, opt, cost, tim] = Linearize(depgraph, 1000000000, entry.rng_seed, {}, LinearizeAlgorithm::SFL_QQRS);
                     entry.ns = tim;
                     entry.cost = cost;
                     break;
                 }
                 case 3: {
-                    auto [lin, opt, cost, tim] = Linearize(depgraph, 1000000000, entry.rng_seed, entry.optin, LinearizeAlgorithm::SFL);
+                    auto [lin, opt, cost, tim] = Linearize(depgraph, 1000000000, entry.rng_seed, {}, LinearizeAlgorithm::SFL_QQQRS);
                     entry.ns = tim;
                     entry.cost = cost;
                     break;
                 }
                 case 4: {
-                    auto [lin, opt, cost, tim] = Linearize(depgraph, 1000000000, entry.rng_seed, {}, LinearizeAlgorithm::GGT1);
+                    auto [lin, opt, cost, tim] = Linearize(depgraph, 1000000000, entry.rng_seed, {}, LinearizeAlgorithm::SFL_QS);
                     entry.ns = tim;
                     entry.cost = cost;
                     break;
