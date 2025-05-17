@@ -735,8 +735,8 @@ private:
     /** Information about each dependency. Indexed by DepIdx. */
     std::vector<DepData> m_dep_data;
 
-    /** The number of activations/deactivations performed. */
-    uint64_t m_operations{0};
+    /** A metric for predicting the runtime of the algorithm. */
+    uint64_t m_cost{0};
 
     /** Walk a chunk, starting from transaction start. visit_tx(idx) is called for each encountered
      *  transaction. visit_dep_down(dep) is called for each encountered dependency that is traversed
@@ -814,6 +814,7 @@ private:
         auto bottom_part = chl_chunk_data.chunk_setinfo;
         // Update the parent chunk to also contain the child.
         par_chunk_data.chunk_setinfo |= bottom_part;
+        m_cost += par_chunk_data.chunk_setinfo.transactions.Count() * 54 + 52;
         // Add bottom component to top transactions.
         Walk(dep_data.parent,
              [](TxData&) noexcept {},
@@ -829,7 +830,6 @@ private:
         Assume(child_tx_data.parent_deps_active <= child_tx_data.parent_deps_total);
         parent_tx_data.child_deps_active += 1;
         Assume(parent_tx_data.child_deps_active <= parent_tx_data.child_deps_total);
-        ++m_operations;
         return top_rep;
     }
 
@@ -851,6 +851,7 @@ private:
         parent_tx_data.child_deps_active -= 1;
         // Update representatives.
         auto& chunk_data = m_tx_data[parent_tx_data.chunk_rep];
+        m_cost += chunk_data.chunk_setinfo.transactions.Count() * 52 + 126;
         auto top_part = dep_data.top_setinfo;
         auto bottom_part = chunk_data.chunk_setinfo - top_part;
         chunk_data.chunk_setinfo = top_part;
@@ -870,7 +871,6 @@ private:
         Walk(dep_data.child,
              [&](TxData& txdata) noexcept { txdata.chunk_rep = bottom_rep; },
              [&](DepData& depdata) noexcept { depdata.top_setinfo -= top_part; });
-        ++m_operations;
     }
 
     /** Perform an upward or downward merge sequence on the specified transaction. Returns the
@@ -892,10 +892,12 @@ private:
             FeeFrac best_other_chunk_feerate;
             TxIdx best_other_chunk_rep = TxIdx(-1);
             uint64_t best_other_chunk_tiebreak{0};
+            m_cost += 179;
             for (auto tx : chunk_txn) {
                 auto& tx_data = m_tx_data[tx];
                 auto unreached = (DownWard ? tx_data.children : tx_data.parents) - explored;
                 while (unreached.Any()) {
+                    m_cost += 42;
                     auto chunk_rep = m_tx_data[unreached.First()].chunk_rep;
                     auto& reached = m_tx_data[m_tx_data[unreached.First()].chunk_rep].chunk_setinfo;
                     explored |= reached.transactions;
@@ -924,16 +926,19 @@ private:
                 auto& tx_data = m_tx_data[tx];
                 num_deps += ((DownWard ? tx_data.children : tx_data.parents) & (other_chunk.chunk_setinfo.transactions)).Count();
             }
+            m_cost += chunk_txn.Count() * 10 + 34;
             // Uniformly randomly pick one of them and activate it.
             TxIdx pick = m_rng.randrange(num_deps);
             for (auto tx : chunk_txn) {
                 auto& tx_data = m_tx_data[tx];
                 auto intersect = (DownWard ? tx_data.children : tx_data.parents) & (other_chunk.chunk_setinfo.transactions);
                 auto count = intersect.Count();
+                m_cost += 67;
                 if (pick < count) {
                     auto inactive = DownWard ? std::span{tx_data.child_deps}.first(tx_data.child_deps_total).subspan(tx_data.child_deps_active)
                                              : std::span{tx_data.parent_deps}.first(tx_data.parent_deps_total).subspan(tx_data.parent_deps_active);
                     for (auto dep : inactive) {
+                        m_cost += 20;
                         auto& dep_data = m_dep_data[dep];
                         if (other_chunk.chunk_setinfo.transactions[DownWard ? dep_data.child : dep_data.parent]) {
                             if (pick == 0) {
@@ -991,6 +996,7 @@ public:
     explicit SpanningForestState(const DepGraph<SetType>& depgraph, uint64_t rng_seed, std::span<const DepGraphIndex> old_linearization = {}) noexcept : m_rng(rng_seed)
     {
         m_transactions = depgraph.Positions();
+        m_cost = 0;
         auto num_transactions = m_transactions.Count();
         // If no existing linearization is provided, construct a randomized topological ordering.
         std::vector<DepGraphIndex> load_order;
@@ -1039,12 +1045,15 @@ public:
             TxIdx j = i + m_rng.randrange<TxIdx>(m_suboptimal_chunks.size() - i);
             if (i != j) std::swap(m_suboptimal_chunks[i], m_suboptimal_chunks[j]);
         }
+        m_cost += 605 + 134 * m_dep_data.size() + 200 * num_transactions;
+        m_cost += 510 + 67 * m_dep_data.size() + 224 * num_transactions;
     }
 
     /** Try to improve the forest. Returns false if it is optimal, true otherwise. */
     bool Step() noexcept
     {
         while (true) {
+            m_cost += 111;
             // If the queue of potentially-suboptimal chunks is empty, we are done.
             if (m_suboptimal_chunks.empty()) return false;
             // Pop an entry from the potentially-suboptimal chunk queue.
@@ -1091,6 +1100,7 @@ public:
                         best_gain = gain;
                     }
                 }
+                m_cost += 55 * active_children.size();
             }
             // If the remembered dependency has positive gain, activate it.
             if (best_gain > FeeFrac::MUL_ZERO) {
@@ -1180,7 +1190,7 @@ public:
     }
 
     /** Determine how much work was performed so far. */
-    uint64_t GetOperations() const noexcept { return m_operations; }
+    uint64_t GetCost() const noexcept { return m_cost; }
 };
 
 /** Find or improve a linearization for a cluster.
@@ -1202,14 +1212,14 @@ template<typename SetType>
 std::pair<std::vector<DepGraphIndex>, bool> Linearize(const DepGraph<SetType>& depgraph, uint64_t max_iterations, uint64_t rng_seed, std::span<const DepGraphIndex> old_linearization = {}) noexcept
 {
     bool optimal{false};
-    uint64_t ops{0};
+    uint64_t cost{0};
     // Initialize a spanning forest data structure for this cluster.
     SpanningForestState forest(depgraph, rng_seed, old_linearization);
     // Make improvement steps to it until we hit the max_iterations limit, or an optimal result
     // is found.
     while (true) {
-        ops = forest.GetOperations();
-        if (ops > max_iterations) break;
+        cost = forest.GetCost();
+        if (cost > max_iterations) break;
         if (!forest.Step()) {
             optimal = true;
             break;

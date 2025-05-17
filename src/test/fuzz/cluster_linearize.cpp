@@ -809,7 +809,7 @@ FUZZ_TARGET(clusterlin_linearize)
     }
 
     // Invoke Linearize().
-    iter_count &= 0x7ffff;
+    iter_count &= 0x7fffff;
     auto [linearization, optimal] = Linearize(depgraph, iter_count, rng_seed, old_linearization);
     SanityCheck(depgraph, linearization);
     auto chunking = ChunkLinearization(depgraph, linearization);
@@ -827,7 +827,7 @@ FUZZ_TARGET(clusterlin_linearize)
     // just a conservative overestimate based on observed cases, but if it is exceeded, the
     // numbers can safely be adjusted to account for that.
     const uint64_t n = depgraph.TxCount();
-    if (iter_count >= n * n) {
+    if (iter_count >= 2000 + 1000 * n * n) {
         assert(optimal);
     }
 
