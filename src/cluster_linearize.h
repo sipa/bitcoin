@@ -661,7 +661,7 @@ private:
     /** Data type to represent indexing into m_tx_data. */
     using TxIdx = uint32_t;
     /** Data type to represent indexing into m_dep_data. */
-    using DepIdx = uint32_t;
+    using DepIdx = std::conditional_t<(SetType::Size() <= 32), uint8_t, std::conditional_t<(SetType::Size() <= 512), uint16_t, uint32_t>>;
 
     /** Structure with information about a single transaction. For transactions that are the
      *  representative for the chunk they are in, this also stores chunk information. */
@@ -669,9 +669,13 @@ private:
         /** The position in the input/original linearization. Immutable after construction. */
         DepGraphIndex original_pos;
         /** The dependencies to parents of this transaction. Immutable after construction. */
-        std::vector<DepIdx> parent_deps;
+        std::array<DepIdx, SetType::Size() - 1> parent_deps;
+        /** The number of parents of this transaction. Immutable after construction. */
+        TxIdx parent_deps_total{0};
         /** The dependencies to children of this transaction. Immutable after construction. */
-        std::vector<DepIdx> child_deps;
+        std::array<DepIdx, SetType::Size() - 1> child_deps;
+        /** The number of children of this transaction. Immutable after construction. */
+        TxIdx child_deps_total{0};
         /** The set of parent transactions of this transaction. Immutable after construction. */
         SetType parents;
         /** The set of child transactions of this transaction. Immutable after construction. */
@@ -727,7 +731,7 @@ private:
                 todo |= tx_data.active_parents;
                 todo -= done;
                 // Iterate over all its active child dependencies.
-                auto child_deps = std::span{tx_data.child_deps};
+                auto child_deps = std::span{tx_data.child_deps}.first(tx_data.child_deps_total);
                 for (auto dep_idx : child_deps) {
                     auto& dep_entry = m_dep_data[dep_idx];
                     Assume(dep_entry.parent == tx_idx);
@@ -859,7 +863,8 @@ private:
             for (auto tx : chunk_txn) {
                 auto& tx_data = m_tx_data[tx];
                 if ((DownWard ? tx_data.children : tx_data.parents).Overlaps(other_chunk.chunk_setinfo.transactions)) {
-                    auto deps = DownWard ? std::span{tx_data.child_deps} : std::span{tx_data.parent_deps};
+                    auto deps = DownWard ? std::span{tx_data.child_deps}.first(tx_data.child_deps_total)
+                                         : std::span{tx_data.parent_deps}.first(tx_data.parent_deps_total);
                     for (auto dep : deps) {
                         auto& dep_data = m_dep_data[dep];
                         if (other_chunk.chunk_setinfo.transactions[DownWard ? dep_data.child : dep_data.parent]) {
@@ -927,10 +932,10 @@ public:
                 dep.parent = par;
                 dep.child = tx;
                 // Add it as parent of the child.
-                tx_data.parent_deps.push_back(dep_idx);
+                tx_data.parent_deps[tx_data.parent_deps_total++] = dep_idx;
                 tx_data.parents.Set(par);
                 // Add it as child of the parent.
-                par_tx_data.child_deps.push_back(dep_idx);
+                par_tx_data.child_deps[par_tx_data.child_deps_total++] = dep_idx;
                 par_tx_data.children.Set(tx);
             }
             // Start a merge sequence on the new transaction to make the graph topological.
@@ -949,11 +954,11 @@ public:
             // Remember the best dependency seen so far, together with its gain.
             DepIdx best = DepIdx(-1);
             FeeFrac::MulType best_gain = FeeFrac::MUL_ZERO;
-            // Iterate over all transactions.
+            // Iterate over all transactions in the chunk.
             for (auto tx : chunk_data.chunk_setinfo.transactions) {
                 const auto& tx_data = m_tx_data[tx];
                 // Iterate over all active child dependencies of the transaction.
-                const auto children = std::span{tx_data.child_deps};
+                const auto children = std::span{tx_data.child_deps}.first(tx_data.child_deps_total);
                 for (DepIdx dep_idx : children) {
                     const auto& dep_data = m_dep_data[dep_idx];
                     if (!dep_data.active) continue;
@@ -967,7 +972,6 @@ public:
             }
             // If the remembered dependency has positive gain, activate it.
             if (best_gain > FeeFrac::MUL_ZERO) {
-                Assume(best != DepIdx(-1));
                 Improve(best);
                 return true;
             }
