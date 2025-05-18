@@ -17,6 +17,9 @@
 #include <util/feefrac.h>
 #include <util/vecdeque.h>
 
+#include <x86intrin.h>
+#include <iostream>
+
 namespace cluster_linearize {
 
 /** Data type to represent transaction indices in DepGraphs and the clusters they represent. */
@@ -554,6 +557,37 @@ public:
         return subset;
     }
 };
+
+class Tracer
+{
+    std::vector<std::pair<int, int64_t>> records;
+
+public:
+    void Add(int param, int64_t time) noexcept { records.emplace_back(param, time); }
+
+    ~Tracer() noexcept
+    {
+        std::sort(records.begin(), records.end());
+        auto it = records.begin();
+        while (it != records.end()) {
+            auto it_end = it;
+            ++it_end;
+            while (it_end != records.end() && it_end->first == it->first) ++it_end;
+            std::cerr << "TRACE " << it->first << " (" << (it_end - it) << " records):";
+            for (int q = 1; q <= 20; ++q) {
+                size_t off = (it_end - it) >> q;
+                if (off < 2) break;
+                std::cerr << " " << q << "=" << (it_end - 1 - off)->second;
+            }
+            std::cerr << "\n";
+            it = it_end;
+        }
+    }
+
+};
+
+static Tracer g_tracer;
+
 
 /** Class to represent the internal state of the spanning-forest linearization algorithm.
  *

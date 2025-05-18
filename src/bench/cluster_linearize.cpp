@@ -12,6 +12,7 @@
 #include <cassert>
 #include <cstdint>
 #include <vector>
+#include <cmath>
 
 using namespace cluster_linearize;
 using namespace util::hex_literals;
@@ -101,6 +102,100 @@ void BenchLinearizeOptimally(benchmark::Bench& bench, const std::vector<uint8_t>
     }
 }
 
+template<typename SetType>
+static DepGraph<SetType> GenRandomCluster(int ntx, int ndeps, int nlevels, int group_threshold, FastRandomContext& rng)
+{
+    DepGraph<SetType> ret;
+    assert(ntx >= nlevels);
+    assert(ndeps >= ntx - 1);
+    assert(ndeps <= ((ntx + 1) >> 1) * (ntx >> 1));
+    std::vector<std::pair<DepGraphIndex, DepGraphIndex>> candidate_deps;
+    std::vector<std::pair<DepGraphIndex, DepGraphIndex>> active_deps;
+    std::vector<uint32_t> order;
+    order.resize(ntx);
+    std::vector<SetType> component_map;
+    component_map.resize(ntx);
+    for (int i = 0; i < ntx; ++i) {
+        order[i] = i;
+        component_map[i] = SetType::Singleton(i);
+        int32_t size = rng.randrange<int32_t>(1000) + 100;
+        int32_t ran = sqrt(size * size * (double)ntx);
+        int32_t fee = int32_t(rng.randrange<uint32_t>(2 * ran + 1)) - ran;
+        auto tx = ret.AddTransaction(FeeFrac{fee, size});
+        assert(tx == (unsigned)i);
+    }
+    std::shuffle(order.begin(), order.end(), rng);
+    if (nlevels == 0) {
+        for (int p = 0; p < ntx; ++p) {
+            for (int c = 0; c < ntx; ++c) {
+                if (p != c) candidate_deps.emplace_back(p, c);
+            }
+        }
+    } else {
+        std::vector<std::vector<uint32_t>> by_level;
+        by_level.resize(nlevels);
+        for (int i = 0; i < nlevels; ++i) {
+            by_level[i].push_back(order[i]);
+        }
+        for (int p = nlevels; p < ntx; ++p) {
+            by_level[rng.randrange(nlevels)].push_back(order[p]);
+        }
+        for (int l = 1; l < nlevels; ++l) {
+            for (auto p : by_level[l - 1]) {
+                for (auto c : by_level[l]) {
+                    candidate_deps.emplace_back(p, c);
+                }
+            }
+        }
+    }
+    int max_size_sum = group_threshold + 2;
+    while (active_deps.size() + 1 < (size_t)ntx) {
+        bool found = false;
+        bool avail = false;
+        for (size_t pos = 0; pos < candidate_deps.size(); ++pos) {
+            size_t pick = rng.randrange(candidate_deps.size() - pos) + pos;
+            if (pick != pos) std::swap(candidate_deps[pos], candidate_deps[pick]);
+            auto [p, c] = candidate_deps[pos];
+            auto p_comp = component_map[p];
+            auto c_comp = component_map[c];
+            if (p_comp == c_comp) continue;
+            avail = true;
+            if (p_comp.Count() + c_comp.Count() > (unsigned)max_size_sum) continue;
+            ret.AddDependencies(SetType::Singleton(p), c);
+            active_deps.emplace_back(p, c);
+            SetType comp = p_comp | c_comp;
+            for (auto i : p_comp) {
+                component_map[i] = comp;
+            }
+            for (auto i : c_comp) {
+                component_map[i] = comp;
+            }
+            found = true;
+        }
+        assert(avail);
+        if (!found) ++max_size_sum;
+    }
+    while (active_deps.size() < (size_t)ndeps && !candidate_deps.empty()) {
+        size_t pick = rng.randrange(candidate_deps.size());
+        if (pick != candidate_deps.size() - 1) std::swap(candidate_deps[pick], candidate_deps.back());
+        auto [p, c] = candidate_deps.back();
+        candidate_deps.pop_back();
+        if (ret.Ancestors(c)[p]) continue;
+        if (ret.Descendants(c)[p]) continue;
+        bool bad = false;
+        for (auto [ap, ac] : active_deps) {
+            if (ret.Ancestors(p)[ap] && ret.Descendants(c)[ac]) {
+                bad = true;
+                break;
+            }
+        }
+        if (bad) continue;
+        ret.AddDependencies(SetType::Singleton(p), c);
+        active_deps.emplace_back(p, c);
+    }
+    return ret;
+}
+
 } // namespace
 
 static void PostLinearize16TxWorstCase(benchmark::Bench& bench) { BenchPostLinearizeWorstCase<BitSet<16>>(16, bench); }
@@ -177,3 +272,23 @@ BENCHMARK(LinearizeOptimallyExample16, benchmark::PriorityLevel::HIGH);
 BENCHMARK(LinearizeOptimallyExample17, benchmark::PriorityLevel::HIGH);
 BENCHMARK(LinearizeOptimallyExample18, benchmark::PriorityLevel::HIGH);
 BENCHMARK(LinearizeOptimallyExample19, benchmark::PriorityLevel::HIGH);
+
+static void RUNNER(benchmark::Bench& bench)
+{
+    FastRandomContext rng;
+    for (int i = 0; i < 100000; ++i) {
+        int ntx = rng.randrange<unsigned>(65 - 1) + 1;
+        int ndeps = rng.randrange<unsigned>(((ntx + 1) >> 1) * (ntx >> 1) + 1 - 2 * ntx) + 2 * ntx;
+        if (ndeps > (ntx >> 1) * ((ntx + 1) >> 1)) ndeps = (ntx >> 1) * ((ntx + 1) >> 1);
+        if (ndeps < ntx - 1) ndeps = ntx - 1;
+//        int ndeps = ntx - 1;
+        int nlevels = std::min(std::countr_zero(rng.rand64()), ntx - 1);
+        int group_threshold = std::countr_zero(rng.rand64());
+        nlevels += (nlevels > 0);
+        auto depgraph = GenRandomCluster<BitSet<64>>(ntx, ndeps, nlevels, group_threshold, rng);
+        auto [lin, opt] = Linearize(depgraph, 1000000, rng.rand64());
+        auto [lin2, opt2] = Linearize(depgraph, 1000000, rng.rand64(), lin);
+    }
+}
+
+BENCHMARK(RUNNER, benchmark::PriorityLevel::LOW);
