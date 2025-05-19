@@ -87,6 +87,7 @@ struct FeeFrac
 
 #ifdef __SIZEOF_INT128__
     using MulType = __int128;
+    static constexpr MulType MUL_ZERO{0};
 
     /** Helper function for 32*64 signed multiplication, returning an unspecified but totally
      *  ordered type. This is a version relying on __int128. */
@@ -120,6 +121,7 @@ struct FeeFrac
     // If __int128 is not available, re-export the fallback versions using pair<int64_t, uint32_t>
     // as production variants.
     using MulType = std::pair<int64_t, uint32_t>;
+    static constexpr MulType MUL_ZERO{0, 0};
     static constexpr auto Mul = MulFallback;
     static constexpr auto Div = DivFallback;
     static constexpr auto ScaledDifference = ScaledDifferenceFallback;

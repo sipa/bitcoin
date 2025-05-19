@@ -931,7 +931,7 @@ FUZZ_TARGET(clusterlin_linearize)
     uint64_t rng_seed{0};
     uint64_t iter_count{0};
     uint8_t make_connected{1};
-    uint8_t mode = unsigned(LinearizeAlgorithm::SFL_QRS);
+    uint8_t mode = unsigned(LinearizeAlgorithm::SFL);
     try {
         reader >> mode >> VARINT(iter_count);
         reader >> Using<DepGraphFormatter>(depgraph) >> rng_seed >> make_connected;

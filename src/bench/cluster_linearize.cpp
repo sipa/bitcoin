@@ -660,7 +660,7 @@ static void BenchGenRandomCluster(benchmark::Bench& bench)
         for (int i = MIN_NTX; i <= MAX_NTX; ++i) {
             if (ntx == 0 || times[i] < times[ntx]) ntx = i;
         }
-        uint64_t start = rdtsc();
+        uint64_t start = __rdtsc();
         int nlevels = std::min(std::countr_zero(rng.rand64()), ntx - 1);
         int group_threshold = std::countr_zero(rng.rand64());
         nlevels += (nlevels > 0);
@@ -699,7 +699,7 @@ static void BenchGenRandomCluster(benchmark::Bench& bench)
             }
             AnalyzeCycles(dep, rng, /*limit=*/MAX_MEM, /*max_q=*/MAX_Q);
         }
-        uint64_t stop = rdtsc();
+        uint64_t stop = __rdtsc();
         times[ntx] += stop - start;
     };
 }
@@ -707,8 +707,8 @@ static void BenchGenRandomCluster(benchmark::Bench& bench)
 static constexpr int NUM_SEEDS = 100;
 static constexpr int NUM_MEDS = 13;
 static constexpr int NUM_LOOPS = 3;
-static constexpr int NUM_STYLES = 6;
-static const std::array<std::string, NUM_STYLES> STYLE_NAMES = {"SFL(RS)", "SFL(QRS)", "SFL(QQRS)", "SFL(QQQRS)", "SFL(QS)", "GGT"};
+static constexpr int NUM_STYLES = 2;
+static const std::array<std::string, NUM_STYLES> STYLE_NAMES = {"SFL(scratch)", "SFL(optin)"};
 
 
 static void BenchDataSet(benchmark::Bench& bench, const std::string& filename)
@@ -825,37 +825,13 @@ static void BenchDataSet(benchmark::Bench& bench, const std::string& filename)
         for (auto& entry : entrys) {
             switch (entry.style) {
                 case 0: {
-                    auto [lin, opt, cost, tim] = Linearize(depgraph, 1000000000, entry.rng_seed, {}, LinearizeAlgorithm::SFL_RS);
+                    auto [lin, opt, cost, tim] = Linearize(depgraph, 1000000000, entry.rng_seed, {}, LinearizeAlgorithm::SFL);
                     entry.ns = tim;
                     entry.cost = cost;
                     break;
                 }
                 case 1: {
-                    auto [lin, opt, cost, tim] = Linearize(depgraph, 1000000000, entry.rng_seed, {}, LinearizeAlgorithm::SFL_QRS);
-                    entry.ns = tim;
-                    entry.cost = cost;
-                    break;
-                }
-                case 2: {
-                    auto [lin, opt, cost, tim] = Linearize(depgraph, 1000000000, entry.rng_seed, {}, LinearizeAlgorithm::SFL_QQRS);
-                    entry.ns = tim;
-                    entry.cost = cost;
-                    break;
-                }
-                case 3: {
-                    auto [lin, opt, cost, tim] = Linearize(depgraph, 1000000000, entry.rng_seed, {}, LinearizeAlgorithm::SFL_QQQRS);
-                    entry.ns = tim;
-                    entry.cost = cost;
-                    break;
-                }
-                case 4: {
-                    auto [lin, opt, cost, tim] = Linearize(depgraph, 1000000000, entry.rng_seed, {}, LinearizeAlgorithm::SFL_QS);
-                    entry.ns = tim;
-                    entry.cost = cost;
-                    break;
-                }
-                case 5: {
-                    auto [lin, opt, cost, tim] = Linearize(depgraph, 1000000000, entry.rng_seed, {}, LinearizeAlgorithm::GGT);
+                    auto [lin, opt, cost, tim] = Linearize(depgraph, 1000000000, entry.rng_seed, entry.optin, LinearizeAlgorithm::SFL);
                     entry.ns = tim;
                     entry.cost = cost;
                     break;
