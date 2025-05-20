@@ -848,7 +848,8 @@ private:
         auto bottom_part = chl_chunk_data.chunk_setinfo;
         // Update the parent chunk to also contain the child.
         par_chunk_data.chunk_setinfo |= bottom_part;
-        m_cost += par_chunk_data.chunk_setinfo.transactions.Count() * 54 + 52;
+        int ntx = par_chunk_data.chunk_setinfo.transactions.Count();
+        m_cost += ntx * 20 - 15;
         // Add bottom component to top transactions.
         Walk(dep_data.parent,
              [](TxData&) noexcept {},
@@ -885,7 +886,8 @@ private:
         parent_tx_data.child_deps_active -= 1;
         // Update representatives.
         auto& chunk_data = m_tx_data[parent_tx_data.chunk_rep];
-        m_cost += chunk_data.chunk_setinfo.transactions.Count() * 52 + 126;
+        int ntx = chunk_data.chunk_setinfo.transactions.Count();
+        m_cost += ntx * 20 + 10;
         auto top_part = dep_data.top_setinfo;
         auto bottom_part = chunk_data.chunk_setinfo - top_part;
         chunk_data.chunk_setinfo = top_part;
@@ -926,12 +928,11 @@ private:
             FeeFrac best_other_chunk_feerate;
             TxIdx best_other_chunk_rep = TxIdx(-1);
             uint64_t best_other_chunk_tiebreak{0};
-            m_cost += 179;
             for (auto tx : chunk_txn) {
                 auto& tx_data = m_tx_data[tx];
                 auto unreached = (DownWard ? tx_data.children : tx_data.parents) - explored;
                 while (unreached.Any()) {
-                    m_cost += 42;
+                    m_cost += 14;
                     auto chunk_rep = m_tx_data[unreached.First()].chunk_rep;
                     auto& reached = m_tx_data[m_tx_data[unreached.First()].chunk_rep].chunk_setinfo;
                     explored |= reached.transactions;
@@ -959,20 +960,20 @@ private:
             for (auto tx : chunk_txn) {
                 auto& tx_data = m_tx_data[tx];
                 num_deps += ((DownWard ? tx_data.children : tx_data.parents) & (other_chunk.chunk_setinfo.transactions)).Count();
+                m_cost += 4;
             }
-            m_cost += chunk_txn.Count() * 10 + 34;
             // Uniformly randomly pick one of them and activate it.
             TxIdx pick = m_rng.randrange(num_deps);
             for (auto tx : chunk_txn) {
                 auto& tx_data = m_tx_data[tx];
                 auto intersect = (DownWard ? tx_data.children : tx_data.parents) & (other_chunk.chunk_setinfo.transactions);
                 auto count = intersect.Count();
-                m_cost += 67;
+                m_cost += 4;
                 if (pick < count) {
                     auto inactive = DownWard ? std::span{tx_data.child_deps}.first(tx_data.child_deps_total).subspan(tx_data.child_deps_active)
                                              : std::span{tx_data.parent_deps}.first(tx_data.parent_deps_total).subspan(tx_data.parent_deps_active);
                     for (auto dep : inactive) {
-                        m_cost += 20;
+                        m_cost += 6;
                         auto& dep_data = m_dep_data[dep];
                         if (other_chunk.chunk_setinfo.transactions[DownWard ? dep_data.child : dep_data.parent]) {
                             if (pick == 0) {
@@ -1030,7 +1031,7 @@ public:
     explicit SpanningForestState(const DepGraph<SetType>& depgraph, uint64_t rng_seed, std::span<const DepGraphIndex> old_linearization = {}) noexcept : m_rng(rng_seed)
     {
         m_transactions = depgraph.Positions();
-        m_cost = 0;
+        m_cost = 50;
         auto num_transactions = m_transactions.Count();
         // If no existing linearization is provided, construct a randomized topological ordering.
         std::vector<DepGraphIndex> load_order;
@@ -1040,6 +1041,7 @@ public:
             std::shuffle(load_order.begin(), load_order.end(), m_rng);
             std::sort(load_order.begin(), load_order.end(), [&](TxIdx a, TxIdx b) noexcept { return depgraph.Ancestors(a).Count() < depgraph.Ancestors(b).Count(); });
             old_linearization = std::span{load_order};
+            m_cost += 22 + 77 * load_order.size();
         }
         // Add transactions one by one, in order of existing linearization.
         m_tx_data.resize(depgraph.PositionRange());
@@ -1070,6 +1072,7 @@ public:
                 dep.child_pos = par_tx_data.child_deps_total;
                 par_tx_data.child_deps[par_tx_data.child_deps_total++] = dep_idx;
                 par_tx_data.children.Set(tx);
+                m_cost += 8;
             }
             // Start a merge sequence on the new transaction to make the graph topological.
             MergeSequence<false>(tx);
@@ -1078,16 +1081,16 @@ public:
         for (TxIdx i = 0; i < m_suboptimal_chunks.size(); ++i) {
             TxIdx j = i + m_rng.randrange<TxIdx>(m_suboptimal_chunks.size() - i);
             if (i != j) std::swap(m_suboptimal_chunks[i], m_suboptimal_chunks[j]);
+            m_cost += 14;
         }
-        m_cost += 605 + 134 * m_dep_data.size() + 200 * num_transactions;
-        m_cost += 510 + 67 * m_dep_data.size() + 224 * num_transactions;
+        // Account for the cost of producing linearization.
+        m_cost += 8 * m_dep_data.size() + 268 * num_transactions;
     }
 
     /** Try to improve the forest. Returns false if it is optimal, true otherwise. */
     bool Step() noexcept
     {
         while (true) {
-            m_cost += 111;
             // If the queue of potentially-suboptimal chunks is empty, we are done.
             if (m_suboptimal_chunks.empty()) return false;
             // Pop an entry from the potentially-suboptimal chunk queue.
@@ -1116,6 +1119,7 @@ public:
                 // Iterate over all active child dependencies of the transaction.
                 const auto active_children = std::span{tx_data.child_deps}.first(tx_data.child_deps_active);
                 for (DepIdx dep_idx : active_children) {
+                    m_cost += 16;
                     const auto& dep_data = m_dep_data[dep_idx];
                     // Skip if this dependency is ineligible (non-positive gain for random
                     // strategy, non-highest gain for max-gain strategy).
@@ -1134,7 +1138,6 @@ public:
                         best_gain = gain;
                     }
                 }
-                m_cost += 55 * active_children.size();
             }
             // If the remembered dependency has positive gain, activate it.
             if (best_gain > FeeFrac::MUL_ZERO) {
@@ -1540,3 +1543,4 @@ void FixLinearization(const DepGraph<SetType>& depgraph, std::span<DepGraphIndex
 } // namespace cluster_linearize
 
 #endif // BITCOIN_CLUSTER_LINEARIZE_H
+
