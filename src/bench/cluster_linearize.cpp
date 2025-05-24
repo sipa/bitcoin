@@ -710,6 +710,62 @@ static constexpr int NUM_LOOPS = 3;
 static constexpr int NUM_STYLES = 2;
 static const std::array<std::string, NUM_STYLES> STYLE_NAMES = {"SFL(scratch)", "SFL(optin)"};
 
+static void BenchEqualSplit(benchmark::Bench& bench, const std::string& filename, unsigned core, unsigned cores)
+{
+    std::ifstream infile(filename);
+    std::string line;
+    uint64_t lines{0};
+    uint64_t gainers = 0;
+    double gains = 0;
+    while (std::getline(infile, line)) {
+        std::vector<uint8_t> serdata = ParseHex<uint8_t>(line);
+        HashWriter hasher;
+        hasher << std::span{serdata};
+        InsecureRandomContext rng(hasher.GetCheapHash());
+        if (rng.rand64() % cores != core) continue;
+        ++lines;
+        DepGraph<BitSet<64>> depgraph;
+        SpanReader reader(serdata);
+        reader >> Using<DepGraphFormatter>(depgraph);
+
+        std::vector<FeeFrac> chunks_opt[8192];
+        std::vector<FeeFrac> chunks_min[8192];
+        double chunks_opt_sum = 0;
+        double chunks_min_count = 0;
+        bool gain = false;
+        for (int i = 0; i < 8192; ++i) {
+            SpanningForestState forest(depgraph, rng.rand64());
+            while (true) {
+                if (!forest.Step()) break;
+            }
+            auto lin_opt = forest.GetLinearization();
+            forest.StartMinimizing();
+            while (true) {
+                if (!forest.MinimizeStep()) break;
+            }
+            auto lin_min = forest.GetLinearization();
+            chunks_opt[i] = ChunkLinearization(depgraph, lin_opt);
+            chunks_opt_sum += chunks_opt[i].size();
+            chunks_min[i] = ChunkLinearization(depgraph, lin_min);
+            assert(chunks_min[i].size() >= chunks_opt[i].size());
+            if (chunks_min[i].size() > chunks_opt[i].size()) gain = true;
+            if (i == 0) {
+                chunks_min_count = chunks_min[i].size();
+            } else {
+                assert(chunks_min_count == chunks_min[i].size());
+            }
+            assert(CompareChunks(chunks_opt[i], chunks_min[i]) == 0);
+        }
+        if (gain) {
+            double avg = double(chunks_opt_sum) / 8192;
+            gains += chunks_min_count - avg;
+            gainers += 1;
+            std::cerr << "LINE " << lines << " GAIN=" << gains << " GAINERS=" << gainers << ": MINIMIZE " << avg << "->" << chunks_min_count << ": " << line << "\n";
+        }
+    }
+    std::cerr << "LINE " << lines << " GAIN=" << gains << " GAINERS=" << gainers << "\n";
+}
+
 
 static void BenchDataSet(benchmark::Bench& bench, const std::string& filename)
 {
@@ -911,4 +967,71 @@ BENCHMARK(BenchDataMedium, benchmark::PriorityLevel::LOW);
 BENCHMARK(BenchDataSpanning, benchmark::PriorityLevel::LOW);
 BENCHMARK(BenchDataMix, benchmark::PriorityLevel::LOW);
 
+static void BenchEqualSplitSim2023(benchmark::Bench& bench) { BenchEqualSplit(bench, "/home/pw/clusters_sim2023", 0, 1); }
+static void BenchEqualSplitSim2023C00(benchmark::Bench& bench) { BenchEqualSplit(bench, "/home/pw/clusters_sim2023", 0, 32); }
+static void BenchEqualSplitSim2023C01(benchmark::Bench& bench) { BenchEqualSplit(bench, "/home/pw/clusters_sim2023", 1, 32); }
+static void BenchEqualSplitSim2023C02(benchmark::Bench& bench) { BenchEqualSplit(bench, "/home/pw/clusters_sim2023", 2, 32); }
+static void BenchEqualSplitSim2023C03(benchmark::Bench& bench) { BenchEqualSplit(bench, "/home/pw/clusters_sim2023", 3, 32); }
+static void BenchEqualSplitSim2023C04(benchmark::Bench& bench) { BenchEqualSplit(bench, "/home/pw/clusters_sim2023", 4, 32); }
+static void BenchEqualSplitSim2023C05(benchmark::Bench& bench) { BenchEqualSplit(bench, "/home/pw/clusters_sim2023", 5, 32); }
+static void BenchEqualSplitSim2023C06(benchmark::Bench& bench) { BenchEqualSplit(bench, "/home/pw/clusters_sim2023", 6, 32); }
+static void BenchEqualSplitSim2023C07(benchmark::Bench& bench) { BenchEqualSplit(bench, "/home/pw/clusters_sim2023", 7, 32); }
+static void BenchEqualSplitSim2023C08(benchmark::Bench& bench) { BenchEqualSplit(bench, "/home/pw/clusters_sim2023", 8, 32); }
+static void BenchEqualSplitSim2023C09(benchmark::Bench& bench) { BenchEqualSplit(bench, "/home/pw/clusters_sim2023", 9, 32); }
+static void BenchEqualSplitSim2023C10(benchmark::Bench& bench) { BenchEqualSplit(bench, "/home/pw/clusters_sim2023", 10, 32); }
+static void BenchEqualSplitSim2023C11(benchmark::Bench& bench) { BenchEqualSplit(bench, "/home/pw/clusters_sim2023", 11, 32); }
+static void BenchEqualSplitSim2023C12(benchmark::Bench& bench) { BenchEqualSplit(bench, "/home/pw/clusters_sim2023", 12, 32); }
+static void BenchEqualSplitSim2023C13(benchmark::Bench& bench) { BenchEqualSplit(bench, "/home/pw/clusters_sim2023", 13, 32); }
+static void BenchEqualSplitSim2023C14(benchmark::Bench& bench) { BenchEqualSplit(bench, "/home/pw/clusters_sim2023", 14, 32); }
+static void BenchEqualSplitSim2023C15(benchmark::Bench& bench) { BenchEqualSplit(bench, "/home/pw/clusters_sim2023", 15, 32); }
+static void BenchEqualSplitSim2023C16(benchmark::Bench& bench) { BenchEqualSplit(bench, "/home/pw/clusters_sim2023", 16, 32); }
+static void BenchEqualSplitSim2023C17(benchmark::Bench& bench) { BenchEqualSplit(bench, "/home/pw/clusters_sim2023", 17, 32); }
+static void BenchEqualSplitSim2023C18(benchmark::Bench& bench) { BenchEqualSplit(bench, "/home/pw/clusters_sim2023", 18, 32); }
+static void BenchEqualSplitSim2023C19(benchmark::Bench& bench) { BenchEqualSplit(bench, "/home/pw/clusters_sim2023", 19, 32); }
+static void BenchEqualSplitSim2023C20(benchmark::Bench& bench) { BenchEqualSplit(bench, "/home/pw/clusters_sim2023", 20, 32); }
+static void BenchEqualSplitSim2023C21(benchmark::Bench& bench) { BenchEqualSplit(bench, "/home/pw/clusters_sim2023", 21, 32); }
+static void BenchEqualSplitSim2023C22(benchmark::Bench& bench) { BenchEqualSplit(bench, "/home/pw/clusters_sim2023", 22, 32); }
+static void BenchEqualSplitSim2023C23(benchmark::Bench& bench) { BenchEqualSplit(bench, "/home/pw/clusters_sim2023", 23, 32); }
+static void BenchEqualSplitSim2023C24(benchmark::Bench& bench) { BenchEqualSplit(bench, "/home/pw/clusters_sim2023", 24, 32); }
+static void BenchEqualSplitSim2023C25(benchmark::Bench& bench) { BenchEqualSplit(bench, "/home/pw/clusters_sim2023", 25, 32); }
+static void BenchEqualSplitSim2023C26(benchmark::Bench& bench) { BenchEqualSplit(bench, "/home/pw/clusters_sim2023", 26, 32); }
+static void BenchEqualSplitSim2023C27(benchmark::Bench& bench) { BenchEqualSplit(bench, "/home/pw/clusters_sim2023", 27, 32); }
+static void BenchEqualSplitSim2023C28(benchmark::Bench& bench) { BenchEqualSplit(bench, "/home/pw/clusters_sim2023", 28, 32); }
+static void BenchEqualSplitSim2023C29(benchmark::Bench& bench) { BenchEqualSplit(bench, "/home/pw/clusters_sim2023", 29, 32); }
+static void BenchEqualSplitSim2023C30(benchmark::Bench& bench) { BenchEqualSplit(bench, "/home/pw/clusters_sim2023", 30, 32); }
+static void BenchEqualSplitSim2023C31(benchmark::Bench& bench) { BenchEqualSplit(bench, "/home/pw/clusters_sim2023", 31, 32); }
+
 BENCHMARK(BenchGenRandomCluster, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchEqualSplitSim2023, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchEqualSplitSim2023C00, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchEqualSplitSim2023C01, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchEqualSplitSim2023C02, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchEqualSplitSim2023C03, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchEqualSplitSim2023C04, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchEqualSplitSim2023C05, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchEqualSplitSim2023C06, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchEqualSplitSim2023C07, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchEqualSplitSim2023C08, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchEqualSplitSim2023C09, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchEqualSplitSim2023C10, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchEqualSplitSim2023C11, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchEqualSplitSim2023C12, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchEqualSplitSim2023C13, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchEqualSplitSim2023C14, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchEqualSplitSim2023C15, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchEqualSplitSim2023C16, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchEqualSplitSim2023C17, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchEqualSplitSim2023C18, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchEqualSplitSim2023C19, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchEqualSplitSim2023C20, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchEqualSplitSim2023C21, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchEqualSplitSim2023C22, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchEqualSplitSim2023C23, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchEqualSplitSim2023C24, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchEqualSplitSim2023C25, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchEqualSplitSim2023C26, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchEqualSplitSim2023C27, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchEqualSplitSim2023C28, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchEqualSplitSim2023C29, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchEqualSplitSim2023C30, benchmark::PriorityLevel::LOW);
+BENCHMARK(BenchEqualSplitSim2023C31, benchmark::PriorityLevel::LOW);

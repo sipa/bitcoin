@@ -1802,7 +1802,7 @@ public:
     }
 
     /** Construct a topologically-valid linearization from the current forest state. */
-    std::vector<DepGraphIndex> GetLinearization() noexcept
+    std::vector<DepGraphIndex> GetLinearization() const noexcept
     {
         /** The output linearization. */
         std::vector<DepGraphIndex> ret;
