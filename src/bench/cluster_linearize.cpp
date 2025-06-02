@@ -2,6 +2,7 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <hash.h>
 #include <bench/bench.h>
 #include <cluster_linearize.h>
 #include <test/util/cluster_linearize.h>
@@ -225,3 +226,137 @@ BENCHMARK(LinearizeBoundedExample6, benchmark::PriorityLevel::HIGH);
 BENCHMARK(LinearizeBoundedExample7, benchmark::PriorityLevel::HIGH);
 BENCHMARK(LinearizeBoundedExample8, benchmark::PriorityLevel::HIGH);
 BENCHMARK(LinearizeBoundedExample9, benchmark::PriorityLevel::HIGH);
+
+static constexpr int NUM_DEPGRAPHS = 1024;
+static constexpr int NUM_STYLES = 4;
+static constexpr int NUM_MEDIAN = 5;
+static constexpr int NUM_REPEAT = 3;
+static constexpr int NUM_SEEDS = 100;
+static const std::string STYLE_NAMES[] = {"SFL(scratch)", "SFL(optin)", "CSS(scratch)", "CSS(optin)"};
+
+static void LinearizeDataSet(benchmark::Bench& bench)
+{
+    std::string line;
+    uint64_t lines{0};
+
+    struct DepGraphData
+    {
+        /** What input line this came from. */
+        uint64_t line;
+        /** One cluster. */
+        DepGraph<BitSet<64>> depgraph;
+        /** Its number of transactions. */
+        unsigned num_tx;
+        /** Its number of dependencies. */
+        unsigned num_dep;
+        /** RNG seeds to use. */
+        uint64_t seeds[NUM_REPEAT][NUM_SEEDS];
+        /** Optimal input linearizatrions. */
+        std::vector<DepGraphIndex> optins[NUM_REPEAT][NUM_SEEDS];
+        /** Timing results. */
+        uint64_t timing[NUM_STYLES][NUM_REPEAT][NUM_SEEDS][NUM_MEDIAN];
+    };
+
+    std::vector<DepGraphData> depdata;
+    std::vector<uint64_t> runs;
+    static constexpr uint64_t RUNS_PER_CLUSTER = uint64_t(NUM_STYLES) * NUM_MEDIAN * NUM_REPEAT * NUM_SEEDS;
+    depdata.reserve(NUM_DEPGRAPHS);
+    FastRandomContext frng;
+
+    auto proc_fn = [&]() {
+        std::shuffle(depdata.begin(), depdata.end(), frng);
+        runs.resize(depdata.size() * RUNS_PER_CLUSTER);
+        for (uint64_t x = 0; x < runs.size(); ++x) runs[x] = x;
+        std::shuffle(runs.begin(), runs.end(), frng);
+
+        for (uint64_t run : runs) {
+             unsigned median_idx = run % NUM_MEDIAN;
+             run /= NUM_MEDIAN;
+             unsigned seed_idx = run % NUM_SEEDS;
+             run /= NUM_SEEDS;
+             unsigned repeat_idx = run % NUM_REPEAT;
+             run /= NUM_REPEAT;
+             unsigned style_idx = run % NUM_STYLES;
+             run /= NUM_STYLES;
+             unsigned depdata_idx = run;
+             assert(depdata_idx < depdata.size());
+             auto& data = depdata[depdata_idx];
+
+             std::tuple<std::vector<DepGraphIndex>, bool, uint64_t> res;
+             auto start = std::chrono::high_resolution_clock::now();
+             switch (style_idx) {
+             case 0:
+                 res = Linearize(data.depgraph, 1000000000, data.seeds[repeat_idx][seed_idx], {});
+                 break;
+             case 1:
+                 res = Linearize(data.depgraph, 1000000000, data.seeds[repeat_idx][seed_idx], data.optins[repeat_idx][seed_idx]);
+                 break;
+             case 2:
+                 res = CSSLinearize(data.depgraph, 1000000000, data.seeds[repeat_idx][seed_idx], {});
+                 break;
+             case 3:
+                 res = CSSLinearize(data.depgraph, 1000000000, data.seeds[repeat_idx][seed_idx], data.optins[repeat_idx][seed_idx]);
+                 break;
+             }
+             auto stop = std::chrono::high_resolution_clock::now();
+             assert(std::get<bool>(res));
+             data.timing[style_idx][repeat_idx][seed_idx][median_idx] = std::chrono::nanoseconds(stop - start).count();
+        }
+
+        std::sort(depdata.begin(), depdata.end(), [](auto& a, auto& b) { return a.line < b.line; });
+        for (auto& data : depdata) {
+            std::cout << "line=" << data.line << " tx=" << data.num_tx << " dep=" << data.num_dep;
+            for (unsigned style_idx = 0; style_idx < NUM_STYLES; ++style_idx) {
+                std::cout << " " << STYLE_NAMES[style_idx] << "=";
+                for (unsigned repeat_idx = 0; repeat_idx < NUM_REPEAT; ++repeat_idx) {
+                    uint64_t sum_timings = 0;
+                    for (unsigned seed_idx = 0; seed_idx < NUM_SEEDS; ++seed_idx) {
+                        std::sort(std::begin(data.timing[style_idx][repeat_idx][seed_idx]), std::end(data.timing[style_idx][repeat_idx][seed_idx]));
+                        sum_timings += data.timing[style_idx][repeat_idx][seed_idx][NUM_MEDIAN / 2];
+                    }
+                    if (repeat_idx) std::cout << ",";
+                    std::cout << ((sum_timings + (NUM_SEEDS / 2)) / NUM_SEEDS);
+                }
+            }
+            std::cout << "\n";
+        }
+
+        depdata.clear();
+        std::cerr << "Done: " << lines << "\n";
+    };
+
+    while (std::getline(std::cin, line)) {
+        auto& data = depdata.emplace_back();
+        data.line = lines;
+        auto& depgraph = data.depgraph;
+        ++lines;
+        std::vector<uint8_t> serdata = ParseHex<uint8_t>(line);
+        HashWriter hasher;
+        hasher << std::span{serdata};
+        InsecureRandomContext rng(hasher.GetCheapHash());
+        SpanReader reader(serdata);
+        reader >> Using<DepGraphFormatter>(depgraph);
+        data.num_tx = depgraph.TxCount();
+        data.num_dep = 0;
+        for (auto i : depgraph.Positions()) {
+            data.num_dep += depgraph.GetReducedParents(i).Count();
+        }
+        for (unsigned repeat_idx = 0; repeat_idx < NUM_REPEAT; ++repeat_idx) {
+            for (unsigned seed_idx = 0; seed_idx < NUM_SEEDS; ++seed_idx) {
+                data.seeds[repeat_idx][seed_idx] = rng.rand64();
+                data.optins[repeat_idx][seed_idx].clear();
+                for (auto i : depgraph.Positions()) data.optins[repeat_idx][seed_idx].push_back(i);
+                std::shuffle(data.optins[repeat_idx][seed_idx].begin(), data.optins[repeat_idx][seed_idx].end(), rng);
+                FixLinearization(depgraph, data.optins[repeat_idx][seed_idx]);
+                bool optimal = false;
+                std::tie(data.optins[repeat_idx][seed_idx], optimal, std::ignore) = Linearize(depgraph, 1000000, rng.rand64(), data.optins[repeat_idx][seed_idx]);
+                assert(optimal);
+                PostLinearize(depgraph, data.optins[repeat_idx][seed_idx]);
+            }
+        }
+        if (depdata.size() == NUM_DEPGRAPHS) proc_fn();
+    }
+    if (!depdata.empty()) proc_fn();
+}
+
+BENCHMARK(LinearizeDataSet, benchmark::PriorityLevel::LOW);
