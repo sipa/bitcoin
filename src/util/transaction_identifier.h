@@ -17,7 +17,7 @@ class transaction_identifier
     uint256 m_wrapped;
 
     // Note: Use FromUint256 externally instead.
-    transaction_identifier(const uint256& wrapped) : m_wrapped{wrapped} {}
+    constexpr transaction_identifier(const uint256& wrapped) : m_wrapped{wrapped} {}
 
     // TODO: Comparisons with uint256 should be disallowed once we have
     // converted most of the code to using the new txid types.
@@ -31,7 +31,7 @@ class transaction_identifier
     }
 
 public:
-    transaction_identifier() : m_wrapped{} {}
+    constexpr transaction_identifier() : m_wrapped{} {}
 
     template <typename Other>
     bool operator==(const Other& other) const { return Compare(other) == 0; }
@@ -40,8 +40,8 @@ public:
     template <typename Other>
     bool operator<(const Other& other) const { return Compare(other) < 0; }
 
-    const uint256& ToUint256() const LIFETIMEBOUND { return m_wrapped; }
-    static transaction_identifier FromUint256(const uint256& id) { return {id}; }
+    constexpr const uint256& ToUint256() const LIFETIMEBOUND { return m_wrapped; }
+    static constexpr transaction_identifier FromUint256(const uint256& id) { return {id}; }
 
     /** Wrapped `uint256` methods. */
     constexpr bool IsNull() const { return m_wrapped.IsNull(); }
