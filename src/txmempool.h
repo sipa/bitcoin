@@ -664,6 +664,7 @@ public:
     std::vector<TxMempoolInfo> infoAll() const;
 
     size_t DynamicMemoryUsage() const;
+    size_t BareDynamicMemoryUsage() const;
 
     /** Adds a transaction to the unbroadcast set */
     void AddUnbroadcastTx(const uint256& txid)

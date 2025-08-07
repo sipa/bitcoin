@@ -1048,6 +1048,12 @@ size_t CTxMemPool::DynamicMemoryUsage() const {
     return memusage::MallocUsage(sizeof(CTxMemPoolEntry) + 15 * sizeof(void*)) * mapTx.size() + memusage::DynamicUsage(mapNextTx) + memusage::DynamicUsage(mapDeltas) + memusage::DynamicUsage(txns_randomized) + cachedInnerUsage;
 }
 
+size_t CTxMemPool::BareDynamicMemoryUsage() const {
+    LOCK(cs);
+    // Estimate the overhead of mapTx to be 9 pointers + an allocation, as no exact formula for boost::multi_index_contained is implemented.
+    return cachedInnerUsage;
+}
+
 void CTxMemPool::RemoveUnbroadcastTx(const uint256& txid, const bool unchecked) {
     LOCK(cs);
 
