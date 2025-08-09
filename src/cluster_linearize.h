@@ -1551,49 +1551,6 @@ private:
         return chunk_rep;
     }
 
-    /** Make state topological, randomized. */
-    void MakeTopologicalRandomized() noexcept
-    {
-         std::vector<TxIdx> candidate_chunks;
-         for (auto i : m_transactions) {
-             if (m_tx_data[i].chunk_rep == i) candidate_chunks.push_back(i);
-         }
-         while (!candidate_chunks.empty()) {
-              auto pos = m_rng.randrange(candidate_chunks.size());
-              if (pos != candidate_chunks.size() - 1) std::swap(candidate_chunks[pos], candidate_chunks.back());
-              auto chunk_rep = candidate_chunks.back();
-              if (m_tx_data[chunk_rep].chunk_rep == chunk_rep) {
-                  auto result = MergeStep<true>(chunk_rep);
-                  Assume(result == chunk_rep || result == TxIdx(-1));
-                  if (result == chunk_rep) continue;
-              }
-              candidate_chunks.pop_back();
-         }
-    }
-
-    /** Make state topological. */
-    void MakeTopological() noexcept
-    {
-        std::vector<std::pair<FeeFrac, TxIdx>> candidate_chunks;
-        for (auto i : m_transactions) {
-            if (m_tx_data[i].chunk_rep == i) candidate_chunks.emplace_back(m_tx_data[i].chunk_feerate, i);
-        }
-        std::make_heap(candidate_chunks.begin(), candidate_chunks.end(), std::greater{});
-        while (!candidate_chunks.empty()) {
-            std::pop_heap(candidate_chunks.begin(), candidate_chunks.end(), std::greater{});
-            auto [feerate, chunk_rep] = candidate_chunks.back();
-            candidate_chunks.pop_back();
-            if (m_tx_data[chunk_rep].chunk_rep == chunk_rep) {
-                Assume(m_tx_data[chunk_rep].chunk_feerate == feerate);
-                auto result = MergeStep<true>(chunk_rep);
-                Assume(result == chunk_rep || result == TxIdx(-1));
-                if (result == chunk_rep) {
-                    candidate_chunks.emplace_back(m_tx_data[chunk_rep].chunk_feerate, chunk_rep);
-                    std::push_heap(candidate_chunks.begin(), candidate_chunks.end(), std::greater{});
-                }
-            }
-        }
-    }
 
     /** Perform an upward or downward merge sequence on the specified transaction. Returns the
      *  representative of the merged chunk. */
@@ -1642,32 +1599,31 @@ private:
         }
     }
 
+    void MarkChunksSuboptimal() noexcept
+    {
+        for (auto tx : m_transactions) {
+            auto& tx_data = m_tx_data[tx];
+            if (tx_data.chunk_rep == tx && !tx_data.suboptimal) {
+                tx_data.suboptimal = true;
+                m_suboptimal_chunks.push_back(tx);
+            }
+        }
+    }
+
 public:
-    /** Construct an initial topological spanning forest for the given DepGraph, and optionally an
-     *  existing linearization for it. */
-    explicit SpanningForestState(const DepGraph<SetType>& depgraph, uint64_t rng_seed, std::span<const DepGraphIndex> old_linearization = {}) noexcept : m_rng(rng_seed)
+    /** Construct a spanning forest for the given DepGraph, with every transaction in its own chunk
+     *  (not topological). */
+    explicit SpanningForestState(const DepGraph<SetType>& depgraph, uint64_t rng_seed) noexcept : m_rng(rng_seed)
     {
         m_transactions = depgraph.Positions();
         m_cost = 10;
         auto num_transactions = m_transactions.Count();
-        // If no existing linearization is provided, construct a randomized topological ordering.
-        std::vector<DepGraphIndex> load_order;
-        if (old_linearization.empty()) {
-            load_order.reserve(m_transactions.Count());
-            for (auto i : m_transactions) load_order.push_back(i);
-            std::shuffle(load_order.begin(), load_order.end(), m_rng);
-            std::sort(load_order.begin(), load_order.end(), [&](TxIdx a, TxIdx b) noexcept { return depgraph.Ancestors(a).Count() < depgraph.Ancestors(b).Count(); });
-            old_linearization = std::span{load_order};
-            m_cost += 4 + 16 * load_order.size();
-        }
-        // Add transactions one by one, in order of existing linearization.
         m_tx_data.resize(depgraph.PositionRange());
         m_dep_data.reserve(((num_transactions + 1) / 2) * (num_transactions / 2));
-        DepGraphIndex num_done = 0;
-        for (DepGraphIndex tx : old_linearization) {
+        for (auto tx : m_transactions) {
             // Fill in transaction data.
             auto& tx_data = m_tx_data[tx];
-            tx_data.original_pos = num_done++;
+            tx_data.original_pos = depgraph.Ancestors(tx).Count();
             tx_data.chunk_rep = tx;
             tx_data.chunk_setinfo.transactions = SetType::Singleton(tx);
             tx_data.chunk_setinfo.feerate = depgraph.FeeRate(tx);
@@ -1689,21 +1645,97 @@ public:
                 par_tx_data.children.Set(tx);
                 m_cost += 2;
             }
-            // Start a merge sequence on the new transaction to make the graph topological.
+        }
+        // Account for the cost of producing linearization.
+        m_cost += 2 * m_dep_data.size() + 27 * num_transactions;
+    }
+
+    /** Load an existing linearization. Must be called immediately after constructor. The result is topological. */
+    void LoadLinearization(std::span<const DepGraphIndex> old_linearization) noexcept
+    {
+        // Add transactions one by one, in order of existing linearization.
+        DepGraphIndex num_done = 0;
+        for (DepGraphIndex tx : old_linearization) {
+            m_tx_data[tx].original_pos = num_done++;
+            // Start a merge sequence on the new transaction to make the graph topological up to there.
             MergeSequence<false>(tx);
         }
+    }
+
+    /** Load a random linearization. Must be called immediately after constructor. The result is topological. */
+    void LoadRandomLinearization() noexcept
+    {
+        std::vector<DepGraphIndex> load_order;
+        load_order.reserve(m_transactions.Count());
+        for (auto i : m_transactions) load_order.push_back(i);
+        std::shuffle(load_order.begin(), load_order.end(), m_rng);
+        std::sort(load_order.begin(), load_order.end(), [&](TxIdx a, TxIdx b) noexcept { return m_tx_data[a].original_pos < m_tx_data[b].original_pos; });
+        m_cost += 4 + 16 * load_order.size();
+        LoadLinearization(load_order);
+    }
+
+    /** Make state topological, randomized. */
+    void MakeTopologicalRandomized() noexcept
+    {
+         std::vector<TxIdx> candidate_chunks;
+         for (auto i : m_transactions) {
+             if (m_tx_data[i].chunk_rep == i) candidate_chunks.push_back(i);
+         }
+         while (!candidate_chunks.empty()) {
+              auto pos = m_rng.randrange(candidate_chunks.size());
+              if (pos != candidate_chunks.size() - 1) std::swap(candidate_chunks[pos], candidate_chunks.back());
+              auto chunk_rep = candidate_chunks.back();
+              m_cost += 3;
+              if (m_tx_data[chunk_rep].chunk_rep == chunk_rep) {
+                  auto result = MergeStep<true>(chunk_rep);
+                  Assume(result == chunk_rep || result == TxIdx(-1));
+                  if (result == chunk_rep) continue;
+              }
+              candidate_chunks.pop_back();
+         }
+         MarkChunksSuboptimal();
+    }
+
+    /** Make state topological. */
+    void MakeTopological() noexcept
+    {
+        std::vector<std::pair<FeeFrac, TxIdx>> candidate_chunks;
+        for (auto tx : m_transactions) {
+            if (m_tx_data[tx].chunk_rep == tx) candidate_chunks.emplace_back(m_tx_data[tx].chunk_setinfo.feerate, tx);
+        }
+        std::make_heap(candidate_chunks.begin(), candidate_chunks.end(), std::greater{});
+        m_cost += 2 * candidate_chunks.size();
+        while (!candidate_chunks.empty()) {
+            std::pop_heap(candidate_chunks.begin(), candidate_chunks.end(), std::greater{});
+            auto [feerate, chunk_rep] = candidate_chunks.back();
+            candidate_chunks.pop_back();
+            m_cost += 2;
+            if (m_tx_data[chunk_rep].chunk_rep == chunk_rep) {
+                Assume(m_tx_data[chunk_rep].chunk_setinfo.feerate == feerate);
+                auto result = MergeStep<true>(chunk_rep);
+                Assume(result == chunk_rep || result == TxIdx(-1));
+                if (result == chunk_rep) {
+                    candidate_chunks.emplace_back(m_tx_data[chunk_rep].chunk_setinfo.feerate, chunk_rep);
+                    std::push_heap(candidate_chunks.begin(), candidate_chunks.end(), std::greater{});
+                    m_cost += 2;
+                }
+            }
+        }
+        MarkChunksSuboptimal();
+    }
+
+    void StartOptimizing() noexcept
+    {
         // Randomize the initial order of suboptimal chunks in the queue.
         for (TxIdx i = 0; i < m_suboptimal_chunks.size(); ++i) {
             TxIdx j = i + m_rng.randrange<TxIdx>(m_suboptimal_chunks.size() - i);
             if (i != j) std::swap(m_suboptimal_chunks[i], m_suboptimal_chunks[j]);
             m_cost += 3;
         }
-        // Account for the cost of producing linearization.
-        m_cost += 2 * m_dep_data.size() + 27 * num_transactions;
     }
 
     /** Try to improve the forest. Returns false if it is optimal, true otherwise. */
-    bool Step() noexcept
+    bool OptimizeStep() noexcept
     {
         while (true) {
             // If the queue of potentially-suboptimal chunks is empty, we are done.
@@ -1970,12 +2002,20 @@ template<typename SetType>
 std::tuple<std::vector<DepGraphIndex>, bool, uint64_t> Linearize(const DepGraph<SetType>& depgraph, uint64_t max_iterations, uint64_t rng_seed, std::span<const DepGraphIndex> old_linearization = {}) noexcept
 {
     /** Initialize a spanning forest data structure for this cluster. */
-    SpanningForestState forest(depgraph, rng_seed, old_linearization);
+    SpanningForestState forest(depgraph, rng_seed);
+    if (!old_linearization.empty()) {
+        forest.LoadLinearization(old_linearization);
+    } else {
+        forest.LoadRandomLinearization();
+        // forest.MakeTopological();
+        // forest.MakeTopologicalRandomized();
+    }
     // Make improvement steps to it until we hit the max_iterations limit, or an optimal result
     // is found.
+    forest.StartOptimizing();
     while (true) {
         if (forest.GetCost() >= max_iterations) return {forest.GetLinearization(), false, forest.GetCost()};
-        if (!forest.Step()) break;
+        if (!forest.OptimizeStep()) break;
     }
     // Make chunk minimization steps until we hit the max_iterations limit, or all chunks are
     // minimal.
