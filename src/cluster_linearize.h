@@ -1551,6 +1551,50 @@ private:
         return chunk_rep;
     }
 
+    /** Make state topological, randomized. */
+    void MakeTopologicalRandomized() noexcept
+    {
+         std::vector<TxIdx> candidate_chunks;
+         for (auto i : m_transactions) {
+             if (m_tx_data[i].chunk_rep == i) candidate_chunks.push_back(i);
+         }
+         while (!candidate_chunks.empty()) {
+              auto pos = m_rng.randrange(candidate_chunks.size());
+              if (pos != candidate_chunks.size() - 1) std::swap(candidate_chunks[pos], candidate_chunks.back());
+              auto chunk_rep = candidate_chunks.back();
+              if (m_tx_data[chunk_rep].chunk_rep == chunk_rep) {
+                  auto result = MergeStep<true>(chunk_rep);
+                  Assume(result == chunk_rep || result == TxIdx(-1));
+                  if (result == chunk_rep) continue;
+              }
+              candidate_chunks.pop_back();
+         }
+    }
+
+    /** Make state topological. */
+    void MakeTopological() noexcept
+    {
+        std::vector<std::pair<FeeFrac, TxIdx>> candidate_chunks;
+        for (auto i : m_transactions) {
+            if (m_tx_data[i].chunk_rep == i) candidate_chunks.emplace_back(m_tx_data[i].chunk_feerate, i);
+        }
+        std::make_heap(candidate_chunks.begin(), candidate_chunks.end(), std::greater{});
+        while (!candidate_chunks.empty()) {
+            std::pop_heap(candidate_chunks.begin(), candidate_chunks.end(), std::greater{});
+            auto [feerate, chunk_rep] = candidate_chunks.back();
+            candidate_chunks.pop_back();
+            if (m_tx_data[chunk_rep].chunk_rep == chunk_rep) {
+                Assume(m_tx_data[chunk_rep].chunk_feerate == feerate);
+                auto result = MergeStep<true>(chunk_rep);
+                Assume(result == chunk_rep || result == TxIdx(-1));
+                if (result == chunk_rep) {
+                    candidate_chunks.emplace_back(m_tx_data[chunk_rep].chunk_feerate, chunk_rep);
+                    std::push_heap(candidate_chunks.begin(), candidate_chunks.end(), std::greater{});
+                }
+            }
+        }
+    }
+
     /** Perform an upward or downward merge sequence on the specified transaction. Returns the
      *  representative of the merged chunk. */
     template<bool DownWard>
