@@ -227,12 +227,12 @@ BENCHMARK(LinearizeBoundedExample7, benchmark::PriorityLevel::HIGH);
 BENCHMARK(LinearizeBoundedExample8, benchmark::PriorityLevel::HIGH);
 BENCHMARK(LinearizeBoundedExample9, benchmark::PriorityLevel::HIGH);
 
-static constexpr int NUM_DEPGRAPHS = 1024;
+static constexpr int NUM_DEPGRAPHS = 64;
 static constexpr int NUM_STYLES = 4;
 static constexpr int NUM_MEDIAN = 5;
 static constexpr int NUM_REPEAT = 3;
 static constexpr int NUM_SEEDS = 100;
-static const std::string STYLE_NAMES[] = {"SFL(scratch)", "SFL(optin)", "CSS(scratch)", "CSS(optin)"};
+static const std::string STYLE_NAMES[] = {"SFL(randlin)", "SFL(dettopo)", "SFL(randtopo)", "SFL(optin)", "CSS(scratch)", "CSS(optin)"};
 
 static void LinearizeDataSet(benchmark::Bench& bench)
 {
@@ -286,15 +286,21 @@ static void LinearizeDataSet(benchmark::Bench& bench)
              auto start = std::chrono::high_resolution_clock::now();
              switch (style_idx) {
              case 0:
-                 res = Linearize(data.depgraph, 1000000000, data.seeds[repeat_idx][seed_idx], {});
+                 res = Linearize(data.depgraph, 1000000000, data.seeds[repeat_idx][seed_idx], {}, 0);
                  break;
              case 1:
-                 res = Linearize(data.depgraph, 1000000000, data.seeds[repeat_idx][seed_idx], data.optins[repeat_idx][seed_idx]);
+                 res = Linearize(data.depgraph, 1000000000, data.seeds[repeat_idx][seed_idx], {}, 1);
                  break;
              case 2:
-                 res = CSSLinearize(data.depgraph, 1000000000, data.seeds[repeat_idx][seed_idx], {});
+                 res = Linearize(data.depgraph, 1000000000, data.seeds[repeat_idx][seed_idx], {}, 2);
                  break;
              case 3:
+                 res = Linearize(data.depgraph, 1000000000, data.seeds[repeat_idx][seed_idx], data.optins[repeat_idx][seed_idx]);
+                 break;
+             case 4:
+                 res = CSSLinearize(data.depgraph, 1000000000, data.seeds[repeat_idx][seed_idx], {});
+                 break;
+             case 5:
                  res = CSSLinearize(data.depgraph, 1000000000, data.seeds[repeat_idx][seed_idx], data.optins[repeat_idx][seed_idx]);
                  break;
              }

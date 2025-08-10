@@ -1674,32 +1674,11 @@ public:
         LoadLinearization(load_order);
     }
 
-    /** Make state topological, randomized. */
-    void MakeTopologicalRandomized() noexcept
-    {
-         std::vector<TxIdx> candidate_chunks;
-         for (auto i : m_transactions) {
-             if (m_tx_data[i].chunk_rep == i) candidate_chunks.push_back(i);
-         }
-         while (!candidate_chunks.empty()) {
-              auto pos = m_rng.randrange(candidate_chunks.size());
-              if (pos != candidate_chunks.size() - 1) std::swap(candidate_chunks[pos], candidate_chunks.back());
-              auto chunk_rep = candidate_chunks.back();
-              m_cost += 3;
-              if (m_tx_data[chunk_rep].chunk_rep == chunk_rep) {
-                  auto result = MergeStep<true>(chunk_rep);
-                  Assume(result == chunk_rep || result == TxIdx(-1));
-                  if (result == chunk_rep) continue;
-              }
-              candidate_chunks.pop_back();
-         }
-         MarkChunksSuboptimal();
-    }
-
     /** Make state topological. */
     void MakeTopological() noexcept
     {
         std::vector<std::pair<FeeFrac, TxIdx>> candidate_chunks;
+        candidate_chunks.reserve(m_transactions.Count());
         for (auto tx : m_transactions) {
             if (m_tx_data[tx].chunk_rep == tx) candidate_chunks.emplace_back(m_tx_data[tx].chunk_setinfo.feerate, tx);
         }
@@ -1718,6 +1697,34 @@ public:
                     candidate_chunks.emplace_back(m_tx_data[chunk_rep].chunk_setinfo.feerate, chunk_rep);
                     std::push_heap(candidate_chunks.begin(), candidate_chunks.end(), std::greater{});
                     m_cost += 2;
+                }
+            }
+        }
+        MarkChunksSuboptimal();
+    }
+
+    /** Make state topological. */
+    void MakeTopologicalRandomized() noexcept
+    {
+        std::vector<TxIdx> candidate_chunks;
+        candidate_chunks.reserve(m_transactions.Count());
+        bool start_dir = m_rng.randbool();
+        for (auto tx : m_transactions) {
+            if (m_tx_data[tx].chunk_rep == tx) candidate_chunks.emplace_back(2 * tx + start_dir);
+        }
+        m_cost += candidate_chunks.size();
+        while (!candidate_chunks.empty()) {
+            auto pos = m_rng.randrange(candidate_chunks.size());
+            if (pos != candidate_chunks.size() - 1) std::swap(candidate_chunks[pos], candidate_chunks.back());
+            auto chunk = candidate_chunks.back();
+            candidate_chunks.pop_back();
+            bool dir = chunk & 1;
+            chunk >>= 1;
+            if (m_tx_data[chunk].chunk_rep == chunk) {
+                auto result = dir ? MergeStep<true>(chunk) : MergeStep<false>(chunk);
+                if (result != TxIdx(-1)) {
+                    candidate_chunks.push_back(2 * result);
+                    candidate_chunks.push_back(2 * result + 1);
                 }
             }
         }
@@ -1999,16 +2006,20 @@ public:
  *                                - How many optimization steps were actually performed.
  */
 template<typename SetType>
-std::tuple<std::vector<DepGraphIndex>, bool, uint64_t> Linearize(const DepGraph<SetType>& depgraph, uint64_t max_iterations, uint64_t rng_seed, std::span<const DepGraphIndex> old_linearization = {}) noexcept
+std::tuple<std::vector<DepGraphIndex>, bool, uint64_t> Linearize(const DepGraph<SetType>& depgraph, uint64_t max_iterations, uint64_t rng_seed, std::span<const DepGraphIndex> old_linearization = {}, int mode = 0) noexcept
 {
     /** Initialize a spanning forest data structure for this cluster. */
     SpanningForestState forest(depgraph, rng_seed);
     if (!old_linearization.empty()) {
         forest.LoadLinearization(old_linearization);
     } else {
-        forest.LoadRandomLinearization();
-        // forest.MakeTopological();
-        // forest.MakeTopologicalRandomized();
+        if (mode == 0) {
+            forest.LoadRandomLinearization();
+        } else if (mode == 1) {
+            forest.MakeTopological();
+        } else {
+            forest.MakeTopologicalRandomized();
+        }
     }
     // Make improvement steps to it until we hit the max_iterations limit, or an optimal result
     // is found.
