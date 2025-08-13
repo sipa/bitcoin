@@ -956,12 +956,14 @@ FUZZ_TARGET(clusterlin_linearize)
     uint64_t rng_seed{0};
     uint64_t iter_count{0};
     uint8_t make_connected{1};
+    unsigned mode{0};
     try {
         reader >> VARINT(iter_count) >> Using<DepGraphFormatter>(depgraph) >> rng_seed >> make_connected;
     } catch (const std::ios_base::failure&) {}
     // The most complicated graphs are connected ones (other ones just split up). Optionally force
     // the graph to be connected.
-    if (make_connected) MakeConnected(depgraph);
+    if (make_connected & 1) MakeConnected(depgraph);
+    mode = (make_connected >> 1) % 5;
 
     // Optionally construct an old linearization for it.
     std::vector<DepGraphIndex> old_linearization;
@@ -978,7 +980,7 @@ FUZZ_TARGET(clusterlin_linearize)
 
     // Invoke Linearize().
     iter_count &= 0x7ffff;
-    auto [linearization, optimal, cost] = Linearize(depgraph, iter_count, rng_seed, old_linearization);
+    auto [linearization, optimal, cost] = Linearize(depgraph, iter_count, rng_seed, old_linearization, mode);
     SanityCheck(depgraph, linearization);
     auto chunking = ChunkLinearization(depgraph, linearization);
 

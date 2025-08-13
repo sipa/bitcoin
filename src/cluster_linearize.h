@@ -1308,7 +1308,7 @@ private:
          *  chunk set and feerate. */
         SetInfo<SetType> chunk_setinfo;
         /** Whether this transaction appears in m_suboptimal_chunks. */
-        bool suboptimal{false};
+        unsigned suboptimal{0};
         /** Number of consecutive self-merges this chunk has experienced. */
         uint32_t self_merges;
     };
@@ -1606,6 +1606,8 @@ private:
             if (tx_data.chunk_rep == tx && !tx_data.suboptimal) {
                 tx_data.suboptimal = true;
                 m_suboptimal_chunks.push_back(tx);
+            } else if (tx_data.chunk_rep != tx) {
+                Assume(!tx_data.suboptimal);
             }
         }
     }
@@ -1708,24 +1710,100 @@ public:
     {
         std::vector<TxIdx> candidate_chunks;
         candidate_chunks.reserve(m_transactions.Count());
-        bool start_dir = m_rng.randbool();
+        unsigned start_dir = m_rng.randbool();
         for (auto tx : m_transactions) {
-            if (m_tx_data[tx].chunk_rep == tx) candidate_chunks.emplace_back(2 * tx + start_dir);
+            auto& tx_data = m_tx_data[tx];
+            if (tx_data.chunk_rep == tx) {
+                candidate_chunks.emplace_back(2 * tx + start_dir);
+                tx_data.suboptimal = start_dir + 1;
+            }
         }
         m_cost += candidate_chunks.size();
         while (!candidate_chunks.empty()) {
             auto pos = m_rng.randrange(candidate_chunks.size());
-            if (pos != candidate_chunks.size() - 1) std::swap(candidate_chunks[pos], candidate_chunks.back());
+            m_cost += 3;
+            if (pos != candidate_chunks.size() - 1) {
+                std::swap(candidate_chunks[pos], candidate_chunks.back());
+            }
             auto chunk = candidate_chunks.back();
             candidate_chunks.pop_back();
-            bool dir = chunk & 1;
+            unsigned dir = chunk & 1;
             chunk >>= 1;
-            if (m_tx_data[chunk].chunk_rep == chunk) {
+            auto& tx_data = m_tx_data[chunk];
+            Assume(tx_data.suboptimal & (dir + 1));
+            tx_data.suboptimal -= dir + 1;
+            if (tx_data.chunk_rep == chunk) {
                 auto result = dir ? MergeStep<true>(chunk) : MergeStep<false>(chunk);
                 if (result != TxIdx(-1)) {
-                    candidate_chunks.push_back(2 * result);
-                    candidate_chunks.push_back(2 * result + 1);
+                    auto& res_tx = m_tx_data[result];
+                    if (!(res_tx.suboptimal & 1)) candidate_chunks.push_back(2 * result);
+                    if (!(res_tx.suboptimal & 2)) candidate_chunks.push_back(2 * result + 1);
+                    res_tx.suboptimal = 3;
                 }
+            }
+        }
+        MarkChunksSuboptimal();
+    }
+
+    /** Make state topological. */
+    void MakeTopologicalRandomizedBidir() noexcept
+    {
+        std::vector<TxIdx> candidate_chunks;
+        candidate_chunks.reserve(m_transactions.Count());
+        for (auto tx : m_transactions) {
+            auto& tx_data = m_tx_data[tx];
+            if (tx_data.chunk_rep == tx) {
+                candidate_chunks.emplace_back(tx);
+                tx_data.suboptimal = 1;
+            }
+        }
+        m_cost += candidate_chunks.size();
+        while (!candidate_chunks.empty()) {
+            auto pos = m_rng.randrange(candidate_chunks.size());
+            m_cost += 3;
+            if (pos != candidate_chunks.size() - 1) {
+                std::swap(candidate_chunks[pos], candidate_chunks.back());
+            }
+            auto chunk = candidate_chunks.back();
+            candidate_chunks.pop_back();
+            auto& tx_data = m_tx_data[chunk];
+            Assume(tx_data.suboptimal & 1);
+            tx_data.suboptimal = 0;
+            if (tx_data.chunk_rep == chunk) {
+                bool dir = m_rng.randbool();
+                auto result = dir ? MergeStep<true>(chunk) : MergeStep<false>(chunk);
+                if (result == TxIdx(-1)) {
+                    result = dir ? MergeStep<false>(chunk) : MergeStep<true>(chunk);
+                    if (result == TxIdx(-1)) continue;
+                } else {
+                    auto result2 = dir ? MergeStep<false>(result) : MergeStep<true>(result);
+                    if (result2 != TxIdx(-1)) result = result2;
+                }
+                auto& res_tx = m_tx_data[result];
+                if (!res_tx.suboptimal) candidate_chunks.push_back(result);
+                res_tx.suboptimal = 1;
+            }
+        }
+        MarkChunksSuboptimal();
+    }
+
+    void MakeOneChunk() noexcept
+    {
+        std::vector<DepIdx> candidate_deps;
+        candidate_deps.resize(m_dep_data.size());
+        for (DepIdx dep = 0; dep < m_dep_data.size(); ++dep) {
+            candidate_deps[dep] = dep;
+        }
+        while (!candidate_deps.empty()) {
+            auto pos = m_rng.randrange(candidate_deps.size());
+            if (pos != candidate_deps.size() - 1) std::swap(candidate_deps[pos], candidate_deps.back());
+            auto dep = candidate_deps.back();
+            candidate_deps.pop_back();
+            auto& dep_data = m_dep_data[dep];
+            auto& par_data = m_tx_data[dep_data.parent];
+            auto& chl_data = m_tx_data[dep_data.child];
+            if (par_data.chunk_rep != chl_data.chunk_rep) {
+                Activate(dep);
             }
         }
         MarkChunksSuboptimal();
@@ -2017,8 +2095,14 @@ std::tuple<std::vector<DepGraphIndex>, bool, uint64_t> Linearize(const DepGraph<
             forest.LoadRandomLinearization();
         } else if (mode == 1) {
             forest.MakeTopological();
-        } else {
+        } else if (mode == 2) {
             forest.MakeTopologicalRandomized();
+        } else if (mode == 3) {
+            forest.MakeTopologicalRandomizedBidir();
+        } else if (mode == 4) {
+            forest.MakeOneChunk();
+        } else {
+            assert(false);
         }
     }
     // Make improvement steps to it until we hit the max_iterations limit, or an optimal result

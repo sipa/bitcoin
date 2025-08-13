@@ -228,11 +228,11 @@ BENCHMARK(LinearizeBoundedExample8, benchmark::PriorityLevel::HIGH);
 BENCHMARK(LinearizeBoundedExample9, benchmark::PriorityLevel::HIGH);
 
 static constexpr int NUM_DEPGRAPHS = 64;
-static constexpr int NUM_STYLES = 4;
+static constexpr int NUM_STYLES = 5;
 static constexpr int NUM_MEDIAN = 5;
 static constexpr int NUM_REPEAT = 3;
 static constexpr int NUM_SEEDS = 100;
-static const std::string STYLE_NAMES[] = {"SFL(randlin)", "SFL(dettopo)", "SFL(randtopo)", "SFL(optin)", "CSS(scratch)", "CSS(optin)"};
+static const std::string STYLE_NAMES[] = {"SFL(randlin)", "SFL(dettopo)", "SFL(randtopo)", "SFL(randbtopo)", "SFL(onechunk)", "SFL(optin)", "CSS(scratch)", "CSS(optin)"};
 
 static void LinearizeDataSet(benchmark::Bench& bench)
 {
@@ -295,12 +295,18 @@ static void LinearizeDataSet(benchmark::Bench& bench)
                  res = Linearize(data.depgraph, 1000000000, data.seeds[repeat_idx][seed_idx], {}, 2);
                  break;
              case 3:
-                 res = Linearize(data.depgraph, 1000000000, data.seeds[repeat_idx][seed_idx], data.optins[repeat_idx][seed_idx]);
+                 res = Linearize(data.depgraph, 1000000000, data.seeds[repeat_idx][seed_idx], {}, 3);
                  break;
              case 4:
-                 res = CSSLinearize(data.depgraph, 1000000000, data.seeds[repeat_idx][seed_idx], {});
+                 res = Linearize(data.depgraph, 1000000000, data.seeds[repeat_idx][seed_idx], {}, 4);
                  break;
              case 5:
+                 res = Linearize(data.depgraph, 1000000000, data.seeds[repeat_idx][seed_idx], data.optins[repeat_idx][seed_idx]);
+                 break;
+             case 6:
+                 res = CSSLinearize(data.depgraph, 1000000000, data.seeds[repeat_idx][seed_idx], {});
+                 break;
+             case 7:
                  res = CSSLinearize(data.depgraph, 1000000000, data.seeds[repeat_idx][seed_idx], data.optins[repeat_idx][seed_idx]);
                  break;
              }
@@ -344,6 +350,10 @@ static void LinearizeDataSet(benchmark::Bench& bench)
         reader >> Using<DepGraphFormatter>(depgraph);
         data.num_tx = depgraph.TxCount();
         data.num_dep = 0;
+        if (data.num_tx <= 25) {
+            depdata.pop_back();
+            continue;
+        }
         for (auto i : depgraph.Positions()) {
             data.num_dep += depgraph.GetReducedParents(i).Count();
         }
