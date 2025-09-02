@@ -1019,6 +1019,13 @@ static RPCHelpMan getblocktemplate()
         result.pushKV("default_witness_commitment", HexStr(block_template->getCoinbaseCommitment()));
     }
 
+    auto range = block_template->getFeeRange();
+    UniValue fee_range(UniValue::VARR);
+    fee_range.push_back(ValueFromAmount(range[0]));
+    fee_range.push_back(ValueFromAmount(range[1]));
+    fee_range.push_back(ValueFromAmount(range[2]));
+    result.pushKV("fee_range", std::move(fee_range));
+
     return result;
 },
     };

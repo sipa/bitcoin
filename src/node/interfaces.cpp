@@ -908,6 +908,11 @@ public:
         return GetWitnessCommitmentIndex(m_block_template->block);
     }
 
+    std::vector<CAmount> getFeeRange() override
+    {
+        return {m_block_template->fee_lower_bound, m_block_template->fee_achieved, m_block_template->fee_upper_bound};
+    }
+
     std::vector<uint256> getCoinbaseMerklePath() override
     {
         return TransactionMerklePath(m_block_template->block, 0);

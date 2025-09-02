@@ -154,6 +154,9 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
 
     m_last_block_num_txs = nBlockTx;
     m_last_block_weight = nBlockWeight;
+    pblocktemplate->fee_lower_bound = fee_lower_bound;
+    pblocktemplate->fee_achieved = nFees;
+    pblocktemplate->fee_upper_bound = fee_upper_bound;
 
     // Create coinbase transaction.
     CMutableTransaction coinbaseTx;
@@ -240,6 +243,9 @@ void BlockAssembler::addChunks()
     const int64_t MAX_CONSECUTIVE_FAILURES = 1000;
     constexpr int32_t BLOCK_FULL_ENOUGH_WEIGHT_DELTA = 4000;
     int64_t nConsecutiveFailed = 0;
+    fee_upper_bound = 0;
+    fee_lower_bound = 0;
+    bool have_skipped = false;
 
     std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> selected_transactions;
     FeePerWeight chunk_feerate;
@@ -255,6 +261,10 @@ void BlockAssembler::addChunks()
         // Check to see if min fee rate is still respected.
         if (chunk_feerate.fee < m_options.blockMinFeeRate.GetFee(chunk_feerate_vsize.size)) {
             // Everything else we might consider has a lower feerate
+            if (!have_skipped) {
+                fee_lower_bound = nFees;
+                fee_upper_bound = nFees;
+            }
             return;
         }
 
@@ -267,6 +277,11 @@ void BlockAssembler::addChunks()
 
         // Check to see if this chunk will fit.
         if (!TestPackage(chunk_feerate, package_sig_ops) || !TestPackageTransactions(chunk_txs)) {
+            if (!have_skipped) {
+                fee_lower_bound = nFees;
+                fee_upper_bound = nFees + chunk_feerate.EvaluateFee<true>(m_options.nBlockMaxWeight - nBlockWeight);
+                have_skipped = true;
+            }
             m_mempool->SkipBuilderChunk();
             // This chunk won't fit, so we let it be removed from the heap and
             // we'll try the next best.
@@ -288,7 +303,9 @@ void BlockAssembler::addChunks()
         }
 
         selected_transactions.clear();
+        auto old_feerate = chunk_feerate;
         chunk_feerate = m_mempool->GetBlockBuilderChunk(selected_transactions);
+        assert(FeeRateCompare(chunk_feerate, old_feerate) <= 0);
         chunk_feerate_vsize = ToFeePerVSize(chunk_feerate);
     }
 }

@@ -752,7 +752,7 @@ private:
     // callbacks).
     void addNewTransaction(CTxMemPool::txiter it) EXCLUSIVE_LOCKS_REQUIRED(cs);
 public:
-    void StartBlockBuilding() const EXCLUSIVE_LOCKS_REQUIRED(cs) { assert(!m_builder); m_builder = m_txgraph->GetBlockBuilder(); }
+    void StartBlockBuilding() const EXCLUSIVE_LOCKS_REQUIRED(cs) { assert(!m_builder); m_txgraph->DoWork(10000000); m_builder = m_txgraph->GetBlockBuilder(); }
     FeePerWeight GetBlockBuilderChunk(std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef>& entries) const EXCLUSIVE_LOCKS_REQUIRED(cs)
     {
         if (!m_builder) { return {}; }

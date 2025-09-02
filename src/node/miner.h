@@ -50,6 +50,10 @@ struct CBlockTemplate
     /* A vector of package fee rates, ordered by the sequence in which
      * packages are selected for inclusion in the block template.*/
     std::vector<FeePerVSize> m_package_feerates;
+
+    CAmount fee_lower_bound;
+    CAmount fee_achieved;
+    CAmount fee_upper_bound;
 };
 
 /** Generate a new block, without valid proof-of-work */
@@ -64,6 +68,8 @@ private:
     uint64_t nBlockTx;
     uint64_t nBlockSigOpsCost;
     CAmount nFees;
+    CAmount fee_upper_bound;
+    CAmount fee_lower_bound;
 
     // Chain context for the block
     int nHeight;
