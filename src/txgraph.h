@@ -202,6 +202,10 @@ public:
      *  graph must not be oversized. If the graph is empty, {{}, FeePerWeight{}} is returned. */
     virtual std::pair<std::vector<Ref*>, FeePerWeight> GetWorstMainChunk() noexcept = 0;
 
+    virtual std::tuple<std::vector<Ref*>, FeePerWeight, bool> BuildTemplate(uint32_t weight_limit, uint64_t iter_limit) noexcept = 0;
+
+    virtual FeePerWeight MaxFee(uint32_t weight_limit, bool all_prefixes) noexcept = 0;
+
     /** Get the approximate memory usage for this object, just counting the main graph. If a
      *  staging graph is present, return a number corresponding to memory usage after
      *  AbortStaging() would be called. Can always be called. */

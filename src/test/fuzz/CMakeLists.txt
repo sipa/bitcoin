@@ -48,6 +48,7 @@ add_executable(fuzz
   fees.cpp
   flatfile.cpp
   float.cpp
+  frontier.cpp
   golomb_rice.cpp
   headerssync.cpp
   hex.cpp

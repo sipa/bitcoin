@@ -72,6 +72,15 @@ struct SimTxGraph
     SimTxGraph(SimTxGraph&&) noexcept = default;
     SimTxGraph& operator=(SimTxGraph&&) noexcept = default;
 
+    FeePerWeight GetTotal()
+    {
+        FeePerWeight ret;
+        for (auto i : graph.Positions()) {
+            ret += graph.FeeRate(i);
+        }
+        return ret;
+    }
+
     /** Get the connected components within this simulated transaction graph. */
     std::vector<SetType> GetComponents()
     {
@@ -1020,6 +1029,36 @@ FUZZ_TARGET(txgraph)
                 // down (even when dependencies are added), as clusters can split and merge.
                 // Still include it here as it has (non-observable) effects on the real
                 // implementation.
+                break;
+            } else if (!main_sim.IsOversized() && command-- == 0) {
+                // BuildTemplate().
+                auto total_rate = main_sim.GetTotal();
+                uint32_t weight_limit = provider.ConsumeIntegralInRange<uint32_t>(0, total_rate.size * 2 + 1);
+                uint64_t iter_limit = alt ? provider.ConsumeIntegral<uint16_t>() : provider.ConsumeIntegral<uint8_t>();
+                auto [txn, total, opt] = real->BuildTemplate(weight_limit, iter_limit);
+                FeePerWeight recompute;
+                SimTxGraph::SetType done;
+                for (auto tx : txn) {
+                    auto simpos = main_sim.Find(tx);
+                    assert(simpos != SimTxGraph::MISSING);
+                    recompute += main_sim.graph.FeeRate(simpos);
+                    assert(!done[simpos]);
+                    done.Set(simpos);
+                    assert(main_sim.graph.Ancestors(simpos).IsSubsetOf(done));
+                }
+                assert(recompute == total);
+                assert(total.size <= int32_t(weight_limit));
+                if (int32_t(weight_limit) >= total_rate.size && (opt || iter_limit >= main_sim.graph.TxCount())) {
+                    assert(total.fee >= total_rate.fee);
+                }
+                if (weight_limit > 0 && opt) {
+                    uint32_t weight_limit2 = rng.rand64() % weight_limit;
+                    auto [txn2, total2, opt2] = real->BuildTemplate(weight_limit2, iter_limit * 10);
+                    assert(total2.size <= int32_t(weight_limit2));
+                    if (opt2) {
+                        assert(total2.fee <= total.fee);
+                    }
+                }
                 break;
             }
         }

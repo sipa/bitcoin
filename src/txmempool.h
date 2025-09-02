@@ -752,7 +752,7 @@ private:
     // callbacks).
     void addNewTransaction(CTxMemPool::txiter it) EXCLUSIVE_LOCKS_REQUIRED(cs);
 public:
-    void StartBlockBuilding() const EXCLUSIVE_LOCKS_REQUIRED(cs) { assert(!m_builder); m_builder = m_txgraph->GetBlockBuilder(); }
+    void StartBlockBuilding() const EXCLUSIVE_LOCKS_REQUIRED(cs) { assert(!m_builder); m_txgraph->DoWork(10000000); m_builder = m_txgraph->GetBlockBuilder(); }
     FeePerWeight GetBlockBuilderChunk(std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef>& entries) const EXCLUSIVE_LOCKS_REQUIRED(cs)
     {
         if (!m_builder) { return {}; }
@@ -769,6 +769,11 @@ public:
     void IncludeBuilderChunk() const EXCLUSIVE_LOCKS_REQUIRED(cs) { m_builder->Include(); }
     void SkipBuilderChunk() const EXCLUSIVE_LOCKS_REQUIRED(cs) { m_builder->Skip(); }
     void StopBlockBuilding() const EXCLUSIVE_LOCKS_REQUIRED(cs) { m_builder.reset(); }
+    FeePerWeight GetBNBTemplate(uint32_t size, bool all_prefixes) const EXCLUSIVE_LOCKS_REQUIRED(cs)
+    {
+//        return std::get<1>(m_txgraph->BuildTemplate(size, 40000000));
+        return m_txgraph->MaxFee(size, all_prefixes);
+    }
 };
 
 /**

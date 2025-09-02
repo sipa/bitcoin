@@ -6,10 +6,13 @@
 
 #include <cluster_linearize.h>
 #include <crypto/siphash.h>
+#include <logging.h>
 #include <random.h>
 #include <util/bitset.h>
 #include <util/check.h>
 #include <util/feefrac.h>
+#include <util/frontier.h>
+#include <util/time.h>
 #include <util/vector.h>
 
 #include <compare>
@@ -18,6 +21,7 @@
 #include <set>
 #include <span>
 #include <utility>
+
 
 namespace {
 
@@ -229,9 +233,9 @@ public:
     /** Populate range with refs for the transactions in this Cluster's linearization, from
      *  position start_pos until start_pos+range.size()-1, inclusive. Returns whether that
      *  range includes the last transaction in the linearization. */
-    virtual bool GetClusterRefs(TxGraphImpl& graph, std::span<TxGraph::Ref*> range, LinearizationIndex start_pos) noexcept = 0;
+    virtual bool GetClusterRefs(TxGraphImpl& graph, std::span<TxGraph::Ref*> range, LinearizationIndex start_pos) const noexcept = 0;
     /** Get the individual transaction feerate of a Cluster element. */
-    virtual FeePerWeight GetIndividualFeerate(DepGraphIndex idx) noexcept = 0;
+    virtual FeePerWeight GetIndividualFeerate(DepGraphIndex idx) const noexcept = 0;
     /** Modify the fee of a Cluster element. */
     virtual void SetFee(TxGraphImpl& graph, int level, DepGraphIndex idx, int64_t fee) noexcept = 0;
 
@@ -299,8 +303,8 @@ public:
     uint64_t AppendTrimData(std::vector<TrimTxData>& ret, std::vector<std::pair<GraphIndex, GraphIndex>>& deps) const noexcept final;
     void GetAncestorRefs(const TxGraphImpl& graph, std::span<std::pair<Cluster*, DepGraphIndex>>& args, std::vector<TxGraph::Ref*>& output) noexcept final;
     void GetDescendantRefs(const TxGraphImpl& graph, std::span<std::pair<Cluster*, DepGraphIndex>>& args, std::vector<TxGraph::Ref*>& output) noexcept final;
-    bool GetClusterRefs(TxGraphImpl& graph, std::span<TxGraph::Ref*> range, LinearizationIndex start_pos) noexcept final;
-    FeePerWeight GetIndividualFeerate(DepGraphIndex idx) noexcept final;
+    bool GetClusterRefs(TxGraphImpl& graph, std::span<TxGraph::Ref*> range, LinearizationIndex start_pos) const noexcept final;
+    FeePerWeight GetIndividualFeerate(DepGraphIndex idx) const noexcept final;
     void SetFee(TxGraphImpl& graph, int level, DepGraphIndex idx, int64_t fee) noexcept final;
     void SanityCheck(const TxGraphImpl& graph, int level) const final;
 };
@@ -354,8 +358,8 @@ public:
     uint64_t AppendTrimData(std::vector<TrimTxData>& ret, std::vector<std::pair<GraphIndex, GraphIndex>>& deps) const noexcept final;
     void GetAncestorRefs(const TxGraphImpl& graph, std::span<std::pair<Cluster*, DepGraphIndex>>& args, std::vector<TxGraph::Ref*>& output) noexcept final;
     void GetDescendantRefs(const TxGraphImpl& graph, std::span<std::pair<Cluster*, DepGraphIndex>>& args, std::vector<TxGraph::Ref*>& output) noexcept final;
-    bool GetClusterRefs(TxGraphImpl& graph, std::span<TxGraph::Ref*> range, LinearizationIndex start_pos) noexcept final;
-    FeePerWeight GetIndividualFeerate(DepGraphIndex idx) noexcept final;
+    bool GetClusterRefs(TxGraphImpl& graph, std::span<TxGraph::Ref*> range, LinearizationIndex start_pos) const noexcept final;
+    FeePerWeight GetIndividualFeerate(DepGraphIndex idx) const noexcept final;
     void SetFee(TxGraphImpl& graph, int level, DepGraphIndex idx, int64_t fee) noexcept final;
     void SanityCheck(const TxGraphImpl& graph, int level) const final;
 };
@@ -792,6 +796,8 @@ public:
 
     std::unique_ptr<BlockBuilder> GetBlockBuilder() noexcept final;
     std::pair<std::vector<Ref*>, FeePerWeight> GetWorstMainChunk() noexcept final;
+    std::tuple<std::vector<Ref*>, FeePerWeight, bool> BuildTemplate(uint32_t weight_limit, uint64_t iter_limit) noexcept final;
+    FeePerWeight MaxFee(uint32_t weight_limit, bool all_prefixes) noexcept final;
 
     size_t GetMainMemoryUsage() noexcept final;
 
@@ -2265,7 +2271,7 @@ void SingletonClusterImpl::GetDescendantRefs(const TxGraphImpl& graph, std::span
     GetAncestorRefs(graph, args, output);
 }
 
-bool GenericClusterImpl::GetClusterRefs(TxGraphImpl& graph, std::span<TxGraph::Ref*> range, LinearizationIndex start_pos) noexcept
+bool GenericClusterImpl::GetClusterRefs(TxGraphImpl& graph, std::span<TxGraph::Ref*> range, LinearizationIndex start_pos) const noexcept
 {
     // Translate the transactions in the Cluster (in linearization order, starting at start_pos in
     // the linearization) to Refs, and fill them in range.
@@ -2279,7 +2285,7 @@ bool GenericClusterImpl::GetClusterRefs(TxGraphImpl& graph, std::span<TxGraph::R
     return start_pos == m_linearization.size();
 }
 
-bool SingletonClusterImpl::GetClusterRefs(TxGraphImpl& graph, std::span<TxGraph::Ref*> range, LinearizationIndex start_pos) noexcept
+bool SingletonClusterImpl::GetClusterRefs(TxGraphImpl& graph, std::span<TxGraph::Ref*> range, LinearizationIndex start_pos) const noexcept
 {
     Assume(!range.empty());
     Assume(m_graph_index != GraphIndex(-1));
@@ -2290,12 +2296,12 @@ bool SingletonClusterImpl::GetClusterRefs(TxGraphImpl& graph, std::span<TxGraph:
     return true;
 }
 
-FeePerWeight GenericClusterImpl::GetIndividualFeerate(DepGraphIndex idx) noexcept
+FeePerWeight GenericClusterImpl::GetIndividualFeerate(DepGraphIndex idx) const noexcept
 {
     return FeePerWeight::FromFeeFrac(m_depgraph.FeeRate(idx));
 }
 
-FeePerWeight SingletonClusterImpl::GetIndividualFeerate(DepGraphIndex idx) noexcept
+FeePerWeight SingletonClusterImpl::GetIndividualFeerate(DepGraphIndex idx) const noexcept
 {
     Assume(m_graph_index != GraphIndex(-1));
     Assume(idx == 0);
@@ -3414,6 +3420,238 @@ size_t TxGraphImpl::GetMainMemoryUsage() noexcept
                    /* From the chunk index. */
                    memusage::DynamicUsage(m_main_chunkindex);
     return usage;
+}
+
+std::tuple<std::vector<TxGraph::Ref*>, FeePerWeight, bool> TxGraphImpl::BuildTemplate(uint32_t weight_limit, uint64_t iter_limit) noexcept
+{
+    MakeAllAcceptable(0);
+    Assume(m_main_clusterset.m_deps_to_add.empty());
+
+    FeePerWeight aim_point(0, weight_limit);
+
+    std::vector<ChunkIndex::iterator> best_sol;
+    FeePerWeight best_sol_res;
+
+    std::vector<std::pair<ChunkIndex::iterator, bool>> cur_sol;
+    FeePerWeight cur_res;
+    std::unordered_set<Cluster*> excluded;
+    ChunkIndex::iterator next = m_main_chunkindex.begin();
+
+    auto start = NodeClock::now();
+    
+    uint64_t iter_done = 0;
+    bool optimal = false;
+
+//    std::cerr << "BuildTemplate(weight_limit=" << weight_limit << " iter_limit=" << iter_limit << "\n";
+    while (iter_done < iter_limit) {
+//        std::cerr << "- iter_done=" << iter_done << "\n";
+        if (next != m_main_chunkindex.end()) {
+            const auto& chunk_data = *next;
+            const auto& entry = m_entries[chunk_data.m_graph_index];
+//            std::cerr << "  - consider: gi=" << chunk_data.m_graph_index << " fee=" << entry.m_main_chunk_feerate.fee << " size=" << entry.m_main_chunk_feerate.size << "\n";
+            if (excluded.count(entry.m_locator[0].cluster)) {
+//                std::cerr << "    - skip because excluded cluster=" << entry.m_locator[0].cluster << "\n";
+                // Skip if in an excluded cluster.
+                ++next;
+                continue;
+            }
+            if (entry.m_main_chunk_feerate >> (aim_point - cur_res)) {
+                bool good = cur_res.size + entry.m_main_chunk_feerate.size <= aim_point.size;
+/*                if (good) {
+                    for (unsigned i = 0; i < 10; ++i) {
+                        if (cur_sol.size() <= i) break;
+                        auto csi = cur_sol.rbegin() + i;
+                        if (!csi->second) {
+                            const auto& cse = m_entries[cur_sol.back().first->m_graph_index].m_main_chunk_feerate;
+                            if (cse.fee <= entry.m_main_chunk_feerate.fee && cse.size >= entry.m_main_chunk_feerate.size) {
+                                good = false;
+                                break;
+                            }
+                        }
+                    }
+                }*/
+                if (!good) {
+//                    std::cerr << "    - exclude because no fit\n";
+                    // Feerate is high enough, but chunk does not fit. Exclude.
+                    if (chunk_data.m_chunk_count != LinearizationIndex(-1)) {
+                        ++iter_done;
+                        excluded.insert(entry.m_locator[0].cluster);
+                    }
+                    cur_sol.emplace_back(next, false);
+                    ++next;
+                    continue;
+                }
+                // Feerate is high enough, and transaction fits. Include.
+                cur_res += entry.m_main_chunk_feerate;
+//                std::cerr << "    - include. cur_fee=" << cur_res.fee << " cur_size=" << cur_res.size << "\n";
+                if (cur_res.fee > aim_point.fee) aim_point.fee = cur_res.fee;
+                cur_sol.emplace_back(next, true);
+                ++next;
+                continue;
+            }
+        }
+        // The next chunk's feerate is too low, or there is no next chunk anymore.
+        if (cur_res.fee > best_sol_res.fee) {
+//            std::cerr << "  - new best\n";
+            // We are about to remove an included transaction from the solution. Check if this
+            // isn't a new best that should be remembered.
+            best_sol.clear();
+            for (const auto& [it, inc] : cur_sol) {
+                if (inc) best_sol.push_back(it);
+            }
+            best_sol_res = cur_res;
+        }
+        // Backtrack to last inclusion, or empty.
+        while (!cur_sol.empty() && !cur_sol.back().second) {
+            auto it = cur_sol.back().first;
+            const auto& chunk_data = *it;
+            const auto& entry = m_entries[chunk_data.m_graph_index];
+            ++iter_done;
+            excluded.erase(entry.m_locator[0].cluster);
+            cur_sol.pop_back();
+        }
+        if (cur_sol.empty()) {
+//            std::cerr << "  - optimal\n";
+            optimal = true;
+            break;
+        }
+        // Flip from included to excluded.
+        Assume(cur_sol.back().second == true);
+        next = cur_sol.back().first;
+        const auto& chunk_data = *next;
+        const auto& entry = m_entries[chunk_data.m_graph_index];
+//        std::cerr << "  - flip: gi=" << chunk_data.m_graph_index << " fee=" << entry.m_main_chunk_feerate.fee << " size=" << entry.m_main_chunk_feerate.size << "\n";
+        cur_res -= entry.m_main_chunk_feerate;
+//        std::cerr << "    - exclude. cur_fee=" << cur_res.fee << " cur_size=" << cur_res.size << "\n";
+        cur_sol.back().second = false;
+        if (chunk_data.m_chunk_count != LinearizationIndex(-1)) {
+            excluded.insert(entry.m_locator[0].cluster);
+            ++iter_done;
+        }
+        ++next;
+    }
+
+//    std::cerr << "- done\n";
+
+    if (cur_res.fee > best_sol_res.fee) {
+//        std::cerr << "  - new best\n";
+        best_sol.clear();
+        for (const auto& [it, inc] : cur_sol) {
+            if (inc) best_sol.push_back(it);
+        }
+        best_sol_res = cur_res;
+    }
+
+    auto stop = NodeClock::now();
+
+    std::vector<Ref*> ret;
+    for (auto it : best_sol) {
+        const auto& chunk_data = *it;
+        const auto& chunk_end_entry = m_entries[chunk_data.m_graph_index];
+        if (chunk_data.m_chunk_count == LinearizationIndex(-1)) {
+            Assume(chunk_end_entry.m_ref != nullptr);
+            ret.push_back(chunk_end_entry.m_ref);
+        } else {
+            auto old_size = ret.size();
+            ret.resize(old_size + chunk_data.m_chunk_count);
+            auto start_pos = chunk_end_entry.m_main_lin_index + 1 - chunk_data.m_chunk_count;
+            auto cluster = chunk_end_entry.m_locator[0].cluster;
+            cluster->GetClusterRefs(*this, std::span{ret}.last(chunk_data.m_chunk_count), start_pos);
+        }
+    }
+
+
+    LogPrintf("BuildTemplate: weight_limit=%u iter_limit=%u iter_done=%u time=%uus optimal=%i weight=%u fees=%u\n", weight_limit, iter_limit, iter_done, std::chrono::duration_cast<std::chrono::microseconds>(stop - start).count(), optimal, best_sol_res.size, best_sol_res.fee);
+    return {std::move(ret), best_sol_res, optimal};
+}
+
+FeePerWeight TxGraphImpl::MaxFee(uint32_t weight_limit, bool all_prefixes) noexcept
+{
+    MakeAllAcceptable(0);
+    Assume(m_main_clusterset.m_deps_to_add.empty());
+    std::set<Cluster*> clusters_done;
+    std::vector<FeeFrac> cluster_chunks;
+    std::vector<TxGraph::Ref*> cluster_lin;
+    Frontier<int64_t> best(weight_limit, 0);
+    Frontier<int64_t> no_effect(weight_limit, 0);
+    uint64_t chunks_proc = 0;
+    uint64_t chunks_total = 0;
+    uint64_t clusters_proc = 0;
+    unsigned no_updated_graph = 0;
+    unsigned no_updated_best = 0;
+    int64_t old_best = 0;
+
+    auto start = NodeClock::now();
+    LogPrintf("MaxFee(%u)\n", weight_limit);
+    for (const auto& chunk_data : m_main_chunkindex) {
+        bool updated = false;
+        const auto& entry = m_entries[chunk_data.m_graph_index];
+        auto [it, inserted] = clusters_done.insert(entry.m_locator[0].cluster);
+        const Cluster* cluster = entry.m_locator[0].cluster;
+        if (inserted) {
+            cluster_chunks.clear();
+            if (all_prefixes) {
+                cluster_lin.resize(cluster->GetTxCount());
+                cluster_chunks.resize(cluster_lin.size());
+                cluster->GetClusterRefs(*this, cluster_lin, 0);
+                for (auto ref : cluster_lin) {
+                    cluster_chunks.push_back(cluster->GetIndividualFeerate(m_entries[GetRefIndex(*ref)].m_locator[0].index));
+                }
+            } else {
+                entry.m_locator[0].cluster->AppendChunkFeerates(cluster_chunks);
+            }
+            FeeFrac cluster_so_far;
+            for (auto& chunk_feerate : cluster_chunks) {
+                cluster_so_far += chunk_feerate;
+                chunk_feerate = cluster_so_far;
+            }
+            chunks_total += cluster_chunks.size();
+            while (!cluster_chunks.empty()) {
+                if (!no_effect.Test(cluster_chunks.back().size, cluster_chunks.back().fee)) break;
+                cluster_chunks.pop_back();
+            }
+            if (cluster_chunks.empty()) continue;
+            chunks_proc += cluster_chunks.size();
+            clusters_proc += 1;
+
+            auto old = best.Last();
+            do {
+                for (size_t c = 0; c < cluster_chunks.size(); ++c) {
+                    const auto& chunks_feerate = cluster_chunks[c];
+                    auto new_size = old.first + chunks_feerate.size;
+                    if (new_size <= weight_limit) {
+                        if (best.Set(new_size, old.second + chunks_feerate.fee)) {
+                            updated = true;
+                        }
+                    }
+                }
+            } while(best.PreviousTick(old));
+
+            if (updated) {
+                no_updated_graph = 0;
+            } else {
+                ++no_updated_graph;
+                for (size_t c = 0; c < cluster_chunks.size(); ++c) {
+                    const auto& chunk_feerate = cluster_chunks[c];
+                    no_effect.Set(chunk_feerate.size, chunk_feerate.fee);
+                }
+            }
+            auto new_best = best.Last();
+            if (new_best.second > old_best) {
+                old_best = new_best.second;
+                no_updated_best = 0;
+            } else {
+                ++no_updated_best;
+            }
+//            if (no_updated_best >= 300 && no_updated_graph >= 200) break;
+            if ((clusters_proc % 100) == 0) {
+                LogPrintf("- Done:  clusters=%u/%u, chunks=%u/%u, best=%u/%u, no_graph_change=%u, no_best_change=%u, nupd=%u, bupd=%u\n", clusters_proc, clusters_done.size(), chunks_proc, chunks_total, best.Last().second, best.Last().first, no_updated_graph, no_updated_best, no_effect.Updates(), best.Updates());
+            }
+        }
+    }
+    auto stop = NodeClock::now();
+    LogPrintf("- Final: clusters=%u/%u, chunks=%u/%u, best=%u/%u, no_graph_change=%u, no_best_change=%u, nupd=%u, bupd=%u, time=%ums\n", clusters_proc, clusters_done.size(), chunks_proc, chunks_total, best.Last().second, best.Last().first, no_updated_graph, no_updated_best, no_effect.Updates(), best.Updates(), std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count());
+    return FeePerWeight(best.Last().second, best.Last().first);
 }
 
 } // namespace
