@@ -1745,16 +1745,16 @@ public:
         MarkChunksSuboptimal();
     }
 
-    /** Make state topological. */
     void MakeTopologicalRandomizedBidir() noexcept
     {
         std::vector<TxIdx> candidate_chunks;
         candidate_chunks.reserve(m_transactions.Count());
+        unsigned start_dir = m_rng.randbool();
         for (auto tx : m_transactions) {
             auto& tx_data = m_tx_data[tx];
             if (tx_data.chunk_rep == tx) {
                 candidate_chunks.emplace_back(tx);
-                tx_data.suboptimal = 1;
+                tx_data.suboptimal = start_dir + 1;
             }
         }
         m_cost += candidate_chunks.size();
@@ -1767,21 +1767,25 @@ public:
             auto chunk = candidate_chunks.back();
             candidate_chunks.pop_back();
             auto& tx_data = m_tx_data[chunk];
-            Assume(tx_data.suboptimal & 1);
-            tx_data.suboptimal = 0;
+            Assume(tx_data.suboptimal != 0);
             if (tx_data.chunk_rep == chunk) {
-                bool dir = m_rng.randbool();
-                auto result = dir ? MergeStep<true>(chunk) : MergeStep<false>(chunk);
-                if (result == TxIdx(-1)) {
-                    result = dir ? MergeStep<false>(chunk) : MergeStep<true>(chunk);
-                    if (result == TxIdx(-1)) continue;
-                } else {
-                    auto result2 = dir ? MergeStep<false>(result) : MergeStep<true>(result);
-                    if (result2 != TxIdx(-1)) result = result2;
+                unsigned old_suboptimal = tx_data.suboptimal;
+                tx_data.suboptimal = 0;
+                for (int i = 0; i < 2; ++i) {
+                    unsigned dir = (old_suboptimal == 3) ? m_rng.randbool() :
+                                   old_suboptimal - 1;
+                    auto result = dir ? MergeStep<true>(chunk) : MergeStep<false>(chunk);
+                    if (result != TxIdx(-1)) {
+                        auto& res_tx = m_tx_data[result];
+                        if (res_tx.suboptimal == 0) candidate_chunks.push_back(result);
+                        res_tx.suboptimal = 3;
+                        break;
+                    }
+                    old_suboptimal -= dir + 1;
+                    if (old_suboptimal == 0) break;
                 }
-                auto& res_tx = m_tx_data[result];
-                if (!res_tx.suboptimal) candidate_chunks.push_back(result);
-                res_tx.suboptimal = 1;
+            } else {
+                tx_data.suboptimal = 0;
             }
         }
         MarkChunksSuboptimal();
