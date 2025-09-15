@@ -1135,6 +1135,7 @@ FUZZ_TARGET(clusterlin_linearize)
     uint64_t rng_seed{0};
     uint64_t iter_count{0};
     uint8_t make_connected{1};
+    bool is_topological{true};
     try {
         reader >> VARINT(iter_count) >> Using<DepGraphFormatter>(depgraph) >> rng_seed >> make_connected;
     } catch (const std::ios_base::failure&) {}
@@ -1150,19 +1151,32 @@ FUZZ_TARGET(clusterlin_linearize)
             reader >> have_old_linearization;
         } catch(const std::ios_base::failure&) {}
         if (have_old_linearization & 1) {
-            old_linearization = ReadLinearization(depgraph, reader);
-            SanityCheck(depgraph, old_linearization);
+            if (have_old_linearization & 2) {
+                // Construct a copy of depgraph without dependencies.
+                DepGraph<TestBitSet> depgraph_empty;
+                TestBitSet to_remove;
+                for (DepGraphIndex i = 0; i < depgraph.PositionRange(); ++i) {
+                    depgraph_empty.AddTransaction(FeeFrac{0, 1});
+                    if (!depgraph.Positions()[i]) to_remove.Set(i);
+                }
+                depgraph_empty.RemoveTransactions(to_remove);
+                old_linearization = ReadLinearization(depgraph_empty, reader);
+                is_topological = false;
+            } else {
+                old_linearization = ReadLinearization(depgraph, reader);
+                SanityCheck(depgraph, old_linearization);
+            }
         }
     }
 
     // Invoke Linearize().
     iter_count &= 0x7ffff;
-    auto [linearization, optimal, cost] = Linearize(depgraph, iter_count, rng_seed, old_linearization);
+    auto [linearization, optimal, cost] = Linearize(depgraph, iter_count, rng_seed, old_linearization, /*is_topological=*/is_topological);
     SanityCheck(depgraph, linearization);
     auto chunking = ChunkLinearization(depgraph, linearization);
 
-    // Linearization must always be as good as the old one, if provided.
-    if (!old_linearization.empty()) {
+    // Linearization must always be as good as the old one, if provided and topological.
+    if (!old_linearization.empty() && is_topological) {
         auto old_chunking = ChunkLinearization(depgraph, old_linearization);
         auto cmp = CompareChunks(chunking, old_chunking);
         assert(cmp >= 0);

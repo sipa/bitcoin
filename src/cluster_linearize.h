@@ -1911,8 +1911,9 @@ public:
  * @param[in] rng_seed            A random number seed to control search order. This prevents peers
  *                                from predicting exactly which clusters would be hard for us to
  *                                linearize.
- * @param[in] old_linearization   An existing linearization for the cluster (which must be
- *                                topologically valid), or empty.
+ * @param[in] old_linearization   An existing linearization for the cluster, or empty.
+ * @param[in] is_topological      (Only relevant if old_linearization is not empty) Whether
+ *                                old_linearization is topologically valid.
  * @return                        A tuple of:
  *                                - The resulting linearization. It is guaranteed to be at least as
  *                                  good (in the feerate diagram sense) as old_linearization.
@@ -1921,12 +1922,13 @@ public:
  *                                - How many optimization steps were actually performed.
  */
 template<typename SetType>
-std::tuple<std::vector<DepGraphIndex>, bool, uint64_t> Linearize(const DepGraph<SetType>& depgraph, uint64_t max_iterations, uint64_t rng_seed, std::span<const DepGraphIndex> old_linearization = {}) noexcept
+std::tuple<std::vector<DepGraphIndex>, bool, uint64_t> Linearize(const DepGraph<SetType>& depgraph, uint64_t max_iterations, uint64_t rng_seed, std::span<const DepGraphIndex> old_linearization = {}, bool is_topological = true) noexcept
 {
     /** Initialize a spanning forest data structure for this cluster. */
     SpanningForestState forest(depgraph, rng_seed);
     if (!old_linearization.empty()) {
         forest.LoadLinearization(old_linearization);
+        if (!is_topological) forest.MakeTopological();
     } else {
         forest.MakeTopological();
     }
