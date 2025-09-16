@@ -1231,9 +1231,6 @@ FUZZ_TARGET(txgraph)
                         DepGraphIndex idx{0};
                         for (unsigned chunknum = 0; chunknum < simlinchunk.NumChunksLeft(); ++chunknum) {
                             auto chunk = simlinchunk.GetChunk(chunknum);
-                            // Require that the chunks of cluster linearizations are connected (this must
-                            // be the case as all linearizations inside are PostLinearized).
-                            assert(sim.graph.IsConnected(chunk.transactions));
                             // Check the chunk feerates of all transactions in the cluster.
                             while (chunk.transactions.Any()) {
                                 assert(chunk.transactions[simlin[idx]]);

@@ -2057,9 +2057,6 @@ std::pair<uint64_t, bool> GenericClusterImpl::Relinearize(TxGraphImpl& graph, in
     // Invoke the actual linearization algorithm (passing in the existing one).
     uint64_t rng_seed = graph.m_rng.rand64();
     auto [linearization, optimal, cost] = Linearize(m_depgraph, max_iters, rng_seed, m_linearization);
-    // Postlinearize if the result isn't optimal already. This guarantees (among other things)
-    // that the chunks of the resulting linearization are all connected.
-    if (!optimal) PostLinearize(m_depgraph, linearization);
     // Update the linearization.
     m_linearization = std::move(linearization);
     // Update the Cluster's quality.
@@ -2762,8 +2759,10 @@ void GenericClusterImpl::SanityCheck(const TxGraphImpl& graph, int level) const
                     assert(chunk_data.m_chunk_count == chunk_pos);
                 }
             }
-            // If this Cluster has an acceptable quality level, its chunks must be connected.
-            assert(m_depgraph.IsConnected(linchunking.GetChunk(0).transactions));
+            // If this Cluster is optimal, its chunks must be connected.
+            if (IsOptimal()) {
+                assert(m_depgraph.IsConnected(linchunking.GetChunk(0).transactions));
+            }
         }
     }
     // Verify that each element of m_depgraph occurred in m_linearization.
