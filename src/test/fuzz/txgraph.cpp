@@ -333,8 +333,8 @@ FUZZ_TARGET(txgraph)
         std::unique_ptr<TxGraph::BlockBuilder> builder;
         /** The set of transactions marked as included in *builder. */
         SimTxGraph::SetType included;
-        /** The set of transactions marked as included or skipped in *builder. */
-        SimTxGraph::SetType done;
+        /** The set of set-ends skipped in *builder. */
+        SimTxGraph::SetType skipped;
         /** The last chunk feerate returned by *builder. IsEmpty() if none yet. */
         FeePerWeight last_feerate;
 
@@ -799,7 +799,7 @@ FUZZ_TARGET(txgraph)
                 // BlockBuilder::GetCurrentChunk, followed by Include/Skip.
                 auto& builder_data = block_builders[builder_idx];
                 auto new_included = builder_data.included;
-                auto new_done = builder_data.done;
+                auto new_skipped = builder_data.skipped;
                 auto chunk = builder_data.builder->GetCurrentChunk();
                 if (chunk) {
                     // Chunk feerates must be monotonously decreasing.
@@ -809,26 +809,31 @@ FUZZ_TARGET(txgraph)
                     builder_data.last_feerate = chunk->second;
                     // Verify the contents of GetCurrentChunk.
                     FeePerWeight sum_feerate;
+                    SimTxGraph::Pos simpos{0};
                     for (TxGraph::Ref* ref : chunk->first) {
                         // Each transaction in the chunk must exist in the main graph.
-                        auto simpos = main_sim.Find(ref);
+                        simpos = main_sim.Find(ref);
                         assert(simpos != SimTxGraph::MISSING);
                         // Verify the claimed chunk feerate.
                         sum_feerate += main_sim.graph.FeeRate(simpos);
-                        // Make sure no transaction is reported twice.
-                        assert(!new_done[simpos]);
-                        new_done.Set(simpos);
-                        // The concatenation of all included transactions must be topologically valid.
+                        // Make sure nothing skipped is reported again.
+                        assert(!new_skipped[simpos]);
+                        // Make sure no transaction is included twice.
+                        assert(!new_included[simpos]);
                         new_included.Set(simpos);
+                        // The concatenation of all included transactions must be topologically valid.
                         assert(main_sim.graph.Ancestors(simpos).IsSubsetOf(new_included));
                     }
+                    new_skipped.Set(simpos);
                     assert(sum_feerate == chunk->second);
                 } else {
                     // When we reach the end, if nothing was skipped, the entire graph should have
                     // been reported.
-                    if (builder_data.done == builder_data.included) {
-                        assert(builder_data.done.Count() == main_sim.GetTransactionCount());
+                    assert(!builder_data.included.Overlaps(builder_data.skipped));
+                    if (builder_data.skipped.None()) {
+                        assert(builder_data.included.Count() == main_sim.GetTransactionCount());
                     }
+                    assert(builder_data.included.Count() + builder_data.skipped.Count() <= main_sim.GetTransactionCount());
                 }
                 // Possibly invoke GetCurrentChunk() again, which should give the same result.
                 if ((orig_command % 7) >= 5) {
@@ -839,12 +844,12 @@ FUZZ_TARGET(txgraph)
                 if ((orig_command % 5) >= 3) {
                     // Skip.
                     builder_data.builder->Skip();
+                    builder_data.skipped = new_skipped;
                 } else {
                     // Include.
                     builder_data.builder->Include();
                     builder_data.included = new_included;
                 }
-                builder_data.done = new_done;
                 break;
             } else if (!main_sim.IsOversized() && command-- == 0) {
                 // GetWorstMainChunk.
