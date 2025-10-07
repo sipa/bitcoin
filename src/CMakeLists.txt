@@ -49,6 +49,7 @@ add_library(bitcoin_clientversion STATIC EXCLUDE_FROM_ALL
 target_link_libraries(bitcoin_clientversion
   PRIVATE
     core_interface
+    highs
 )
 add_dependencies(bitcoin_clientversion generate_build_info)
 
@@ -57,6 +58,14 @@ add_subdirectory(util)
 if(ENABLE_IPC)
   add_subdirectory(ipc)
 endif()
+
+set(ZLIB OFF CACHE BOOL "" FORCE)
+set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(BUILD_CXX_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(USE_DOTNET_STD_21 OFF CACHE BOOL "" FORCE)
+add_subdirectory(HiGHS EXCLUDE_FROM_ALL)
 
 add_library(bitcoin_consensus STATIC EXCLUDE_FROM_ALL
   arith_uint256.cpp
@@ -76,6 +85,7 @@ target_link_libraries(bitcoin_consensus
     core_interface
     bitcoin_crypto
     secp256k1
+    highs
 )
 
 if(WITH_ZMQ)
@@ -144,6 +154,7 @@ target_link_libraries(bitcoin_common
     bitcoin_util
     univalue
     secp256k1
+    highs
     Boost::headers
     $<TARGET_NAME_IF_EXISTS:USDT::headers>
     $<$<PLATFORM_ID:Windows>:ws2_32>
@@ -167,6 +178,7 @@ if(ENABLE_WALLET)
       bitcoin_wallet
       bitcoin_common
       bitcoin_util
+      highs
       Boost::headers
     )
     install_binary_component(bitcoin-wallet HAS_MANPAGE)
@@ -281,6 +293,7 @@ target_link_libraries(bitcoin_node
     minisketch
     univalue
     Boost::headers
+    highs
     $<TARGET_NAME_IF_EXISTS:libevent::core>
     $<TARGET_NAME_IF_EXISTS:libevent::extra>
     $<TARGET_NAME_IF_EXISTS:libevent::pthreads>
