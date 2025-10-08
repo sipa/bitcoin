@@ -749,6 +749,7 @@ public:
     void IncludeBuilderChunk() const EXCLUSIVE_LOCKS_REQUIRED(cs) { m_builder->Include(); }
     void SkipBuilderChunk() const EXCLUSIVE_LOCKS_REQUIRED(cs) { m_builder->Skip(); }
     void StopBlockBuilding() const EXCLUSIVE_LOCKS_REQUIRED(cs) { m_builder.reset(); }
+    int64_t GetMaxFee(uint32_t weight_limit, int style) const EXCLUSIVE_LOCKS_REQUIRED(cs) { return m_txgraph->GetMaxFee(weight_limit, style); }
 };
 
 /**

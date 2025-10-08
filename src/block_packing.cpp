@@ -17,6 +17,9 @@ std::pair<std::vector<size_t>, FeeFrac> PackBlock(std::span<const FeeFrac> feera
     FastRandomContext rng;
 
     Highs highs;
+    highs.setOptionValue("presolve", "off");
+    highs.setOptionValue("parallel", "on");
+    highs.setOptionValue("simplex_max_concurrency", 8);
     highs.setOptionValue("mip_rel_gap", 1e-15);
     highs.setOptionValue("random_seed", rng.randrange<int>(1000000000));
 

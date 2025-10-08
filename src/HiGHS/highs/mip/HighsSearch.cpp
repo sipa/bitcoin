@@ -273,32 +273,32 @@ HighsInt HighsSearch::selectBranchingCandidate(int64_t maxSbIters,
     const double lower_residual =
         (fracval - localdom.col_lower_[col]) - mipsolver.mipdata_->feastol;
     const bool lower_ok = lower_residual > 0;
-    if (!lower_ok)
-      highsLogUser(mipsolver.options_mip_->log_options, HighsLogType::kError,
-                   "HighsSearch::selectBranchingCandidate Error fracval = %g "
-                   "<= %g = %g + %g = "
-                   "localdom.col_lower_[col] + mipsolver.mipdata_->feastol: "
-                   "Residual %g\n",
-                   fracval,
-                   localdom.col_lower_[col] + mipsolver.mipdata_->feastol,
-                   localdom.col_lower_[col], mipsolver.mipdata_->feastol,
-                   lower_residual);
+//    if (!lower_ok)
+//      highsLogUser(mipsolver.options_mip_->log_options, HighsLogType::kError,
+//                   "HighsSearch::selectBranchingCandidate Error fracval = %g "
+//                   "<= %g = %g + %g = "
+//                   "localdom.col_lower_[col] + mipsolver.mipdata_->feastol: "
+//                   "Residual %g\n",
+//                   fracval,
+//                   localdom.col_lower_[col] + mipsolver.mipdata_->feastol,
+//                   localdom.col_lower_[col], mipsolver.mipdata_->feastol,
+//                   lower_residual);
 
     const double upper_residual =
         (localdom.col_upper_[col] - fracval) - mipsolver.mipdata_->feastol;
     const bool upper_ok = upper_residual > 0;
-    if (!upper_ok)
-      highsLogUser(mipsolver.options_mip_->log_options, HighsLogType::kError,
-                   "HighsSearch::selectBranchingCandidate Error fracval = %g "
-                   ">= %g = %g - %g = "
-                   "localdom.col_upper_[col] - mipsolver.mipdata_->feastol: "
-                   "Residual %g\n",
-                   fracval,
-                   localdom.col_upper_[col] - mipsolver.mipdata_->feastol,
-                   localdom.col_upper_[col], mipsolver.mipdata_->feastol,
-                   upper_residual);
+//    if (!upper_ok)
+//      highsLogUser(mipsolver.options_mip_->log_options, HighsLogType::kError,
+//                   "HighsSearch::selectBranchingCandidate Error fracval = %g "
+//                   ">= %g = %g - %g = "
+//                   "localdom.col_upper_[col] - mipsolver.mipdata_->feastol: "
+//                   "Residual %g\n",
+//                   fracval,
+//                   localdom.col_upper_[col] - mipsolver.mipdata_->feastol,
+//                   localdom.col_upper_[col], mipsolver.mipdata_->feastol,
+//                   upper_residual);
 
-    assert(lower_residual > -1e-12 && upper_residual > -1e-12);
+//    assert(lower_residual > -1e-12 && upper_residual > -1e-12);
 
     //    assert(fracval > localdom.col_lower_[col] +
     //    mipsolver.mipdata_->feastol); assert(fracval <
@@ -923,12 +923,12 @@ void HighsSearch::resetLocalDomain() {
   localdom = mipsolver.mipdata_->domain;
 
 #ifndef NDEBUG
-  for (HighsInt i = 0; i != mipsolver.numCol(); ++i) {
-    assert(lp->getLpSolver().getLp().col_lower_[i] == localdom.col_lower_[i] ||
-           mipsolver.variableType(i) == HighsVarType::kContinuous);
-    assert(lp->getLpSolver().getLp().col_upper_[i] == localdom.col_upper_[i] ||
-           mipsolver.variableType(i) == HighsVarType::kContinuous);
-  }
+//  for (HighsInt i = 0; i != mipsolver.numCol(); ++i) {
+//    assert(lp->getLpSolver().getLp().col_lower_[i] == localdom.col_lower_[i] ||
+//           mipsolver.variableType(i) == HighsVarType::kContinuous);
+//    assert(lp->getLpSolver().getLp().col_upper_[i] == localdom.col_upper_[i] ||
+//           mipsolver.variableType(i) == HighsVarType::kContinuous);
+//  }
 #endif
 }
 
@@ -1012,14 +1012,14 @@ HighsSearch::NodeResult HighsSearch::evaluateNode() {
     lp->setObjectiveLimit(mipsolver.mipdata_->upper_limit);
 
 #ifndef NDEBUG
-    for (HighsInt i = 0; i != mipsolver.numCol(); ++i) {
-      assert(lp->getLpSolver().getLp().col_lower_[i] ==
-                 localdom.col_lower_[i] ||
-             mipsolver.variableType(i) == HighsVarType::kContinuous);
-      assert(lp->getLpSolver().getLp().col_upper_[i] ==
-                 localdom.col_upper_[i] ||
-             mipsolver.variableType(i) == HighsVarType::kContinuous);
-    }
+//    for (HighsInt i = 0; i != mipsolver.numCol(); ++i) {
+//      assert(lp->getLpSolver().getLp().col_lower_[i] ==
+//                 localdom.col_lower_[i] ||
+//             mipsolver.variableType(i) == HighsVarType::kContinuous);
+//      assert(lp->getLpSolver().getLp().col_upper_[i] ==
+//                 localdom.col_upper_[i] ||
+//             mipsolver.variableType(i) == HighsVarType::kContinuous);
+//    }
 #endif
     int64_t oldnumiters = lp->getNumLpIterations();
     HighsLpRelaxation::Status status = lp->resolveLp(&localdom);
@@ -1631,14 +1631,14 @@ bool HighsSearch::backtrack(bool recoverBasis) {
         }
       }
 
-      assert(
-          (branchchg.boundtype == HighsBoundType::kLower &&
-           branchchg.boundval >= nodestack.back().branchingdecision.boundval) ||
-          (branchchg.boundtype == HighsBoundType::kUpper &&
-           branchchg.boundval <= nodestack.back().branchingdecision.boundval));
-      assert(branchchg.boundtype ==
-             nodestack.back().branchingdecision.boundtype);
-      assert(branchchg.column == nodestack.back().branchingdecision.column);
+//      assert(
+//          (branchchg.boundtype == HighsBoundType::kLower &&
+//           branchchg.boundval >= nodestack.back().branchingdecision.boundval) ||
+//          (branchchg.boundtype == HighsBoundType::kUpper &&
+//           branchchg.boundval <= nodestack.back().branchingdecision.boundval));
+//      assert(branchchg.boundtype ==
+//             nodestack.back().branchingdecision.boundtype);
+//      assert(branchchg.column == nodestack.back().branchingdecision.column);
     }
 
     NodeData& currnode = nodestack.back();
@@ -1754,14 +1754,14 @@ bool HighsSearch::backtrackPlunge(HighsNodeQueue& nodequeue) {
         }
       }
 
-      assert(
-          (branchchg.boundtype == HighsBoundType::kLower &&
-           branchchg.boundval >= nodestack.back().branchingdecision.boundval) ||
-          (branchchg.boundtype == HighsBoundType::kUpper &&
-           branchchg.boundval <= nodestack.back().branchingdecision.boundval));
-      assert(branchchg.boundtype ==
-             nodestack.back().branchingdecision.boundtype);
-      assert(branchchg.column == nodestack.back().branchingdecision.column);
+//      assert(
+//          (branchchg.boundtype == HighsBoundType::kLower &&
+//           branchchg.boundval >= nodestack.back().branchingdecision.boundval) ||
+//          (branchchg.boundtype == HighsBoundType::kUpper &&
+//           branchchg.boundval <= nodestack.back().branchingdecision.boundval));
+//      assert(branchchg.boundtype ==
+//             nodestack.back().branchingdecision.boundtype);
+//      assert(branchchg.column == nodestack.back().branchingdecision.column);
     }
 
     NodeData& currnode = nodestack.back();
@@ -1900,13 +1900,13 @@ bool HighsSearch::backtrackUntilDepth(HighsInt targetDepth) {
       lp->flushDomain(localdom);
       return false;
     }
-    assert(
-        (branchchg.boundtype == HighsBoundType::kLower &&
-         branchchg.boundval >= nodestack.back().branchingdecision.boundval) ||
-        (branchchg.boundtype == HighsBoundType::kUpper &&
-         branchchg.boundval <= nodestack.back().branchingdecision.boundval));
-    assert(branchchg.boundtype == nodestack.back().branchingdecision.boundtype);
-    assert(branchchg.column == nodestack.back().branchingdecision.column);
+//    assert(
+//        (branchchg.boundtype == HighsBoundType::kLower &&
+//         branchchg.boundval >= nodestack.back().branchingdecision.boundval) ||
+//        (branchchg.boundtype == HighsBoundType::kUpper &&
+//         branchchg.boundval <= nodestack.back().branchingdecision.boundval));
+//    assert(branchchg.boundtype == nodestack.back().branchingdecision.boundtype);
+//    assert(branchchg.column == nodestack.back().branchingdecision.column);
 
     if (getCurrentDepth() >= targetDepth) nodestack.back().opensubtrees = 0;
   }

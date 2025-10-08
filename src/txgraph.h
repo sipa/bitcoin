@@ -207,6 +207,9 @@ public:
      *  AbortStaging() would be called. Can always be called. */
     virtual size_t GetMainMemoryUsage() noexcept = 0;
 
+    /** Get the maximum amount of fees, using block_packer. 0=chunk prefixes, 1=lin prefixes, 2=anything. */
+    virtual int64_t GetMaxFee(uint32_t max_weight, int style) noexcept = 0;
+
     /** Perform an internal consistency check on this object. */
     virtual void SanityCheck() const = 0;
 

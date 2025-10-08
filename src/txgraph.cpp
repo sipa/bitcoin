@@ -4,6 +4,7 @@
 
 #include <txgraph.h>
 
+#include <block_packing.h>
 #include <cluster_linearize.h>
 #include <crypto/siphash.h>
 #include <random.h>
@@ -218,6 +219,8 @@ public:
      *  in the linearization are added to deps. Return the Cluster's total transaction size. */
     virtual uint64_t AppendTrimData(std::vector<TrimTxData>& ret, std::vector<std::pair<GraphIndex, GraphIndex>>& deps) const noexcept = 0;
 
+    virtual void AppendPackData(std::vector<FeeFrac>& feerates, std::vector<std::pair<size_t, size_t>>& deps, int style) const noexcept = 0;
+
     // Functions that implement the Cluster-specific side of public TxGraph functions.
 
     /** Process elements from the front of args that apply to this cluster, and append Refs for the
@@ -297,6 +300,7 @@ public:
     std::pair<uint64_t, bool> Relinearize(TxGraphImpl& graph, int level, uint64_t max_iters) noexcept final;
     void AppendChunkFeerates(std::vector<FeeFrac>& ret) const noexcept final;
     uint64_t AppendTrimData(std::vector<TrimTxData>& ret, std::vector<std::pair<GraphIndex, GraphIndex>>& deps) const noexcept final;
+    void AppendPackData(std::vector<FeeFrac>& feerates, std::vector<std::pair<size_t, size_t>>& deps, int style) const noexcept final;
     void GetAncestorRefs(const TxGraphImpl& graph, std::span<std::pair<Cluster*, DepGraphIndex>>& args, std::vector<TxGraph::Ref*>& output) noexcept final;
     void GetDescendantRefs(const TxGraphImpl& graph, std::span<std::pair<Cluster*, DepGraphIndex>>& args, std::vector<TxGraph::Ref*>& output) noexcept final;
     bool GetClusterRefs(TxGraphImpl& graph, std::span<TxGraph::Ref*> range, LinearizationIndex start_pos) noexcept final;
@@ -352,6 +356,7 @@ public:
     std::pair<uint64_t, bool> Relinearize(TxGraphImpl& graph, int level, uint64_t max_iters) noexcept final;
     void AppendChunkFeerates(std::vector<FeeFrac>& ret) const noexcept final;
     uint64_t AppendTrimData(std::vector<TrimTxData>& ret, std::vector<std::pair<GraphIndex, GraphIndex>>& deps) const noexcept final;
+    void AppendPackData(std::vector<FeeFrac>& feerates, std::vector<std::pair<size_t, size_t>>& deps, int style) const noexcept final;
     void GetAncestorRefs(const TxGraphImpl& graph, std::span<std::pair<Cluster*, DepGraphIndex>>& args, std::vector<TxGraph::Ref*>& output) noexcept final;
     void GetDescendantRefs(const TxGraphImpl& graph, std::span<std::pair<Cluster*, DepGraphIndex>>& args, std::vector<TxGraph::Ref*>& output) noexcept final;
     bool GetClusterRefs(TxGraphImpl& graph, std::span<TxGraph::Ref*> range, LinearizationIndex start_pos) noexcept final;
@@ -789,6 +794,7 @@ public:
     GraphIndex CountDistinctClusters(std::span<const Ref* const> refs, Level level) noexcept final;
     std::pair<std::vector<FeeFrac>, std::vector<FeeFrac>> GetMainStagingDiagrams() noexcept final;
     std::vector<Ref*> Trim() noexcept final;
+    int64_t GetMaxFee(uint32_t max_weight, int style) noexcept final;
 
     std::unique_ptr<BlockBuilder> GetBlockBuilder() noexcept final;
     std::pair<std::vector<Ref*>, FeePerWeight> GetWorstMainChunk() noexcept final;
@@ -1294,6 +1300,48 @@ void SingletonClusterImpl::AppendChunkFeerates(std::vector<FeeFrac>& ret) const 
 {
     if (m_graph_index != GraphIndex(-1)) {
         ret.push_back(m_feerate);
+    }
+}
+
+void SingletonClusterImpl::AppendPackData(std::vector<FeeFrac>& feerates, std::vector<std::pair<size_t, size_t>>& deps, int style) const noexcept
+{
+    feerates.push_back(m_feerate);
+}
+
+void GenericClusterImpl::AppendPackData(std::vector<FeeFrac>& feerates, std::vector<std::pair<size_t, size_t>>& deps, int style) const noexcept
+{
+    size_t old_len = feerates.size();
+    if (style == 0) {
+        const LinearizationChunking linchunking(m_depgraph, m_linearization);
+        for (unsigned i = 0; i < linchunking.NumChunksLeft(); ++i) {
+            const auto& [chunk, chunk_feerate] = linchunking.GetChunk(i);
+            feerates.push_back(chunk_feerate);
+            if (i > 0) {
+                deps.emplace_back(old_len + i - 1, old_len + i);
+            }
+        }
+    } else if (style == 1) {
+        unsigned pos = 0;
+        for (auto i : m_linearization) {
+            feerates.push_back(m_depgraph.FeeRate(i));
+            if (pos > 0) {
+                deps.emplace_back(old_len + pos - 1, old_len + pos);
+            }
+            pos += 1;
+        }
+    } else {
+        std::vector<size_t> mapping;
+        mapping.resize(m_depgraph.PositionRange());
+        size_t count = 0;
+        for (auto i : m_depgraph.Positions()) {
+            feerates.push_back(m_depgraph.FeeRate(i));
+            mapping[i] = count++;
+        }
+        for (auto i : m_depgraph.Positions()) {
+            for (auto j : m_depgraph.GetReducedParents(i)) {
+                deps.emplace_back(mapping[j], mapping[i]);
+            }
+        }
     }
 }
 
@@ -3414,6 +3462,21 @@ size_t TxGraphImpl::GetMainMemoryUsage() noexcept
                    /* From the chunk index. */
                    memusage::DynamicUsage(m_main_chunkindex);
     return usage;
+}
+
+int64_t TxGraphImpl::GetMaxFee(uint32_t max_weight, int style) noexcept
+{
+    MakeAllAcceptable(0);
+    Assume(m_main_clusterset.m_deps_to_add.empty());
+    std::vector<FeeFrac> feerates;
+    std::vector<std::pair<size_t, size_t>> deps;
+    for (QualityLevel quality : {QualityLevel::ACCEPTABLE, QualityLevel::OPTIMAL}) {
+        for (auto& cluster : m_main_clusterset.m_clusters[int(quality)]) {
+            cluster->AppendPackData(feerates, deps, style);
+        }
+    }
+    auto ret = PackBlock(feerates, deps, max_weight);
+    return ret.second.fee;
 }
 
 } // namespace

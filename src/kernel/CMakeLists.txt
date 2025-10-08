@@ -19,6 +19,7 @@ add_library(bitcoinkernel
   disconnected_transactions.cpp
   mempool_removal_reason.cpp
   ../arith_uint256.cpp
+  ../block_packing.cpp
   ../chain.cpp
   ../coins.cpp
   ../compressor.cpp
@@ -89,6 +90,7 @@ target_link_libraries(bitcoinkernel
   PRIVATE
     core_interface
     secp256k1_objs
+    highs
     $<$<PLATFORM_ID:Windows>:bcrypt>
     $<TARGET_NAME_IF_EXISTS:USDT::headers>
   PUBLIC

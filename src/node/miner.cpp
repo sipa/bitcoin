@@ -145,6 +145,9 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
 
     if (m_mempool) {
         LOCK(m_mempool->cs);
+        pblocktemplate->fee_max_chunks = m_mempool->GetMaxFee(m_options.nBlockMaxWeight - nBlockWeight, 0);
+        pblocktemplate->fee_max_lins = m_mempool->GetMaxFee(m_options.nBlockMaxWeight - nBlockWeight, 1);
+        pblocktemplate->fee_max = m_mempool->GetMaxFee(m_options.nBlockMaxWeight - nBlockWeight, 2);
         m_mempool->StartBlockBuilding();
         addChunks();
         m_mempool->StopBlockBuilding();
@@ -154,6 +157,8 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
 
     m_last_block_num_txs = nBlockTx;
     m_last_block_weight = nBlockWeight;
+    pblocktemplate->fee_achieved = nFees;
+    pblocktemplate->fee_overestimate = fee_overestimate;
 
     // Create coinbase transaction.
     CMutableTransaction coinbaseTx;
@@ -240,6 +245,8 @@ void BlockAssembler::addChunks()
     const int64_t MAX_CONSECUTIVE_FAILURES = 1000;
     constexpr int32_t BLOCK_FULL_ENOUGH_WEIGHT_DELTA = 4000;
     int64_t nConsecutiveFailed = 0;
+    fee_overestimate = 0;
+    bool have_skipped = false;
 
     std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> selected_transactions;
     FeePerWeight chunk_feerate;
@@ -267,6 +274,10 @@ void BlockAssembler::addChunks()
 
         // Check to see if this chunk will fit.
         if (!TestPackage(chunk_feerate, package_sig_ops) || !TestPackageTransactions(chunk_txs)) {
+            if (!have_skipped) {
+                fee_overestimate = nFees + chunk_feerate.EvaluateFee<true>(m_options.nBlockMaxWeight - nBlockWeight);
+                have_skipped = true;
+            }
             m_mempool->SkipBuilderChunk();
             // This chunk won't fit, so we let it be removed from the heap and
             // we'll try the next best.
@@ -291,6 +302,9 @@ void BlockAssembler::addChunks()
         selected_transactions.clear();
         chunk_feerate = m_mempool->GetBlockBuilderChunk(selected_transactions);
         chunk_feerate_vsize = ToFeePerVSize(chunk_feerate);
+    }
+    if (!have_skipped) {
+        fee_overestimate = nFees;
     }
 }
 

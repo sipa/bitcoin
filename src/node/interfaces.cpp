@@ -913,6 +913,11 @@ public:
         return TransactionMerklePath(m_block_template->block, 0);
     }
 
+    std::vector<CAmount> getFeeRange() override
+    {
+        return {m_block_template->fee_achieved, m_block_template->fee_max_chunks, m_block_template->fee_max_lins, m_block_template->fee_max, m_block_template->fee_overestimate};
+    }
+
     bool submitSolution(uint32_t version, uint32_t timestamp, uint32_t nonce, CTransactionRef coinbase) override
     {
         AddMerkleRootAndCoinbase(m_block_template->block, std::move(coinbase), version, timestamp, nonce);

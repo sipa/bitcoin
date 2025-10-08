@@ -41,6 +41,8 @@ public:
     virtual std::vector<CAmount> getTxFees() = 0;
     // Sigop cost per transaction, not including coinbase transaction.
     virtual std::vector<int64_t> getTxSigops() = 0;
+    // Tuple of 5 values: [achieved, max_for_chunks, max_for_lins, max, max_overestimate].
+    virtual std::vector<CAmount> getFeeRange() = 0;
 
     virtual CTransactionRef getCoinbaseTx() = 0;
     virtual std::vector<unsigned char> getCoinbaseCommitment() = 0;
