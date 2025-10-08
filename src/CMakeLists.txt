@@ -98,6 +98,7 @@ add_library(bitcoin_common STATIC EXCLUDE_FROM_ALL
   addresstype.cpp
   base58.cpp
   bech32.cpp
+  block_packing.cpp
   chain.cpp
   chainparams.cpp
   chainparamsbase.cpp

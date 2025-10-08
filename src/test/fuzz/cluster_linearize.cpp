@@ -2,6 +2,7 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <block_packing.h>
 #include <cluster_linearize.h>
 #include <random.h>
 #include <serialize.h>
@@ -9,6 +10,7 @@
 #include <test/fuzz/FuzzedDataProvider.h>
 #include <test/fuzz/fuzz.h>
 #include <test/util/cluster_linearize.h>
+#include <test/util/random.h>
 #include <util/bitset.h>
 #include <util/feefrac.h>
 
@@ -1192,4 +1194,95 @@ FUZZ_TARGET(clusterlin_postlinearize_moved_leaf)
     auto new_chunking = ChunkLinearization(depgraph, lin_moved);
     auto cmp = CompareChunks(new_chunking, old_chunking);
     assert(cmp >= 0);
+}
+
+FUZZ_TARGET(block_pack)
+{
+    SeedRandomStateForTest(SeedRand::ZEROS);
+    SpanReader reader(buffer);
+
+    // Read graph.
+    DepGraph<TestBitSet> depgraph;
+    try {
+        reader >> Using<DepGraphFormatter>(depgraph);
+    } catch (const std::ios_base::failure&) {}
+    if (depgraph.TxCount() > 12) return;
+
+    // Read weight limit.
+    uint64_t total_size = 0;
+    for (auto idx : depgraph.Positions()) {
+        // Limit transaction weights to 1 <= weight <= 400000.
+        depgraph.FeeRate(idx).size = ((depgraph.FeeRate(idx).size - 1) % 400000) + 1;
+        total_size += depgraph.FeeRate(idx).size;
+        // Limit transaction fees to 0 <= fee <= 2.68 BTC.
+        if (depgraph.FeeRate(idx).fee < 0) depgraph.FeeRate(idx).fee *= -1;
+        depgraph.FeeRate(idx).fee &= 0xfffffff;
+    }
+    uint32_t weight_limit = (total_size + 1) / 2;
+    try {
+        reader >> VARINT(weight_limit);
+    } catch (const std::ios_base::failure&) {}
+    // Limit weight to 0 <= weight_limit <= 1.125 * total_weight.
+    weight_limit %= ((total_size + 1) * 9) / 8;
+    if (weight_limit == 0) return;
+
+    // Construct feerates and dependency list.
+    std::vector<size_t> mapping;
+    std::vector<size_t> revmapping;
+    mapping.resize(depgraph.PositionRange());
+    size_t maps = 0;
+    for (auto idx : depgraph.Positions()) {
+        mapping[idx] = maps++;
+        revmapping.push_back(idx);
+    }
+    std::vector<FeeFrac> feerates(maps);
+    std::vector<std::pair<size_t, size_t>> deps;
+    for (auto idx : depgraph.Positions()) {
+        feerates[mapping[idx]] = depgraph.FeeRate(idx);
+        for (auto par : depgraph.GetReducedParents(idx)) {
+            deps.emplace_back(mapping[par], mapping[idx]);
+        }
+    }
+
+    // Invoke solver.
+    auto [sol, sol_feerate] = PackBlock(feerates, deps, weight_limit);
+
+    // Verify weight limit.
+    assert(sol_feerate.size >= 0);
+    assert(uint32_t(sol_feerate.size) <= weight_limit);
+
+    // Verify total claim.
+    FeeFrac recompute;
+    TestBitSet included;
+    for (auto sol_idx : sol) {
+        recompute += depgraph.FeeRate(revmapping[sol_idx]);
+        included.Set(revmapping[sol_idx]);
+    }
+    assert(recompute == sol_feerate);
+
+    // Verify dependencies.
+    for (auto pos : included) {
+        assert(depgraph.Ancestors(pos).IsSubsetOf(included));
+    }
+
+    // Verify optimality
+    auto todo = depgraph.Positions();
+    std::vector<std::pair<TestBitSet, TestBitSet>> queue;
+    queue.emplace_back(TestBitSet{}, todo);
+    int64_t best_fee = 0;
+    while (!queue.empty()) {
+        auto [inc, und] = queue.back();
+        queue.pop_back();
+        if (und.Any()) {
+            auto split = und.First();
+            SetInfo new_inc(depgraph, inc | (todo & depgraph.Ancestors(split)));
+            queue.emplace_back(inc, und - depgraph.Descendants(split));
+            if (uint32_t(new_inc.feerate.size) <= weight_limit) {
+                queue.emplace_back(new_inc.transactions, und - new_inc.transactions);
+                if (new_inc.feerate.fee > best_fee) best_fee = new_inc.feerate.fee;
+            }
+        }
+    }
+    assert(best_fee >= sol_feerate.fee);
+    assert(best_fee <= sol_feerate.fee);
 }
