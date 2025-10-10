@@ -753,6 +753,7 @@ public:
     void IncludeBuilderChunk() const EXCLUSIVE_LOCKS_REQUIRED(cs) { m_builder->Include(); }
     void SkipBuilderChunk() const EXCLUSIVE_LOCKS_REQUIRED(cs) { m_builder->Skip(); }
     void StopBlockBuilding() const EXCLUSIVE_LOCKS_REQUIRED(cs) { m_builder.reset(); }
+    std::vector<uint8_t> DumpGraph() EXCLUSIVE_LOCKS_REQUIRED(cs) { m_txgraph->DoWork(1000000); return m_txgraph->DumpMainGraph(); }
 };
 
 /**
