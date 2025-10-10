@@ -1021,6 +1021,9 @@ FUZZ_TARGET(txgraph)
                 // Still include it here as it has (non-observable) effects on the real
                 // implementation.
                 break;
+            } else if (command-- == 0) {
+                real->DumpMainGraph();
+                break;
             }
         }
     }

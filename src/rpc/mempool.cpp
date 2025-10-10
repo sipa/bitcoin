@@ -28,6 +28,7 @@
 #include <util/time.h>
 #include <util/vector.h>
 
+#include <fstream>
 #include <utility>
 
 using node::DumpMempool;
@@ -914,7 +915,9 @@ static RPCHelpMan savemempool()
     return RPCHelpMan{
         "savemempool",
         "Dumps the mempool to disk. It will fail until the previous dump is fully loaded.\n",
-        {},
+        {
+            {"graph", RPCArg::Type::BOOL, RPCArg::Default{false}, "Write graph information instead of full mempool data"}
+        },
         RPCResult{
             RPCResult::Type::OBJ, "", "",
             {
@@ -927,13 +930,36 @@ static RPCHelpMan savemempool()
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
 {
     const ArgsManager& args{EnsureAnyArgsman(request.context)};
-    const CTxMemPool& mempool = EnsureAnyMemPool(request.context);
+    CTxMemPool& mempool = EnsureAnyMemPool(request.context);
+
 
     if (!mempool.GetLoadTried()) {
         throw JSONRPCError(RPC_MISC_ERROR, "The mempool was not loaded yet");
     }
 
     const fs::path& dump_path = MempoolPath(args);
+
+    const UniValue& dump_graph = request.params[0].get_bool();
+
+    if (dump_graph.isTrue()) {
+        auto path = dump_path.utf8string() + "-graph";
+        std::ofstream ofs(path);
+        std::vector<uint8_t> dump;
+        {
+            LOCK(mempool.cs);
+            dump = mempool.DumpGraph();
+        }
+        uint64_t timeval = GetTime<std::chrono::microseconds>().count();
+        unsigned char timebytes[8];
+        WriteLE64(timebytes, timeval);
+        ofs.write(reinterpret_cast<const char*>(timebytes), 8);
+        ofs.write(reinterpret_cast<const char*>(dump.data()), dump.size());
+        ofs.close();
+
+        UniValue ret(UniValue::VOBJ);
+        ret.pushKV("filename", path);
+        return ret;
+    }
 
     if (!DumpMempool(mempool, dump_path)) {
         throw JSONRPCError(RPC_MISC_ERROR, "Unable to dump mempool to disk");
