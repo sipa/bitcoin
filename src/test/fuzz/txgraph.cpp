@@ -1027,6 +1027,9 @@ FUZZ_TARGET(txgraph)
                     assert(usage > 0);
                 }
                 break;
+            } else if (command-- == 0) {
+                real->DumpMainGraph();
+                break;
             }
         }
     }

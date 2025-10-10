@@ -211,6 +211,11 @@ public:
     /** Perform an internal consistency check on this object. */
     virtual void SanityCheck() const = 0;
 
+    /** Get a serialization of all clusters in the main graph, including fees, sizes, and
+     *  dependency information. Can always be called, but may be outdated if DoWork() has
+     *  not been called. */
+    virtual std::vector<uint8_t> DumpMainGraph() const = 0;
+
 protected:
     // Allow TxGraph::Ref to call UpdateRef and UnlinkRef.
     friend class TxGraph::Ref;

@@ -118,18 +118,12 @@ struct DepGraphFormatter
         }
     }
 
+
     template <typename Stream, typename SetType>
-    static void Ser(Stream& s, const DepGraph<SetType>& depgraph)
+    static void Ser(Stream& s, std::pair<const DepGraph<SetType>&, std::span<const DepGraphIndex>> depgraph_and_lin)
     {
-        /** Construct a topological order to serialize the transactions in. */
-        std::vector<DepGraphIndex> topo_order;
-        topo_order.reserve(depgraph.TxCount());
-        for (auto i : depgraph.Positions()) topo_order.push_back(i);
-        std::sort(topo_order.begin(), topo_order.end(), [&](DepGraphIndex a, DepGraphIndex b) {
-            auto anc_a = depgraph.Ancestors(a).Count(), anc_b = depgraph.Ancestors(b).Count();
-            if (anc_a != anc_b) return anc_a < anc_b;
-            return a < b;
-        });
+        const auto& depgraph = depgraph_and_lin.first;
+        const auto topo_order = depgraph_and_lin.second;
 
         /** Which positions (incl. holes) the deserializer already knows when it has deserialized
          *  what has been serialized here so far. */
@@ -181,6 +175,22 @@ struct DepGraphFormatter
 
         // Output a final 0 to denote the end of the graph.
         s << uint8_t{0};
+    }
+
+    template <typename Stream, typename SetType>
+    static void Ser(Stream& s, const DepGraph<SetType>& depgraph)
+    {
+        /** Construct a topological order to serialize the transactions in. */
+        std::vector<DepGraphIndex> topo_order;
+        topo_order.reserve(depgraph.TxCount());
+        for (auto i : depgraph.Positions()) topo_order.push_back(i);
+        std::sort(topo_order.begin(), topo_order.end(), [&](DepGraphIndex a, DepGraphIndex b) {
+            auto anc_a = depgraph.Ancestors(a).Count(), anc_b = depgraph.Ancestors(b).Count();
+            if (anc_a != anc_b) return anc_a < anc_b;
+            return a < b;
+        });
+        std::pair<const DepGraph<SetType>&, std::span<const DepGraphIndex>> call(depgraph, topo_order);
+        Ser(s, call);
     }
 
     template <typename Stream, typename SetType>

@@ -5,7 +5,10 @@
 #include <txgraph.h>
 
 #include <cluster_linearize.h>
+#include <serialize.h>
+#include <streams.h>
 #include <random.h>
+#include <test/util/cluster_linearize.h>
 #include <util/bitset.h>
 #include <util/check.h>
 #include <util/feefrac.h>
@@ -211,6 +214,8 @@ public:
      *  transaction in the Cluster to ret. Implicit dependencies between consecutive transactions
      *  in the linearization are added to deps. Return the Cluster's total transaction size. */
     virtual uint64_t AppendTrimData(std::vector<TrimTxData>& ret, std::vector<std::pair<GraphIndex, GraphIndex>>& deps) const noexcept = 0;
+    /** Serialize the fee/size/dependency information for this cluster. */
+    virtual std::vector<uint8_t> Dump() const noexcept = 0;
 
     // Functions that implement the Cluster-specific side of public TxGraph functions.
 
@@ -289,6 +294,7 @@ public:
     void GetDescendantRefs(const TxGraphImpl& graph, std::span<std::pair<Cluster*, DepGraphIndex>>& args, std::vector<TxGraph::Ref*>& output) noexcept final;
     bool GetClusterRefs(TxGraphImpl& graph, std::span<TxGraph::Ref*> range, LinearizationIndex start_pos) noexcept final;
     FeePerWeight GetIndividualFeerate(DepGraphIndex idx) noexcept final;
+    std::vector<uint8_t> Dump() const noexcept final;
     void SetFee(TxGraphImpl& graph, int level, DepGraphIndex idx, int64_t fee) noexcept final;
     void SanityCheck(const TxGraphImpl& graph, int level) const final;
 };
@@ -344,6 +350,7 @@ public:
     bool GetClusterRefs(TxGraphImpl& graph, std::span<TxGraph::Ref*> range, LinearizationIndex start_pos) noexcept final;
     FeePerWeight GetIndividualFeerate(DepGraphIndex idx) noexcept final;
     void SetFee(TxGraphImpl& graph, int level, DepGraphIndex idx, int64_t fee) noexcept final;
+    std::vector<uint8_t> Dump() const noexcept final;
     void SanityCheck(const TxGraphImpl& graph, int level) const final;
 };
 
@@ -774,6 +781,8 @@ public:
     std::pair<std::vector<Ref*>, FeePerWeight> GetWorstMainChunk() noexcept final;
 
     size_t GetMainMemoryUsage() noexcept final;
+
+    std::vector<uint8_t> DumpMainGraph() const noexcept final;
 
     void SanityCheck() const final;
 };
@@ -3446,6 +3455,78 @@ size_t TxGraphImpl::GetMainMemoryUsage() noexcept
                    /* From the chunk index. */
                    memusage::DynamicUsage(m_main_chunkindex);
     return usage;
+}
+
+std::vector<uint8_t> GenericClusterImpl::Dump() const noexcept
+{
+    Assume(GetTxCount());
+    // Create vector writer to serialize into.
+    std::vector<uint8_t> ret;
+    VectorWriter writer(ret, 0);
+    // Linearize (close to) optimally using a fixed RNG seed, and post-linearize several times, to
+    // make the resulting order as optimal & deterministic as possible.
+    auto [linearization, _optimal, _iters] = Linearize(m_depgraph, 100000000, 0, m_linearization);
+    PostLinearize(m_depgraph, linearization);
+    PostLinearize(m_depgraph, linearization);
+    PostLinearize(m_depgraph, linearization);
+    // Construct a new depgraph which has the transactions in linearization order (to remove
+    // the non-determinism due to internal DepGraphIndexes in the current cluster representation).
+    std::vector<DepGraphIndex> mapping(linearization.size());
+    DepGraphIndex pos = 0;
+    for (auto idx : linearization) mapping[idx] = pos++;
+    DepGraph<SetType> redepgraph(m_depgraph, mapping, linearization.size());
+    // Construct the "linearization" for this new depgraph, which is just sequential order.
+    std::vector<DepGraphIndex> relinearization(linearization.size());
+    std::iota(relinearization.begin(), relinearization.end(), DepGraphIndex{0});
+    // Invoke DepGraphFormatter, passing it the sequential order for serialization.
+    std::pair<const DepGraph<SetType>&, std::span<const DepGraphIndex>> call(redepgraph, relinearization);
+    writer << Using<DepGraphFormatter>(call);
+    // Return result.
+    ret.shrink_to_fit();
+    return ret;
+}
+
+std::vector<uint8_t> SingletonClusterImpl::Dump() const noexcept
+{
+    Assume(GetTxCount());
+    // Create vector writer to serialize into.
+    std::vector<uint8_t> ret;
+    VectorWriter writer(ret, 0);
+    // Ad-hoc implementation of DepGraph serialization for singletons.
+    const uint32_t coded_size = m_feerate.size;
+    const auto coded_fee = DepGraphFormatter::SignedToUnsigned(m_feerate.fee);
+    writer << VARINT(coded_size) << VARINT(coded_fee) << uint8_t{0} << uint8_t{0};
+    // Return result.
+    ret.shrink_to_fit();
+    return ret;
+}
+
+std::vector<uint8_t> TxGraphImpl::DumpMainGraph() const noexcept
+{
+    // First construct individual serializations for each cluster.
+    std::vector<std::tuple<DepGraphIndex, size_t, std::vector<uint8_t>>> cluster_sers;
+    std::set<Cluster*> done;
+    for (const auto& chunk_index : m_main_chunkindex) {
+        Cluster* cluster = m_entries[chunk_index.m_graph_index].m_locator[0].cluster;
+        if (done.insert(cluster).second) {
+            auto cluster_dump = cluster->Dump();
+            size_t cluster_dump_size = cluster_dump.size();
+            cluster_sers.emplace_back(cluster->GetTxCount(), cluster_dump_size, std::move(cluster_dump));
+        }
+    }
+    // Then sort them (1) by increasing transaction count, (2) increasing serialization size, (3)
+    // lexicographically by serialization bytes.
+    std::sort(cluster_sers.begin(), cluster_sers.end());
+    // Concatenate the result.
+    std::vector<uint8_t> ret;
+    for (auto& [_txcount, _ser_size, ser] : cluster_sers) {
+        ret.insert(ret.end(), ser.begin(), ser.end());
+    }
+    // Add an "empty cluster" as sentinel to demark the end of the graph.
+    ret.push_back(0);
+    // Return result.
+    ret.shrink_to_fit();
+    return ret;
 }
 
 } // namespace
