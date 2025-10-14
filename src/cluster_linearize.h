@@ -590,6 +590,11 @@ std::vector<FeeFrac> ChunkLinearization(const DepGraph<SetType>& depgraph, std::
  *         gain = (feerate(top) - feerate(bottom)) * size(top) * size(bottom)
  *              = fee(top) * size(chunk) - fee(chunk) * size(top)
  *
+ *   - After every split, it is possible that the top and the bottom chunk merge with each other
+ *     again in the merge sequence (through a top->bottom dependency, not through the deactivated
+ *     one, which was bottom->top). Call this a self-merge. If a self-merge does not occur after
+ *     a split, the resulting linearization is strictly improved (the area under the convexified
+ *     feerate diagram increases by at least gain/2), while self-merges do not change it.
  *   - Inside the selected chunk (see above), among the dependencies whose gain is maximal, if any
  *     with strictly positive gain exist, a uniformly random one is deactivated.
  *
