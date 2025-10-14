@@ -590,6 +590,11 @@ std::vector<FeeFrac> ChunkLinearization(const DepGraph<SetType>& depgraph, std::
  *         gain = (feerate(top) - feerate(bottom)) * size(top) * size(bottom)
  *              = fee(top) * size(chunk) - fee(chunk) * size(top)
  *
+ *   - After every split, it is possible that the top and the bottom chunk merge with each other
+ *     again in the merge sequence (through a top->bottom dependency, not through the deactivated
+ *     one, which was bottom->top). Call this a self-merge. If a self-merge does not occur after
+ *     a split, the resulting linearization is strictly improved (the area under the convexified
+ *     feerate diagram increases by at least gain/2), while self-merges do not change it.
  *   - Inside the selected chunk (see above), among the dependencies whose gain is maximal, if any
  *     with strictly positive gain exist, a uniformly random one is deactivated.
  *
@@ -895,9 +900,10 @@ private:
     }
 
 
-    /** Perform an upward or downward merge sequence on the specified transaction. */
+    /** Perform an upward or downward merge sequence on the specified transaction. Returns the
+     *  representative of the merged chunk. */
     template<bool DownWard>
-    void MergeSequence(TxIdx tx_idx) noexcept
+    TxIdx MergeSequence(TxIdx tx_idx) noexcept
     {
         auto chunk_rep = m_tx_data[tx_idx].chunk_rep;
         while (true) {
@@ -911,6 +917,7 @@ private:
             chunk_data.suboptimal = true;
             m_suboptimal_chunks.push_back(chunk_rep);
         }
+        return chunk_rep;
     }
 
     /** Split a chunk, and then merge the resulting two chunks to make the graph topological
@@ -930,9 +937,13 @@ private:
 
         // Merge the top chunk with lower-feerate chunks it depends on (which may be the bottom it
         // was just split from, or other pre-existing chunks).
-        MergeSequence<false>(dep_data.parent);
-        // Merge the bottom chunk with higher-feerate chunks that depend on it.
-        MergeSequence<true>(dep_data.child);
+        auto new_par_chunk_rep = MergeSequence<false>(dep_data.parent);
+        // Determine if it merged with the bottom chunk, by checking if the top chunk contains the
+        // dependency's child transaction.
+        if (!m_tx_data[new_par_chunk_rep].chunk_setinfo.transactions[dep_data.child]) {
+            // If not, see if the bottom merges with something else.
+            MergeSequence<true>(dep_data.child);
+        }
     }
 
 public:
