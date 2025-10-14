@@ -762,7 +762,7 @@ private:
     /** Information about each dependency. Indexed by DepIdx. */
     std::vector<DepData> m_dep_data;
 
-    /** The number of updated transactions in activations/deactivations. */
+    /** A metric for the runtime of the algorithm. */
     uint64_t m_cost{0};
 
     /** Update a chunk by starting at start and walking all its transactions and active
@@ -834,7 +834,7 @@ private:
         auto bottom_part = chl_chunk_data.chunk_setinfo;
         // Update the parent chunk to also contain the child.
         par_chunk_data.chunk_setinfo |= bottom_part;
-        m_cost += par_chunk_data.chunk_setinfo.transactions.Count();
+        m_cost += par_chunk_data.chunk_setinfo.transactions.Count() * 4 - 3;
         // Add bottom component to top transactions.
         UpdateChunk<false>(dep_data.parent, top_rep, bottom_part);
         // Add top component to bottom transactions.
@@ -860,7 +860,7 @@ private:
         parent_tx_data.child_deps_active -= 1;
         // Update representatives.
         auto& chunk_data = m_tx_data[parent_tx_data.chunk_rep];
-        m_cost += chunk_data.chunk_setinfo.transactions.Count();
+        m_cost += chunk_data.chunk_setinfo.transactions.Count() * 4 + 2;
         auto top_part = dep_data.top_setinfo;
         auto bottom_part = chunk_data.chunk_setinfo - top_part;
         TxIdx bottom_rep = dep_data.child;
@@ -891,6 +891,7 @@ private:
         for (auto tx : top_chunk.chunk_setinfo.transactions) {
             auto& tx_data = m_tx_data[tx];
             num_deps += (tx_data.children & bottom_chunk.chunk_setinfo.transactions).Count();
+            m_cost += 1;
         }
         if (num_deps == 0) return TxIdx(-1);
         // Uniformly randomly pick one of them and activate it.
@@ -899,9 +900,11 @@ private:
             auto& tx_data = m_tx_data[tx];
             auto intersect = tx_data.children & bottom_chunk.chunk_setinfo.transactions;
             auto count = intersect.Count();
+            m_cost += 1;
             if (pick < count) {
                 for (auto dep : std::span{tx_data.child_deps}.first(tx_data.child_deps_total)
                                                              .subspan(tx_data.child_deps_active)) {
+                    m_cost += 1;
                     auto& dep_data = m_dep_data[dep];
                     if (bottom_chunk.chunk_setinfo.transactions[dep_data.child]) {
                         if (pick == 0) return Activate(dep);
@@ -949,6 +952,7 @@ private:
             auto newly_reached = (DownWard ? tx_data.children : tx_data.parents) - explored;
             explored |= newly_reached;
             while (newly_reached.Any()) {
+                m_cost += 3;
                 // Find a chunk inside newly_reached, and remove it from newly_reached.
                 auto reached_chunk_rep = m_tx_data[newly_reached.First()].chunk_rep;
                 auto& reached_chunk = m_tx_data[reached_chunk_rep].chunk_setinfo;
@@ -1030,6 +1034,7 @@ public:
     explicit SpanningForestState(const DepGraph<SetType>& depgraph, uint64_t rng_seed) noexcept : m_rng(rng_seed)
     {
         m_transactions = depgraph.Positions();
+        m_cost = 10;
         auto num_transactions = m_transactions.Count();
         m_tx_data.resize(depgraph.PositionRange());
         m_dep_data.reserve(((num_transactions + 1) / 2) * (num_transactions / 2));
@@ -1055,8 +1060,11 @@ public:
                 dep.child_pos = par_tx_data.child_deps_total;
                 par_tx_data.child_deps[par_tx_data.child_deps_total++] = dep_idx;
                 par_tx_data.children.Set(tx);
+                m_cost += 2;
             }
         }
+        // Account for the cost of producing linearization.
+        m_cost += 2 * m_dep_data.size() + 30 * num_transactions;
     }
 
     /** Load an existing linearization. Must be called immediately after constructor. The result is
@@ -1091,6 +1099,7 @@ public:
                 if (j != m_suboptimal_chunks.size() - 1) {
                     std::swap(m_suboptimal_chunks.back(), m_suboptimal_chunks[j]);
                 }
+                m_cost += 3;
             }
         }
         while (!m_suboptimal_chunks.empty()) {
@@ -1105,6 +1114,7 @@ public:
             // happen when it was merged with something else since being added.
             if (chunk_data.chunk_rep != chunk) continue;
             int flip = m_rng.randbool();
+            m_cost += 1;
             for (int i = 0; i < 2; ++i) {
                 if (i ^ flip) {
                     if (!(old_suboptimal & 1)) continue;
@@ -1148,6 +1158,7 @@ public:
                 if (j != m_suboptimal_chunks.size() - 1) {
                     std::swap(m_suboptimal_chunks.back(), m_suboptimal_chunks[j]);
                 }
+                m_cost += 3;
             }
         }
     }
@@ -1181,6 +1192,7 @@ public:
                 // Iterate over all active child dependencies of the transaction.
                 const auto active_children = std::span{tx_data.child_deps}.first(tx_data.child_deps_active);
                 for (DepIdx dep_idx : active_children) {
+                    m_cost += 3;
                     const auto& dep_data = m_dep_data[dep_idx];
                     // Define gain(top) = fee(top)*size(chunk) - fee(chunk)*size(top).
                     //                  = (feerate(top) - feerate(chunk)) * size(top) * size(chunk).
@@ -1242,6 +1254,7 @@ public:
             TxIdx j = i + m_rng.randrange<TxIdx>(m_nonminimal_chunks.size() - i);
             if (i != j) std::swap(m_nonminimal_chunks[i], m_nonminimal_chunks[j]);
         }
+        m_cost += 2 + 3 * m_nonminimal_chunks.size();
     }
 
     /** Try to reduce a chunk's size. Returns false if all chunks are minimal, true otherwise. */
@@ -1267,6 +1280,7 @@ public:
             // Iterate over all active child dependencies of the transaction.
             const auto active_children = std::span{tx_data.child_deps}.first(tx_data.child_deps_active);
             for (DepIdx dep_idx : active_children) {
+                m_cost += 3;
                 const auto& dep_data = m_dep_data[dep_idx];
                 // Skip if this dependency has negative gain.
                 if (dep_data.top_setinfo.feerate << chunk_data.chunk_setinfo.feerate) continue;
@@ -1298,6 +1312,7 @@ public:
         auto new_top_rep = m_tx_data[candidate_dep_data.parent].chunk_rep;
         auto new_bottom_rep = m_tx_data[candidate_dep_data.child].chunk_rep;
         auto new_rep = MergeChunks(new_bottom_rep, new_top_rep);
+        m_cost += 2;
         if (new_rep == TxIdx(-1)) {
             // No new dependency was activated, and thus we have found a way to split the
             // chunk. Add the created smaller chunks to the queue in random order.
