@@ -655,13 +655,19 @@ public:
  *         gain = (feerate(top) - feerate(bottom)) * size(top) * size(bottom)
  *              = fee(top) * size(chunk) - fee(chunk) * size(top)
  *
- *   - Inside the selected chunk (see above), among the dependencies whose gain is maximal, if any
- *     with strictly positive gain exist, a uniformly random one is deactivated.
  *   - After every split, it is possible that the top and the bottom chunk merge with each other
  *     again in the merge sequence (through a top->bottom dependency, not through the deactivated
  *     one, which was bottom->top). Call this a self-merge. If a self-merge does not occur after
  *     a split, the resulting linearization is strictly improved (the area under the convexified
  *     feerate diagram increases by at least gain/2), while self-merges do not change it.
+ *   - Keep track of how many consecutive self-merges a chunk undergoes: incremented upon
+ *     self-merge, and reset to 0 in both top and bottom otherwise.
+ *   - If the number of consecutive self-merges is a multiple of 6 (i.e., it is 0, 6, 12, ...), a
+ *     uniformly random dependency in the chunk among those with strictly positive gain is
+ *     deactivated.
+ *   - Otherwise (the number of self-merges so far is not a multiple of 6), a uniformly random
+ *     dependency within the chunk among those with maximal gain is deactivated, if any with
+ *     strictly positive gain exist.
  *
  * - How to decide the exact output linearization:
  *   - When there are multiple equal-feerate chunks with no dependencies between them, output a
@@ -729,6 +735,8 @@ private:
      *           direction.
      */
     VecDeque<std::tuple<SetIdx, TxIdx, unsigned>> m_nonminimal_chunks;
+    /** How many times each chunk has experienced self-merges. Indexed by SetIdx. */
+    std::vector<uint32_t> m_self_merges;
 
     /** The DepGraph we are trying to linearize. */
     const DepGraph<SetType>& m_depgraph;
@@ -995,9 +1003,10 @@ private:
         return chunk_idx;
     }
 
-    /** Perform an upward or downward merge sequence on the specified chunk. */
+    /** Perform an upward or downward merge sequence on the specified chunk. Returns the merged
+     *  index. */
     template<bool DownWard>
-    void MergeSequence(SetIdx chunk_idx) noexcept
+    SetIdx MergeSequence(SetIdx chunk_idx) noexcept
     {
         Assume(m_chunk_idxs[chunk_idx]);
         while (true) {
@@ -1010,12 +1019,15 @@ private:
             m_suboptimal_idxs.Set(chunk_idx);
             m_suboptimal_chunks.push_back(chunk_idx);
         }
+        return chunk_idx;
     }
 
     /** Split a chunk, and then merge the resulting two chunks to make the graph topological
      *  again. */
     void Improve(TxIdx parent_idx, TxIdx child_idx) noexcept
     {
+        // Remember the number of self-merges this chunk underwent so far.
+        auto self_merges = m_self_merges[m_tx_data[parent_idx].chunk_idx];
         // Deactivate the specified dependency, splitting it into two new chunks: a top containing
         // the parent, and a bottom containing the child. The top should have a higher feerate.
         auto [parent_chunk_idx, child_chunk_idx] = Deactivate(parent_idx, child_idx);
@@ -1036,11 +1048,16 @@ private:
                 m_suboptimal_idxs.Set(merged_chunk_idx);
                 m_suboptimal_chunks.push_back(merged_chunk_idx);
             }
+            // Increment the self-merge counter for the merged chunk.
+            m_self_merges[merged_chunk_idx] = self_merges + 1;
         } else {
             // Merge the top chunk with lower-feerate chunks it depends on.
-            MergeSequence<false>(parent_chunk_idx);
+            parent_chunk_idx = MergeSequence<false>(parent_chunk_idx);
             // Merge the bottom chunk with higher-feerate chunks that depend on it.
-            MergeSequence<true>(child_chunk_idx);
+            child_chunk_idx = MergeSequence<true>(child_chunk_idx);
+            // Reset the self-merge counters for both.
+            m_self_merges[parent_chunk_idx] = 0;
+            m_self_merges[child_chunk_idx] = 0;
         }
     }
 
@@ -1072,9 +1089,15 @@ private:
     {
         auto& chunk_info = m_set_info[chunk_idx];
 
+        // Determine whether to use max-gain strategy or random strategy. Generally max-gain is
+        // used, but out of an abundance of caution that max-gain might in
+        // adversarially-constructed clusters reliably make bad choices, the first and every
+        // 6th attempt to split the same cluster uses the random strategy.
+        const bool use_max_gain = (m_self_merges[chunk_idx] % 6) != 0;
+        // Remember the best dependency {par, chl} seen so far, together with its top feerate.
+        FeeFrac candidate_top_feerate; //!< Feerate of the candidate, or {} if random strategy.
         // Remember the best dependency {par, chl} seen so far, together with its top feerate.
         std::pair<TxIdx, TxIdx> candidate_dep = {TxIdx(-1), TxIdx(-1)};
-        FeeFrac candidate_top_feerate;
         uint64_t candidate_tiebreak = std::numeric_limits<uint64_t>::max();
         // Iterate over all transactions.
         for (auto tx_idx : chunk_info.transactions) {
@@ -1095,8 +1118,9 @@ private:
                 // so we can use FeeRateCompare to discover if dep_data.top_setinfo has better
                 // gain than best_top_feerate. As FeeRateCompare() is actually implemented by
                 // checking the sign of the cross-product, it even works when
-                // size(top1) <= size(top2). When no candidate exists so far, this is equal
-                // to comparing the feerate with the chunk directly (= the sign of gain(top)).
+                // size(top1) <= size(top2). When no candidate exists so far, or the random
+                // strategy is in use, candidate_top_feerate={}, and this is equivalent to
+                // comparing the feerate with the chunk directly (= the sign of gain(top)).
                 auto cmp = FeeRateCompare(dep_top_info.feerate - candidate_top_feerate,
                                           chunk_info.feerate);
                 if (cmp < 0) continue;
@@ -1105,10 +1129,10 @@ private:
                 // equal-gain dependencies, a uniformly random one (the one with the highest
                 // tiebreak) will be chosen.
                 uint64_t tiebreak = m_rng.rand64() >> 1;
-                if (cmp == 0 && tiebreak <= candidate_tiebreak) continue;
+                if (cmp == 0 && (!use_max_gain || tiebreak <= candidate_tiebreak)) continue;
                 // Remember this as our (new) candidate dependency.
                 candidate_dep = {tx_idx, child_idx};
-                candidate_top_feerate = dep_top_info.feerate;
+                if (use_max_gain) candidate_top_feerate = dep_top_info.feerate;
                 candidate_tiebreak = tiebreak;
             }
         }
@@ -1127,6 +1151,7 @@ public:
         m_tx_data.resize(depgraph.PositionRange());
         m_set_info.resize(num_transactions);
         m_reachable.resize(num_transactions);
+        m_self_merges.assign(num_transactions, 0);
         size_t num_chunks = 0;
         size_t num_deps = 0;
         for (auto tx_idx : m_transaction_idxs) {
