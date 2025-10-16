@@ -664,13 +664,15 @@ private:
     /** Data type to represent indexing into m_tx_data. */
     using TxIdx = uint32_t;
     /** Data type to represent indexing into m_dep_data. */
-    using DepIdx = uint32_t;
+    using DepIdx = std::conditional_t<(SetType::Size() <= 32), uint8_t, std::conditional_t<(SetType::Size() <= 512), uint16_t, uint32_t>>;
 
     /** Structure with information about a single transaction. For transactions that are the
      *  representative for the chunk they are in, this also stores chunk information. */
     struct TxData {
         /** The dependencies to children of this transaction. Immutable after construction. */
-        std::vector<DepIdx> child_deps;
+        std::array<DepIdx, SetType::Size() - 1> child_deps;
+        /** The number of children of this transaction. Immutable after construction. */
+        TxIdx child_deps_total{0};
         /** The set of parent transactions of this transaction. Immutable after construction. */
         SetType parents;
         /** The set of child transactions of this transaction. Immutable after construction. */
@@ -730,7 +732,7 @@ private:
                 // be filtered out below).
                 todo |= tx_data.active_parents;
                 // Iterate over all its active child dependencies.
-                auto child_deps = std::span{tx_data.child_deps};
+                auto child_deps = std::span{tx_data.child_deps}.first(tx_data.child_deps_total);
                 for (auto dep_idx : child_deps) {
                     auto& dep_entry = m_dep_data[dep_idx];
                     Assume(dep_entry.parent == tx_idx);
@@ -833,7 +835,7 @@ private:
             auto intersect = tx_data.children & bottom_chunk.chunk_setinfo.transactions;
             auto count = intersect.Count();
             if (pick < count) {
-                for (auto dep : tx_data.child_deps) {
+                for (auto dep : std::span{tx_data.child_deps}.first(tx_data.child_deps_total)) {
                     auto& dep_data = m_dep_data[dep];
                     if (bottom_chunk.chunk_setinfo.transactions[dep_data.child]) {
                         if (pick == 0) return Activate(dep);
@@ -967,7 +969,7 @@ public:
                 // Add it as parent of the child.
                 tx_data.parents.Set(par);
                 // Add it as child of the parent.
-                par_tx_data.child_deps.push_back(dep_idx);
+                par_tx_data.child_deps[par_tx_data.child_deps_total++] = dep_idx;
                 par_tx_data.children.Set(tx);
             }
         }
@@ -1068,7 +1070,7 @@ public:
             for (auto tx : chunk_data.chunk_setinfo.transactions) {
                 const auto& tx_data = m_tx_data[tx];
                 // Iterate over all active child dependencies of the transaction.
-                const auto children = std::span{tx_data.child_deps};
+                const auto children = std::span{tx_data.child_deps}.first(tx_data.child_deps_total);
                 for (DepIdx dep_idx : children) {
                     const auto& dep_data = m_dep_data[dep_idx];
                     if (!dep_data.active) continue;
@@ -1304,14 +1306,14 @@ public:
                 total_active_parent_deps += tx_data.active_parents.Count();
                 // Analyze child_deps.
                 SetType recomputed_children;
-                for (auto chl_dep : tx_data.child_deps) {
+                for (auto chl_dep : std::span{tx_data.child_deps}.first(tx_data.child_deps_total)) {
                     recomputed_children.Set(m_dep_data[chl_dep].child);
                     // Every child dependency lists this transaction as parent.
                     assert(m_dep_data[chl_dep].parent == tx_idx);
 
                 }
                 assert(tx_data.children == recomputed_children);
-                total_child_deps += tx_data.child_deps.size();
+                total_child_deps += tx_data.child_deps_total;
             }
             // Verify that the chunk information is correct.
             assert(m_tx_data[rep].chunk_setinfo == SetInfo(depgraph, chunk));
