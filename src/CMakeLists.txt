@@ -173,6 +173,10 @@ if(ENABLE_WALLET)
   endif()
 endif()
 
+if(BUILD_TXGRAPH)
+  add_executable(bitcoin-txgraph bitcoin-txgraph.cpp)
+  target_link_libraries(bitcoin-txgraph core_interface bitcoin_common bitcoin_util Boost::headers)
+endif()
 
 # P2P and RPC server functionality used by `bitcoind` and `bitcoin-qt` executables.
 add_library(bitcoin_node STATIC EXCLUDE_FROM_ALL
