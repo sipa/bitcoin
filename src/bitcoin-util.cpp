@@ -5,24 +5,127 @@
 #include <bitcoin-build-config.h> // IWYU pragma: keep
 
 #include <arith_uint256.h>
+#include <util/bitset.h>
 #include <chain.h>
 #include <chainparams.h>
 #include <chainparamsbase.h>
 #include <clientversion.h>
+#include <cluster_linearize.h>
 #include <common/args.h>
 #include <common/system.h>
 #include <compat/compat.h>
 #include <core_io.h>
+#include <random.h>
 #include <streams.h>
+#include <test/util/cluster_linearize.h>
 #include <util/exception.h>
 #include <util/strencodings.h>
 #include <util/translation.h>
 
+#include <thread>
 #include <atomic>
+#include <fstream>
 #include <cstdio>
 #include <functional>
+#include <cmath>
 #include <memory>
 #include <thread>
+
+using namespace cluster_linearize;
+
+template<typename SetType>
+static DepGraph<SetType> GenRandomCluster(int ntx, int ndeps, int nlevels, int group_threshold, FastRandomContext& rng)
+{
+    DepGraph<SetType> ret;
+    assert(ntx >= nlevels);
+    assert(ndeps >= ntx - 1);
+    assert(ndeps <= ((ntx + 1) >> 1) * (ntx >> 1));
+    std::vector<std::pair<DepGraphIndex, DepGraphIndex>> candidate_deps;
+    std::vector<std::pair<DepGraphIndex, DepGraphIndex>> active_deps;
+    std::vector<uint32_t> order;
+    order.resize(ntx);
+    std::vector<SetType> component_map;
+    component_map.resize(ntx);
+    for (int i = 0; i < ntx; ++i) {
+        order[i] = i;
+        component_map[i] = SetType::Singleton(i);
+        int32_t size = rng.randrange<int32_t>(1000) + 100;
+        int32_t ran = sqrt(size * size * (double)ntx);
+        int32_t fee = int32_t(rng.randrange<uint32_t>(2 * ran + 1)) - ran;
+        auto tx = ret.AddTransaction(FeeFrac{fee, size});
+        assert(tx == (unsigned)i);
+    }
+    std::shuffle(order.begin(), order.end(), rng);
+    if (nlevels == 0) {
+        for (int p = 0; p < ntx; ++p) {
+            for (int c = 0; c < ntx; ++c) {
+                if (p != c) candidate_deps.emplace_back(p, c);
+            }
+        }
+    } else {
+        std::vector<std::vector<uint32_t>> by_level;
+        by_level.resize(nlevels);
+        for (int i = 0; i < nlevels; ++i) {
+            by_level[i].push_back(order[i]);
+        }
+        for (int p = nlevels; p < ntx; ++p) {
+            by_level[rng.randrange(nlevels)].push_back(order[p]);
+        }
+        for (int l = 1; l < nlevels; ++l) {
+            for (auto p : by_level[l - 1]) {
+                for (auto c : by_level[l]) {
+                    candidate_deps.emplace_back(p, c);
+                }
+            }
+        }
+    }
+    int max_size_sum = group_threshold + 2;
+    while (active_deps.size() + 1 < (size_t)ntx) {
+        bool found = false;
+        bool avail = false;
+        for (size_t pos = 0; pos < candidate_deps.size(); ++pos) {
+            size_t pick = rng.randrange(candidate_deps.size() - pos) + pos;
+            if (pick != pos) std::swap(candidate_deps[pos], candidate_deps[pick]);
+            auto [p, c] = candidate_deps[pos];
+            auto p_comp = component_map[p];
+            auto c_comp = component_map[c];
+            if (p_comp == c_comp) continue;
+            avail = true;
+            if (p_comp.Count() + c_comp.Count() > (unsigned)max_size_sum) continue;
+            ret.AddDependencies(SetType::Singleton(p), c);
+            active_deps.emplace_back(p, c);
+            SetType comp = p_comp | c_comp;
+            for (auto i : p_comp) {
+                component_map[i] = comp;
+            }
+            for (auto i : c_comp) {
+                component_map[i] = comp;
+            }
+            found = true;
+        }
+        assert(avail);
+        if (!found) ++max_size_sum;
+    }
+    while (active_deps.size() < (size_t)ndeps && !candidate_deps.empty()) {
+        size_t pick = rng.randrange(candidate_deps.size());
+        if (pick != candidate_deps.size() - 1) std::swap(candidate_deps[pick], candidate_deps.back());
+        auto [p, c] = candidate_deps.back();
+        candidate_deps.pop_back();
+        if (ret.Ancestors(c)[p]) continue;
+        if (ret.Descendants(c)[p]) continue;
+        bool bad = false;
+        for (auto [ap, ac] : active_deps) {
+            if (ret.Ancestors(p)[ap] && ret.Descendants(c)[ac]) {
+                bad = true;
+                break;
+            }
+        }
+        if (bad) continue;
+        ret.AddDependencies(SetType::Singleton(p), c);
+        active_deps.emplace_back(p, c);
+    }
+    return ret;
+}
 
 static const int CONTINUE_EXECUTION=-1;
 
@@ -35,6 +138,8 @@ static void SetupBitcoinUtilArgs(ArgsManager &argsman)
     argsman.AddArg("-version", "Print version and exit", ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
 
     argsman.AddCommand("grind", "Perform proof of work on hex header string");
+    argsman.AddCommand("gengraph", "Generate hard graphs");
+    argsman.AddCommand("rungraph", "Linearize graphs read from stdin");
 
     SetupChainParamsBaseOptions(argsman);
 }
@@ -149,6 +254,207 @@ static int Grind(const std::vector<std::string>& args, std::string& strPrint)
     return EXIT_SUCCESS;
 }
 
+static constexpr int NUM_THREADS = 124;
+static constexpr int KEEP_PER_NTX = 1000;
+static constexpr int NUM_SEEDS = 100;
+
+static int RunGraph(const std::vector<std::string>& args, std::string& strPrint)
+{
+    if (args.size() != 1) {
+        strPrint = "Must specify iterations per graph";
+        return EXIT_FAILURE;
+    }
+
+    unsigned iter_per_graph = 1;
+    std::from_chars(args[0].data(), args[0].data() + args[0].size(), iter_per_graph);
+    unsigned graphs_per_batch = 1 + (100000 / iter_per_graph);
+
+    std::map<unsigned, uint64_t> results;
+    std::mutex in_cs;
+    std::mutex out_cs;
+    bool done = false;
+    uint64_t num_lines = 0;
+    auto thread_fn = [&, iter_per_graph, graphs_per_batch](int thn) {
+        std::vector<std::string> lines;
+        while (true) {
+            lines.clear();
+            {
+                std::unique_lock lock(in_cs);
+                if (done) return;
+                for (unsigned i = 0; i < graphs_per_batch; ++i) {
+                    std::string line;
+                    if (!std::getline(std::cin, line)) {
+                        done = true;
+                        break;
+                    }
+                    lines.emplace_back(std::move(line));
+                }
+            }
+            std::map<unsigned, uint64_t> local_res;
+            for (auto& line : lines) {
+                while (!line.empty()) {
+                    auto fnd = line.find(' ');
+                    std::string now;
+                    if (fnd == line.npos) {
+                        now = line;
+                        line = "";
+                    } else {
+                        now = line.substr(0, fnd);
+                        line = line.substr(fnd + 1);
+                    }
+                    auto eq = now.find("hex=");
+                    if (eq != now.npos) {
+                        auto data = ParseHex<uint8_t>(now.substr(eq + 4));
+                        SpanReader reader(data);
+                        DepGraph<BitSet<64>> depgraph;
+                        reader >> Using<DepGraphFormatter>(depgraph);
+                        uint64_t out = 0;
+                        for (unsigned iter = 0; iter < iter_per_graph; ++iter) {
+                            auto [lin, _opt, cost] = Linearize(depgraph, 1000000000, iter, {});
+                            out = std::max(out, cost);
+                        }
+                        uint64_t& outr = local_res[depgraph.TxCount()];
+                        outr = std::max(outr, out);
+                    }
+                }
+            }
+            {
+                std::unique_lock lock(out_cs);
+                for (const auto& [ntx, nout] : local_res) {
+                    uint64_t& outr = results[ntx];
+                    outr = std::max(outr, nout);
+                }
+                auto new_lines = num_lines + lines.size();
+                if ((new_lines * iter_per_graph) / 50000 != (num_lines * iter_per_graph) / 50000) {
+                    std::cerr << "# " << new_lines << " lines done\n";
+                    std::cerr << "{";
+                    for (unsigned i = 0; i <= 64; ++i) {
+                        if (i) std::cerr << ", ";
+                        if (results.count(i)) {
+                            std::cerr << results[i];
+                        } else {
+                            std::cerr << 0;
+                        }
+                    }
+                    std::cerr << "};\n";
+                }
+                num_lines = new_lines;
+            }
+        }
+    };
+    std::vector<std::thread> threads;
+    for (int i = 0; i < NUM_THREADS; ++i) {
+        threads.emplace_back(thread_fn, i);
+    }
+    for (auto& thread : threads) thread.join();
+    {
+        std::unique_lock lock(out_cs);
+        std::cerr << "{";
+        for (unsigned i = 0; i <= 64; ++i) {
+            if (i) std::cerr << ", ";
+            if (results.count(i)) {
+                std::cerr << results[i];
+            } else {
+                std::cerr << 0;
+            }
+        }
+        std::cerr << "};\n";
+    }
+    return 0;
+}
+
+static int GenGraph()
+{
+    RandomInit();
+    std::atomic<int> merger{0};
+    uint64_t glob_tot_tot_cost = 0;
+    uint64_t glob_num_merges = 0;
+    uint64_t glob_params = 0;
+    uint64_t glob_clusters = 0;
+    std::map<unsigned, std::vector<std::pair<uint64_t, std::vector<unsigned char>>>> db;
+    auto thread_fn = [&](int threadnum) {
+        FastRandomContext rng;
+        std::map<unsigned, std::vector<std::pair<uint64_t, std::vector<unsigned char>>>> local_db;
+        uint64_t tot_tot_cost = 0;
+        uint64_t params = 0;
+        uint64_t clusters = 0;
+        while (true) {
+            unsigned ntx = rng.randrange(63) + 2;
+            unsigned mindep = ntx - 1;
+            unsigned maxdep = ((ntx + 1) >> 1) * (ntx >> 1);
+            unsigned ndeps = rng.randrange(maxdep - mindep + 1) + mindep;
+            uint64_t tot_cost = 0;
+            params += 1;
+            while (true) {
+                clusters += 1;
+                int levels = rng.randbool() ? 0 : rng.randrange(ntx - 1) + 2;
+                int thresh = rng.randrange(ntx);
+                auto depgraph = GenRandomCluster<BitSet<64>>(ntx, ndeps, levels, thresh, rng);
+                uint64_t max_cost = 0;
+                for (int i = 0; i < NUM_SEEDS; ++i) {
+                    auto [lin, opt, cost] = Linearize(depgraph, 1000000000, i, {});
+                    assert(opt);
+                    tot_cost += cost;
+                    max_cost = std::max(cost, max_cost);
+                }
+                auto& vec = local_db[ntx];
+                std::vector<unsigned char> ser;
+                {
+                    VectorWriter writer(ser, 0);
+                    writer << Using<DepGraphFormatter>(depgraph);
+                }
+                vec.emplace_back(max_cost, std::move(ser));
+                std::push_heap(vec.begin(), vec.end(), std::greater{});
+                if (vec.size() > KEEP_PER_NTX) {
+                    std::pop_heap(vec.begin(), vec.end(), std::greater{});
+                    vec.pop_back();
+                }
+                if (tot_cost > 3000000) break;
+            }
+            tot_tot_cost += tot_cost;
+            int lmerger = merger.load();
+            if (lmerger == threadnum) {
+                for (auto& [key, value] : local_db) {
+                    auto& gvec = db[key];
+                    gvec.insert(gvec.end(), value.begin(), value.end());
+                    std::sort(gvec.begin(), gvec.end(), std::greater{});
+                    if (gvec.size() > KEEP_PER_NTX) gvec.resize(KEEP_PER_NTX);
+                }
+                local_db.clear();
+                glob_num_merges += 1;
+                glob_params += params;
+                params = 0;
+                glob_clusters += clusters;
+                clusters = 0;
+                if (glob_tot_tot_cost / 100000000000 != (glob_tot_tot_cost + tot_tot_cost) / 100000000000) {
+                    std::cerr << "DUMP merges=" << glob_num_merges << " params=" << glob_params << " clusters=" << glob_clusters << "\n";
+                    std::ofstream osf("dump.txt.tmp");
+                    for (auto& [key, value] : db) {
+                        for (auto& [iter, ser] : value) {
+                            osf << "tx=" << key << " iter=" << iter << " hex=" << HexStr(ser) << "\n";
+                        }
+                    }
+                    std::rename("dump.txt.tmp", "dump.txt");
+                }
+                glob_tot_tot_cost += tot_tot_cost;
+                tot_tot_cost = 0;
+
+                lmerger += 1;
+                if (lmerger == NUM_THREADS) lmerger = 0;
+                merger.store(lmerger);
+            }
+        }
+    };
+    std::vector<std::thread> threads;
+    for (int th = 0; th < NUM_THREADS; ++th) {
+        threads.emplace_back(thread_fn, th);
+    }
+    for (int th = 0; th < NUM_THREADS; ++th) {
+        threads[th].join();
+    }
+    return 0;
+}
+
 MAIN_FUNCTION
 {
     ArgsManager& args = gArgs;
@@ -178,6 +484,10 @@ MAIN_FUNCTION
     try {
         if (cmd->command == "grind") {
             ret = Grind(cmd->args, strPrint);
+        } else if (cmd->command == "gengraph") {
+            ret = GenGraph();
+        } else if (cmd->command == "rungraph") {
+            ret = RunGraph(cmd->args, strPrint);
         } else {
             assert(false); // unknown command should be caught earlier
         }
