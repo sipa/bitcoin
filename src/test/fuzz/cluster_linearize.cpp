@@ -1101,6 +1101,69 @@ FUZZ_TARGET(clusterlin_postlinearize)
     }
 }
 
+FUZZ_TARGET(clusterlin_maximal_linearize)
+{
+    SpanReader reader(buffer);
+    DepGraph<TestBitSet> depgraph;
+    uint64_t rng_seed{0};
+    try {
+        reader >> Using<DepGraphFormatter>(depgraph) >> rng_seed;
+    } catch (const std::ios_base::failure&) {}
+    if (depgraph.Positions().Count() > 4) return;
+    MakeConnected(depgraph);
+/*    for (auto i : depgraph.Positions()) {
+        depgraph.FeeRate(i).size = ((depgraph.FeeRate(i).size - 1) % 2) + 1;
+        if (depgraph.FeeRate(i).fee < 0) depgraph.FeeRate(i).fee = -depgraph.FeeRate(i).fee;
+        depgraph.FeeRate(i).fee = (depgraph.FeeRate(i).fee) % 4;
+    }*/
+
+    auto [lin, optimal, _cost] = Linearize(depgraph, 1000000000, rng_seed);
+    assert(optimal);
+    PostLinearize(depgraph, lin);
+    auto lin_chunks = ChunkLinearization(depgraph, lin);
+
+    auto maxlin = MaximalLinearize(depgraph, depgraph.Positions());
+    SanityCheck(depgraph, maxlin);
+    auto maxlin_chunks = ChunkLinearization(depgraph, maxlin);
+
+    auto pmaxlin = MaximalLinearizePerm(depgraph, depgraph.Positions());
+    SanityCheck(depgraph, pmaxlin);
+    auto pmaxlin_chunks = ChunkLinearization(depgraph, pmaxlin);
+
+/*    {
+        static constexpr auto linfmt = [](std::span<const DepGraphIndex> lin) noexcept {
+            std::string ret = "[";
+            for (size_t i = 0; i < lin.size(); ++i) {
+                if (i) ret += ",";
+                ret += std::to_string(lin[i]);
+            }
+            return std::move(ret) + "]";
+        };
+        std::vector<uint8_t> ser;
+        VectorWriter writer(ser, 0);
+        writer << Using<DepGraphFormatter>(depgraph);
+        std::cerr << "CLUSTER=" << HexStr(ser) << " LIN=" << linfmt(lin) << " MAXLIN=" << linfmt(maxlin) << " PMAXLIN=" << linfmt(pmaxlin) << "\n";
+    }*/
+
+    auto maxlin_cmp = CompareChunks(maxlin_chunks, lin_chunks);
+    assert(maxlin_cmp >= 0);
+    assert(maxlin_cmp <= 0);
+    assert(maxlin_chunks.size() == lin_chunks.size());
+
+    auto pmaxlin_cmp = CompareChunks(pmaxlin_chunks, lin_chunks);
+    assert(pmaxlin_cmp >= 0);
+    assert(pmaxlin_cmp <= 0);
+    assert(pmaxlin_chunks.size() == lin_chunks.size());
+
+    auto lin_score = PermScore(depgraph, lin);
+    auto maxlin_score = PermScore(depgraph, maxlin);
+    auto pmaxlin_score = PermScore(depgraph, pmaxlin);
+    assert(lin_score <= maxlin_score);
+    assert(lin_score <= pmaxlin_score);
+    assert(pmaxlin_score >= maxlin_score);
+    assert(maxlin_score >= pmaxlin_score);
+}
+
 FUZZ_TARGET(clusterlin_postlinearize_tree)
 {
     // Verify expected properties of PostLinearize() on linearizations of graphs that form either

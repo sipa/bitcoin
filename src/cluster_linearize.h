@@ -1526,6 +1526,101 @@ std::tuple<std::vector<DepGraphIndex>, bool, uint64_t> Linearize(const DepGraph<
     return {forest.GetLinearization(), optimal, forest.GetCost()};
 }
 
+template<typename SetType>
+__int128 PermScore(const DepGraph<SetType>& depgraph, std::span<const DepGraphIndex> lin) noexcept
+{
+    __int128 score = 0;
+    FeeFrac sum;
+    for (auto i : lin) {
+        score += (__int128)sum.fee * depgraph.FeeRate(i).size;
+        sum += depgraph.FeeRate(i);
+    }
+    return score;
+}
+
+template<typename SetType>
+std::vector<DepGraphIndex> MaximalLinearize(const DepGraph<SetType>& depgraph, SetType subset) noexcept
+{
+    std::vector<SetType> todo;
+    if (subset.Any()) todo.push_back(subset);
+    std::vector<DepGraphIndex> ret;
+    std::vector<std::pair<SetType, SetType>> queue;
+    while (!todo.empty()) {
+        SetType now = todo.back();
+        assert(now.Any());
+        todo.pop_back();
+        if (now.Count() == 1) {
+            ret.push_back(now.First());
+        } else {
+            queue.clear();
+            queue.emplace_back(SetType{}, now);
+            FeeFrac now_rate = depgraph.FeeRate(now);
+            std::optional<SetType> best;
+            __int128 best_score = 0;
+            while (!queue.empty()) {
+                auto [inc, und] = queue.back();
+                queue.pop_back();
+                if (und.None()) continue;
+                auto split = und.First();
+                SetType new_inc = inc | (now & depgraph.Ancestors(split));
+                if (new_inc != now) {
+                    __int128 new_score = 0;
+                    SetType new_exc = now - new_inc;
+                    for (auto i : new_exc) {
+                        FeeFrac top = depgraph.FeeRate(new_inc - depgraph.Ancestors(i));
+                        FeeFrac bottom = depgraph.FeeRate(i);
+                        new_score += (__int128)top.fee * bottom.size/* - (__int128)bottom.fee * top.size*/;
+                    }
+                    if (!best.has_value() || new_score > best_score) {
+                        best_score = new_score;
+                        best = new_inc;
+                    }
+                    queue.emplace_back(new_inc, und - new_inc);
+                }
+                queue.emplace_back(inc, und - depgraph.Descendants(split));
+            }
+            assert(best.has_value());
+            assert(*best != now);
+            assert(best->Any());
+            todo.push_back(now - *best);
+            todo.push_back(*best);
+        }
+    }
+    return ret;
+}
+
+template<typename SetType>
+std::vector<DepGraphIndex> MaximalLinearizePerm(const DepGraph<SetType>& depgraph, SetType subset) noexcept
+{
+    std::vector<DepGraphIndex> perm_linearization;
+    for (auto i : subset) perm_linearization.push_back(i);
+
+    std::vector<DepGraphIndex> best;
+    __int128 best_score = 0;
+
+    do {
+        DepGraphIndex topo_length{0};
+        SetType perm_done;
+        while (topo_length < perm_linearization.size()) {
+            auto i = perm_linearization[topo_length];
+            perm_done.Set(i);
+            if (!(depgraph.Ancestors(i) & subset).IsSubsetOf(perm_done)) break;
+            ++topo_length;
+        }
+        if (topo_length == perm_linearization.size()) {
+            __int128 score = PermScore(depgraph, perm_linearization);
+            if (best.empty() || score > best_score) {
+                best_score = score;
+                best = perm_linearization;
+            }
+        } else {
+            auto first_non_topo = perm_linearization.begin() + topo_length;
+            std::reverse(first_non_topo + 1, perm_linearization.end());
+        }
+    } while(std::next_permutation(perm_linearization.begin(), perm_linearization.end()));
+    return best;
+}
+
 /** Improve a given linearization.
  *
  * @param[in]     depgraph       Dependency graph of the cluster being linearized.
