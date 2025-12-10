@@ -461,88 +461,106 @@ std::vector<FeeFrac> ChunkLinearization(const DepGraph<SetType>& depgraph, std::
     return ret;
 }
 
-/** Class to represent the internal state of the spanning-forest linearization algorithm.
+/** Class to represent the internal state of the spanning-forest linearization (SFL) algorithm.
  *
- * At all times, each dependency is marked as "active" or "inactive", with the constraint that
- * no cycle of active dependencies may exist when ignoring the direction of those dependencies.
- * So for example, the diamond (C->X->P, C->Y->P) would be considered a cycle, and those 4
- * dependencies cannot all simultaneously be active.
+ * At all times, each dependency is marked as either "active" or "inactive". The subset of active
+ * dependencies is the state of the SFL algorithm. The implementation maintains several other
+ * values to speed up operations, but everything is ultimately a function of what that subset of
+ * active dependencies is.
  *
- * The sets of transactions that are internally connected by active dependencies are called chunks.
- * Each chunk of N transactions contains exactly N-1 active dependencies (an additional one would
- * necessarily form a cycle), and thus those active dependencies form a spanning tree for the chunk.
- * The collection of all spanning trees for the entire cluster form a spanning forest. In the
- * extreme, each transaction may be in its own chunk (and thus 0 dependencies are active), or in
- * the other extreme, all transactions may form a single chunk (and thus N-1 dependencies are
- * active).
+ * Given such a subset, define a chunk as the set of transactions that are connected through active
+ * dependencies (ignoring their parent/child direction). Thus, every state implies a particular
+ * partitioning of the graph into chunks (including potential singletons). In the extreme, each
+ * transaction may be in its own chunk, or in the other extreme all transactions may form a single
+ * chunk. A chunk's feerate is its total fee divided by its total size.
  *
- * Each chunk has a feerate: the total fee of all transactions in it divided by the total size of
- * all transactions in it. We say the spanning forest is topological whenever no inactive
- * dependencies exist from one chunk to another chunk with lower or equal feerate. The algorithm
- * can be stopped whenever the state is topological. In this case, the output linearization
- * consists of each of the chunks, from high to low feerate, each internally ordered in an
- * arbitrary but topologically-valid way. If the spanning forest is topological, then the output
- * linearization is also topological.
+ * The algorithm consists of switching dependencies between active and inactive. The final
+ * linearization that is produced at the end consists of these chunks, sorted from high to low
+ * feerate, each individually sorted in an arbitrary but topological (= no parent before child)
+ * way.
  *
- * At a high level, the algorithm works by performing a sequence of the following operations:
- * - Merging:
- *   - Whenever an inactive dependency exists from a chunk to another chunk which has lower or
- *     equal feerate, that dependency can be made active, merging the two chunks.
- *   - Merging is only possible in non-topological forests, and generally helps making it
- *     topological.
- * - Splitting:
- *   - Whenever an active dependency d exists, making it inactive will result in the chunk it is in
- *     splitting in two: a bottom chunk (which d is from) and a top chunk (which d is to). This is
- *     the case because no other active dependency between the top and bottom can exist; if it did,
- *     it would form a cycle together with d.
- *   - An active dependency can be deactivated whenever its would-be top chunk has strictly higher
- *     feerate than its would-be bottom chunk.
- *   - Splitting generally helps making a forest's output linearization better, but can result in
- *     it becoming non-topological, necessitating merging steps.
+ * We define three quality properties the state can have, each being stronger than the previous:
  *
- * A forest is said to be optimal when neither of these operations are applicable anymore. It can
- * be shown that the output linearization for an optimal spanning forest is optimal, and that at
- * least one optimal spanning forest exists for every cluster. Note that no proof exists that an
- * optimal state will always be reached.
+ * - acyclic: The state is acyclic whenever no cycle of active dependencies exists within the
+ *            graph, ignoring the parent/child direction. This is equivalent to saying that within
+ *            each chunk the set of active dependencies form a tree, and thus the overall set of
+ *            active dependencies in the graph form a spanning forest, giving the algorithm its
+ *            name. Being acylic is also equivalent to every chunk of N transactions having exactly
+ *            N-1 active dependencies.
  *
- * To make sure the algorithm can be interrupted quickly and get a valid linearization out, merging
- * will always be prioritized over splitting:
+ *            For example in a diamond graph, D->{B,C}->A, the 4 dependencies cannot be
+ *            simultaneously active. If at least one is inactive, the state is acyclic.
  *
- * - Construct an initial topological spanning forest for the graph.
- * - Loop until optimal or time runs out:
- *   - Perform a splitting step.
- *   - Loop until the forest is topological:
- *     - Perform a merging step.
+ *            The algorithm maintains an acyclic state at *all* times as an invariant. This implies
+ *            that activating a dependency always corresponds to merging two chunks, and that
+ *            de-activating one always corresponds to splitting two chunks.
+ *
+ * - topological: We say the state is topological whenever no inactive dependency exists between
+ *                two distinct chunks such that the child chunk has higher or equal feerate than
+ *                the parent chunk.
+ *
+ *                The relevance is that whenever the state is topological, the produced output
+ *                linearization will be topological too (i.e., not have children before parents).
+ *                Note that the "or equal" part of the definition matters: if not, one can end up
+ *                in a situation with mutually-dependent equal-feerate chunks that cannot be
+ *                linearized. For example C->{A,B} and D->{A,B}, with C->A and D->B active. The AC
+ *                chunk depends on DB through C->B, and the BD chunk depends on AC though D->A.
+ *                Merging them into a single ABCD chunk fixes this.
+ *
+ *                The algorithm attempts to keep the state topological as much as possible, so it
+ *                can be interrupted to produce an output whenever, but will sometimes need to
+ *                temporarily deviate from it when improving the state.
+ *
+ * - optimal: We say the state is optimal whenever it is topological and also no active dependency
+ *            exists for which, if it were to be de-activated, the produced top chunk (the one with
+ *            the dependency's parent in) has strictly higher feerate than the produced bottom
+ *            chunk (the one with the dependency's child in).
+ *
+ *            The relevance is that it can be proven that whenever the state is optimal, the
+ *            produced linearization will also be optimal (in the convexified feerate diagram
+ *            sense). It can also be proven that for every graph at least one optimal state exists.
+ *
+ *            Note that it is possible for the SFL state to not be optimal, but the produced
+ *            linearization to still be optimal. It is possible that the chunks of a state are
+ *            equal to that of an optimal state, but the exact set of active dependencies within a
+ *            chunk are different, in such a way that the state optimality condition is not
+ *            satisfied. Thus, the state being optimal is more a "output is *known* to be optimal".
+ *
+ *            The algorithm terminates whenever an optimal state is reached.
+ *
+ *
+ * This leads to the following high-level algorithm:
+ * - Start with all dependencies inactive, and thus all transactions in their own chunk. This is
+ *   definitely acyclic.
+ * - Activate dependencies (merging chunks) until the state is topological.
+ * - Loop until optimal (no dependencies with higher-feerate top than bottom), or time runs out:
+ *   - De-activate such a dependency (potentially making the state non-topological).
+ *   - Activate other dependencies to make the state topological again.
  * - Output the chunks from high to low feerate, each internally sorted topologically.
  *
- * Merging is always done by maximal feerate difference. This guarantees that the sequence of a
- * single split followed by merges until topological never makes the output linearization worse.
- * In addition, this allows refining the algorithm flow into:
+ * Merging a chunk is always done by finding the lowest-feerate other chunk it depends on (upwards
+ * merge), or the highest-feerate other chunk depending on it (downwards merge). These guarantee
+ * that the sequence of a single split followed by merges until topological never makes the output
+ * linearization worse. In addition, this allows refining the algorithm flow into:
  *
- * - Construct an initial topological spanning forest for the graph:
- *   - Start with graph with all dependencies inactive (i.e., each transaction is a singleton
- *     chunk).
- *   - Make the graph topological by randomly picking chunks, and merging them (with their
- *     lowest-feerate dependency, or highest-feerate dependee) when possible, until no such chunks
- *     remain.
- * - Loop until optimal or time runs out:
+ * - Start with all dependencies inactive.
+ * - Perform merges as described until none are possible anymore, making the state topological.
+ * - Loop until optimal or times runs out:
  *   - Pick a dependency D to deactivate among those whose would-be top chunk has strictly higher
  *     feerate than its would-be bottom chunk.
  *   - Deactivate D, causing the chunk it is in to split into top T and bottom B.
- *   - Merge T with its lowest-feerate dependency, if any. Repeat the same with the merged result.
- *   - Merge B with its highest-feerate dependee, if any. Repeat the same with the merged result.
+ *   - Do an upwards merge of T, if possible. If so, repeat the same with the merged result.
+ *   - Do a downwards merge of B, if possible. If so, repeat the same with the merged result.
  * - Output the chunks from high to low feerate, each internally sorted topologically.
  *
- * Instead of starting with an empty graph and making it topological directly, it is possible to
- * bootstrap from an existing linearization:
- * - Start with an empty graph.
+ * Instead of performing merges arbitrarily to make the initial state topological, it is possible
+ * to do so guided by an existing linearization. This has the advantage that the state's would-be
+ * output linearization is immediately as good as the existing linearization it was based on:
+ * - Start with all dependencies inactive.
  * - For each transaction t in the existing linearization:
- *   - Add the transaction as a singleton chunk to the graph.
- *   - Merge the newly created chunk with its lowest-feerate dependency, if any. Repeat with the
- *     merged result.
- *
- * This guarantees an initial topological state whose output linearization is at least as good
- * (in the convexified feerate diagram sense) as the input existing linearization bootstrapped from.
+ *   - Find the chunk C that transaction is in (which will be singleton).
+ *   - Do an upwards merge of C, if possible. If so, repeat the same with the merged result.
+ *     (specifically, no downwards merges are needed).
  *
  * What remains to be specified are two heuristics:
  *
