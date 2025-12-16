@@ -416,6 +416,224 @@ inline uint64_t MaxOptimalLinearizationCost(DepGraphIndex cluster_count)
     return COSTS[cluster_count] * 2;
 }
 
+/** Stitch connected components together in a DepGraph, guaranteeing its corresponding cluster is connected. */
+template<typename BS>
+void MakeConnected(DepGraph<BS>& depgraph)
+{
+    auto todo = depgraph.Positions();
+    auto comp = depgraph.FindConnectedComponent(todo);
+    Assume(depgraph.IsConnected(comp));
+    todo -= comp;
+    while (todo.Any()) {
+        auto nextcomp = depgraph.FindConnectedComponent(todo);
+        Assume(depgraph.IsConnected(nextcomp));
+        depgraph.AddDependencies(BS::Singleton(comp.Last()), nextcomp.First());
+        todo -= nextcomp;
+        comp = nextcomp;
+    }
+}
+
+template<typename SetType>
+DepGraph<SetType> GenRandomCluster(bool neg_fees, int sizebits, int feebits, int ntx, int ndeps, int nlevels, int group_threshold, InsecureRandomContext& rng)
+{
+    DepGraph<SetType> ret;
+    assert(ntx >= nlevels);
+    assert(ndeps >= ntx - 1);
+    assert(ndeps <= ((ntx + 1) >> 1) * (ntx >> 1));
+    std::vector<std::pair<DepGraphIndex, DepGraphIndex>> candidate_deps;
+    std::vector<std::pair<DepGraphIndex, DepGraphIndex>> active_deps;
+    std::vector<uint32_t> order;
+    order.resize(ntx);
+    std::vector<SetType> component_map;
+    component_map.resize(ntx);
+    for (int i = 0; i < ntx; ++i) {
+        order[i] = i;
+        component_map[i] = SetType::Singleton(i);
+        int32_t size = rng.randbits(sizebits) + 1;
+        int64_t fee = rng.randbits(feebits) + 1 - (neg_fees ? (int64_t{1} << (feebits - 1)) : 0);
+        auto tx = ret.AddTransaction(FeeFrac{fee, size});
+        assert(tx == (unsigned)i);
+    }
+    std::shuffle(order.begin(), order.end(), rng);
+    if (nlevels == 0) {
+        for (int p = 0; p < ntx; ++p) {
+            for (int c = 0; c < ntx; ++c) {
+                if (p != c) candidate_deps.emplace_back(p, c);
+            }
+        }
+    } else {
+        std::vector<std::vector<uint32_t>> by_level;
+        by_level.resize(nlevels);
+        for (int i = 0; i < nlevels; ++i) {
+            by_level[i].push_back(order[i]);
+        }
+        for (int p = nlevels; p < ntx; ++p) {
+            by_level[rng.randrange(nlevels)].push_back(order[p]);
+        }
+        for (int l = 1; l < nlevels; ++l) {
+            for (auto p : by_level[l - 1]) {
+                for (auto c : by_level[l]) {
+                    candidate_deps.emplace_back(p, c);
+                }
+            }
+        }
+    }
+    int max_size_sum = group_threshold + 2;
+    while (active_deps.size() + 1 < (size_t)ntx) {
+        bool found = false;
+        bool avail = false;
+        for (size_t pos = 0; pos < candidate_deps.size(); ++pos) {
+            size_t pick = rng.randrange(candidate_deps.size() - pos) + pos;
+            if (pick != pos) std::swap(candidate_deps[pos], candidate_deps[pick]);
+            auto [p, c] = candidate_deps[pos];
+            auto p_comp = component_map[p];
+            auto c_comp = component_map[c];
+            if (p_comp == c_comp) continue;
+            avail = true;
+            if (p_comp.Count() + c_comp.Count() > (unsigned)max_size_sum) continue;
+            ret.AddDependencies(SetType::Singleton(p), c);
+            active_deps.emplace_back(p, c);
+            SetType comp = p_comp | c_comp;
+            for (auto i : p_comp) {
+                component_map[i] = comp;
+            }
+            for (auto i : c_comp) {
+                component_map[i] = comp;
+            }
+            found = true;
+        }
+        assert(avail);
+        if (!found) ++max_size_sum;
+    }
+    while (active_deps.size() < (size_t)ndeps && !candidate_deps.empty()) {
+        size_t pick = rng.randrange(candidate_deps.size());
+        if (pick != candidate_deps.size() - 1) std::swap(candidate_deps[pick], candidate_deps.back());
+        auto [p, c] = candidate_deps.back();
+        candidate_deps.pop_back();
+        if (ret.Ancestors(c)[p]) continue;
+        if (ret.Descendants(c)[p]) continue;
+        bool bad = false;
+        for (auto [ap, ac] : active_deps) {
+            if (ret.Ancestors(p)[ap] && ret.Descendants(c)[ac]) {
+                bad = true;
+                break;
+            }
+        }
+        if (bad) continue;
+        ret.AddDependencies(SetType::Singleton(p), c);
+        active_deps.emplace_back(p, c);
+    }
+    return ret;
+}
+
+template<typename SetType, typename Stream>
+std::optional<std::pair<DepGraph<SetType>, uint64_t>> ReadDepGraphBuilder(Stream& reader)
+{
+    uint8_t mode{0};
+    uint64_t rng_seed{0};
+    try {
+        reader >> mode >> rng_seed;
+    } catch (const std::ios_base::failure&) {}
+
+    DepGraph<SetType> depgraph;
+
+    if (mode & 1) {
+        InsecureRandomContext rng(rng_seed);
+        uint64_t bitcode{0}, ntxcode{0}, ndepcode{0}, levelcode{0}, threshcode{0};
+        try {
+            reader >> VARINT(ntxcode) >> VARINT(bitcode) >> VARINT(ndepcode) >> VARINT(levelcode) >> VARINT(threshcode);
+        } catch (const std::ios_base::failure&) {}
+        int ntx_min = 2;
+        int ntx_max = 64;
+        int ntx = (ntxcode % (ntx_max - ntx_min + 1)) + ntx_min;
+        int ndeps_min = ntx - 1;
+        int ndeps_max = (ntx * ntx) / 4;
+        int ndeps = (ndepcode % (ndeps_max - ndeps_min + 1)) + ndeps_min;
+        int nlevels_min = 2;
+        int nlevels_max = ntx;
+        int nlevels = (levelcode & 1) ? 0 : (((levelcode >> 1) % (nlevels_max - nlevels_min + 1)) + nlevels_min);
+        int nthresh_min = 0;
+        int nthresh_max = ntx - 1;
+        int nthresh = (threshcode % (nthresh_max - nthresh_min + 1)) + nthresh_min;
+        bool neg_fees = bitcode & 1;
+        bitcode >>= 1;
+        int feebits = (bitcode % 11) + neg_fees;
+        bitcode >>= 11;
+        int sizebits = (bitcode % 11);
+        bitcode >>= 11;
+        depgraph = GenRandomCluster<SetType>(neg_fees, sizebits, feebits, ntx, ndeps, nlevels, nthresh, rng);
+        rng_seed = rng.rand64();
+    } else {
+        try {
+            reader >> Using<DepGraphFormatter>(depgraph);
+        } catch (const std::ios_base::failure&) {};
+        if (depgraph.TxCount() < 2) return std::nullopt;
+        MakeConnected(depgraph);
+    }
+
+    int modif = (mode >> 1) & 7;
+    mode >>= 3;
+    for (int i = 0; i < modif; ++i) {
+        uint8_t mode{0};
+        uint64_t choice{0};
+        uint64_t val{0};
+        try {
+            reader >> mode >> VARINT(choice) >> VARINT(val);
+        } catch (const std::ios_base::failure&) {};
+        DepGraphIndex tx_idx = 0;
+        choice %= depgraph.Positions().Count();
+        for (auto idx : depgraph.Positions()) {
+            if (choice == 0) {
+                tx_idx = idx;
+                break;
+            }
+            --choice;
+        }
+        switch (mode % 4) {
+        case 0:
+            depgraph.FeeRate(tx_idx).fee += val % 1024;
+            break;
+        case 1:
+            depgraph.FeeRate(tx_idx).fee -= val % 1024;
+            break;
+        case 2:
+            depgraph.FeeRate(tx_idx).size += val % 1024;
+            break;
+        case 3:
+            depgraph.FeeRate(tx_idx).size -= val % depgraph.FeeRate(tx_idx).size;
+            break;
+        }
+    }
+
+    return std::make_optional<std::pair<DepGraph<SetType>, uint64_t>>(std::move(depgraph), rng_seed);
+}
+
+template<typename SetType, typename Stream>
+void WriteDepGraphBuilder(Stream& writer, const DepGraph<SetType>& depgraph, uint64_t rng_seed)
+{
+    writer << uint8_t{0} << rng_seed << Using<DepGraphFormatter>(depgraph);
+}
+
+template<typename SetType>
+DepGraph<SetType> NegateDepGraph(const DepGraph<SetType>& depgraph)
+{
+    DepGraph<SetType> depgraph_neg;
+    SetType remove;
+    for (unsigned i = 0; i < depgraph.PositionRange(); ++i) {
+        if (depgraph.Positions()[i]) {
+            depgraph_neg.AddTransaction(FeeFrac{-depgraph.FeeRate(i).fee, depgraph.FeeRate(i).size});
+        } else {
+            depgraph_neg.AddTransaction(FeeFrac{0, 1});
+            remove.Set(i);
+        }
+    }
+    for (unsigned i : depgraph.Positions()) {
+        depgraph_neg.AddDependencies(depgraph.GetReducedParents(i), i);
+    }
+    depgraph_neg.RemoveTransactions(remove);
+    return depgraph_neg;
+}
+
 } // namespace
 
 #endif // BITCOIN_TEST_UTIL_CLUSTER_LINEARIZE_H

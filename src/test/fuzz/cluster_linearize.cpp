@@ -11,6 +11,7 @@
 #include <test/util/cluster_linearize.h>
 #include <util/bitset.h>
 #include <util/feefrac.h>
+#include <crypto/sha256.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -262,23 +263,6 @@ std::vector<DepGraphIndex> ExhaustiveLinearize(const DepGraph<SetType>& depgraph
     return linearization;
 }
 
-
-/** Stitch connected components together in a DepGraph, guaranteeing its corresponding cluster is connected. */
-template<typename BS>
-void MakeConnected(DepGraph<BS>& depgraph)
-{
-    auto todo = depgraph.Positions();
-    auto comp = depgraph.FindConnectedComponent(todo);
-    Assume(depgraph.IsConnected(comp));
-    todo -= comp;
-    while (todo.Any()) {
-        auto nextcomp = depgraph.FindConnectedComponent(todo);
-        Assume(depgraph.IsConnected(nextcomp));
-        depgraph.AddDependencies(BS::Singleton(comp.Last()), nextcomp.First());
-        todo -= nextcomp;
-        comp = nextcomp;
-    }
-}
 
 /** Given a dependency graph, and a todo set, read a topological subset of todo from reader. */
 template<typename SetType>
@@ -885,6 +869,73 @@ FUZZ_TARGET(clusterlin_simple_linearize)
         auto read_chunking = ChunkLinearization(depgraph, read);
         auto cmp = CompareChunks(simple_chunking, read_chunking);
         assert(cmp >= 0);
+    }
+}
+
+FUZZ_TARGET(clusterlin_worst)
+{
+    SpanReader reader(buffer);
+    auto build = ReadDepGraphBuilder<BitSet<64>>(reader);
+    if (!build) return;
+    auto [depgraph, rng_seed] = std::move(*build);
+    InsecureRandomContext rng(rng_seed);
+
+    auto depgraph_neg = NegateDepGraph(depgraph);
+
+    static constexpr uint64_t MAX_ITERS = 1000000000000;
+    static uint64_t MAXES[65] = {0};
+    unsigned txn = depgraph.TxCount();
+    if (MAXES[txn] == MAX_ITERS) return;
+
+    uint64_t iters = 0;
+    std::vector<unsigned> lin, lin_input;
+    for (auto i : depgraph.Positions()) lin_input.push_back(i);
+
+    for (int i = 0; i < 15; ++i) {
+        uint64_t iter{0};
+        bool opt{false};
+        switch (i % 3) {
+        case 0:
+            std::tie(lin, opt, iter) = Linearize(depgraph, MAX_ITERS, rng.rand64(), IndexTxOrder{});
+            break;
+        case 1:
+            std::shuffle(lin_input.begin(), lin_input.end(), rng);
+            std::tie(lin, opt, iter) = Linearize(depgraph, MAX_ITERS, rng.rand64(), IndexTxOrder{}, lin_input, false);
+            break;
+        case 2:
+            std::tie(lin_input, opt, iter) = Linearize(depgraph_neg, MAX_ITERS, rng.rand64(), IndexTxOrder{});
+            std::tie(lin, opt, iter) = Linearize(depgraph, MAX_ITERS, rng.rand64(), IndexTxOrder{}, lin_input, true);
+        }
+        if (!opt) iter = MAX_ITERS;
+        BitSet<64> done;
+        for (auto i : lin) {
+            assert(!done[i]);
+            done.Set(i);
+            assert(done.IsSupersetOf(depgraph.Ancestors(i)));
+        }
+        assert(done == depgraph.Positions());
+        if (iter > iters && iter > MAXES[txn]) {
+            std::vector<unsigned char> ser;
+            VectorWriter writer(ser, 0);
+            writer << Using<DepGraphFormatter>(depgraph);
+            std::cerr << "BEST n=" << txn << " iters=" << iter << ": " << HexStr(ser) << " i=" << i << "\n";
+        }
+        iters = std::max(iters, iter);
+        if (iters == MAX_ITERS) break;
+    }
+
+    if (iters > MAXES[txn]) {
+        MAXES[txn] = iters;
+        FuzzSave(std::span{buffer}.first(buffer.size() - reader.size()));
+        {
+            std::vector<uint8_t> ser;
+            VectorWriter writer(ser, 0);
+            WriteDepGraphBuilder(writer, depgraph, rng_seed);
+            FuzzSave(ser);
+        }
+        for (unsigned i = 0; i <= 64; ++i) {
+            std::cerr << "MAX n=" << i << " iters=" << MAXES[i] << "\n";
+        }
     }
 }
 
