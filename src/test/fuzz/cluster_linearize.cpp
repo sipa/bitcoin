@@ -11,6 +11,7 @@
 #include <test/util/cluster_linearize.h>
 #include <util/bitset.h>
 #include <util/feefrac.h>
+#include <crypto/sha256.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -885,6 +886,253 @@ FUZZ_TARGET(clusterlin_simple_linearize)
         auto read_chunking = ChunkLinearization(depgraph, read);
         auto cmp = CompareChunks(simple_chunking, read_chunking);
         assert(cmp >= 0);
+    }
+}
+
+template<typename SetType>
+static DepGraph<SetType> GenRandomCluster(bool neg_fees, int sizebits, int feebits, int ntx, int ndeps, int nlevels, int group_threshold, InsecureRandomContext& rng)
+{
+    DepGraph<SetType> ret;
+    assert(ntx >= nlevels);
+    assert(ndeps >= ntx - 1);
+    assert(ndeps <= ((ntx + 1) >> 1) * (ntx >> 1));
+    std::vector<std::pair<DepGraphIndex, DepGraphIndex>> candidate_deps;
+    std::vector<std::pair<DepGraphIndex, DepGraphIndex>> active_deps;
+    std::vector<uint32_t> order;
+    order.resize(ntx);
+    std::vector<SetType> component_map;
+    component_map.resize(ntx);
+    for (int i = 0; i < ntx; ++i) {
+        order[i] = i;
+        component_map[i] = SetType::Singleton(i);
+        int32_t size = rng.randbits(sizebits) + 1;
+        int64_t fee = rng.randbits(feebits) + 1 - (neg_fees ? (int64_t{1} << (feebits - 1)) : 0);
+        auto tx = ret.AddTransaction(FeeFrac{fee, size});
+        assert(tx == (unsigned)i);
+    }
+    std::shuffle(order.begin(), order.end(), rng);
+    if (nlevels == 0) {
+        for (int p = 0; p < ntx; ++p) {
+            for (int c = 0; c < ntx; ++c) {
+                if (p != c) candidate_deps.emplace_back(p, c);
+            }
+        }
+    } else {
+        std::vector<std::vector<uint32_t>> by_level;
+        by_level.resize(nlevels);
+        for (int i = 0; i < nlevels; ++i) {
+            by_level[i].push_back(order[i]);
+        }
+        for (int p = nlevels; p < ntx; ++p) {
+            by_level[rng.randrange(nlevels)].push_back(order[p]);
+        }
+        for (int l = 1; l < nlevels; ++l) {
+            for (auto p : by_level[l - 1]) {
+                for (auto c : by_level[l]) {
+                    candidate_deps.emplace_back(p, c);
+                }
+            }
+        }
+    }
+    int max_size_sum = group_threshold + 2;
+    while (active_deps.size() + 1 < (size_t)ntx) {
+        bool found = false;
+        bool avail = false;
+        for (size_t pos = 0; pos < candidate_deps.size(); ++pos) {
+            size_t pick = rng.randrange(candidate_deps.size() - pos) + pos;
+            if (pick != pos) std::swap(candidate_deps[pos], candidate_deps[pick]);
+            auto [p, c] = candidate_deps[pos];
+            auto p_comp = component_map[p];
+            auto c_comp = component_map[c];
+            if (p_comp == c_comp) continue;
+            avail = true;
+            if (p_comp.Count() + c_comp.Count() > (unsigned)max_size_sum) continue;
+            ret.AddDependencies(SetType::Singleton(p), c);
+            active_deps.emplace_back(p, c);
+            SetType comp = p_comp | c_comp;
+            for (auto i : p_comp) {
+                component_map[i] = comp;
+            }
+            for (auto i : c_comp) {
+                component_map[i] = comp;
+            }
+            found = true;
+        }
+        assert(avail);
+        if (!found) ++max_size_sum;
+    }
+    while (active_deps.size() < (size_t)ndeps && !candidate_deps.empty()) {
+        size_t pick = rng.randrange(candidate_deps.size());
+        if (pick != candidate_deps.size() - 1) std::swap(candidate_deps[pick], candidate_deps.back());
+        auto [p, c] = candidate_deps.back();
+        candidate_deps.pop_back();
+        if (ret.Ancestors(c)[p]) continue;
+        if (ret.Descendants(c)[p]) continue;
+        bool bad = false;
+        for (auto [ap, ac] : active_deps) {
+            if (ret.Ancestors(p)[ap] && ret.Descendants(c)[ac]) {
+                bad = true;
+                break;
+            }
+        }
+        if (bad) continue;
+        ret.AddDependencies(SetType::Singleton(p), c);
+        active_deps.emplace_back(p, c);
+    }
+    return ret;
+}
+
+FUZZ_TARGET(clusterlin_worst)
+{
+    SpanReader reader(buffer);
+    uint8_t mode{0};
+    uint64_t rng_seed{0};
+    try {
+        reader >> mode >> rng_seed;
+    } catch (const std::ios_base::failure&) {}
+    std::optional<InsecureRandomContext> rng;
+    rng.emplace(rng_seed);
+
+    DepGraph<BitSet<64>> depgraph;
+
+    if (mode & 1) {
+        uint64_t bitcode{0}, ntxcode{0}, ndepcode{0}, levelcode{0}, threshcode{0};
+        try {
+            reader >> VARINT(ntxcode) >> VARINT(bitcode) >> VARINT(ndepcode) >> VARINT(levelcode) >> VARINT(threshcode);
+        } catch (const std::ios_base::failure&) {}
+        int ntx_min = 2;
+        int ntx_max = 64;
+        int ntx = (ntxcode % (ntx_max - ntx_min + 1)) + ntx_min;
+        int ndeps_min = ntx - 1;
+        int ndeps_max = (ntx * ntx) / 4;
+        int ndeps = (ndepcode % (ndeps_max - ndeps_min + 1)) + ndeps_min;
+        int nlevels_min = 2;
+        int nlevels_max = ntx;
+        int nlevels = (levelcode & 1) ? 0 : (((levelcode >> 1) % (nlevels_max - nlevels_min + 1)) + nlevels_min);
+        int nthresh_min = 0;
+        int nthresh_max = ntx - 1;
+        int nthresh = (threshcode % (nthresh_max - nthresh_min + 1)) + nthresh_min;
+        bool neg_fees = bitcode & 1;
+        bitcode >>= 1;
+        int feebits = (bitcode % 11) + neg_fees;
+        bitcode >>= 11;
+        int sizebits = (bitcode % 11);
+        bitcode >>= 11;
+        depgraph = GenRandomCluster<BitSet<64>>(neg_fees, sizebits, feebits, ntx, ndeps, nlevels, nthresh, *rng);
+        assert(depgraph.IsAcyclic());
+        rng_seed = rng->rand64();
+        rng.emplace(rng_seed);
+    } else {
+        try {
+            reader >> Using<DepGraphFormatter>(depgraph);
+        } catch (const std::ios_base::failure&) {};
+        if (depgraph.TxCount() < 2) return;
+        MakeConnected(depgraph);
+    }
+
+    int modif = (mode >> 1) & 7;
+    mode >>= 3;
+    for (int i = 0; i < modif; ++i) {
+        uint8_t mode{0};
+        uint64_t choice{0};
+        uint64_t val{0};
+        try {
+            reader >> mode >> VARINT(choice) >> VARINT(val);
+        } catch (const std::ios_base::failure&) {};
+        DepGraphIndex tx_idx = 0;
+        choice %= depgraph.Positions().Count();
+        for (auto idx : depgraph.Positions()) {
+            if (choice == 0) {
+                tx_idx = idx;
+                break;
+            }
+            --choice;
+        }
+        switch (mode % 4) {
+        case 0:
+            depgraph.FeeRate(tx_idx).fee += val % 1024;
+            break;
+        case 1:
+            depgraph.FeeRate(tx_idx).fee -= val % 1024;
+            break;
+        case 2:
+            depgraph.FeeRate(tx_idx).size += val % 1024;
+            break;
+        case 3:
+            depgraph.FeeRate(tx_idx).size -= val % depgraph.FeeRate(tx_idx).size;
+            break;
+        }
+    }
+
+    DepGraph<BitSet<64>> depgraph_neg;
+    BitSet<64> remove;
+    for (unsigned i = 0; i < depgraph.PositionRange(); ++i) {
+        if (depgraph.Positions()[i]) {
+            depgraph_neg.AddTransaction(FeeFrac{-depgraph.FeeRate(i).fee, depgraph.FeeRate(i).size});
+        } else {
+            depgraph_neg.AddTransaction(FeeFrac{0, 1});
+            remove.Set(i);
+        }
+    }
+    for (unsigned i : depgraph.Positions()) {
+        depgraph_neg.AddDependencies(depgraph.GetReducedParents(i), i);
+    }
+    depgraph_neg.RemoveTransactions(remove);
+
+    static constexpr uint64_t MAX_ITERS = 1000000000000;
+    static uint64_t MAXES[65] = {0};
+    unsigned txn = depgraph.TxCount();
+    if (MAXES[txn] == MAX_ITERS) return;
+
+    uint64_t iters = 0;
+    std::vector<unsigned> lin, lin_input;
+    for (auto i : depgraph.Positions()) lin_input.push_back(i);
+
+    for (int i = 0; i < 15; ++i) {
+        uint64_t iter{0};
+        bool opt{false};
+        switch (i % 3) {
+        case 0:
+            std::tie(lin, opt, iter) = Linearize(depgraph, MAX_ITERS, rng->rand64());
+            break;
+        case 1:
+            std::shuffle(lin_input.begin(), lin_input.end(), *rng);
+            std::tie(lin, opt, iter) = Linearize(depgraph, MAX_ITERS, rng->rand64(), lin_input, false);
+            break;
+        case 2:
+            std::tie(lin_input, opt, iter) = Linearize(depgraph_neg, MAX_ITERS, rng->rand64());
+            std::tie(lin, opt, iter) = Linearize(depgraph, MAX_ITERS, rng->rand64(), lin_input, true);
+        }
+        if (!opt) iter = MAX_ITERS;
+        BitSet<64> done;
+        for (auto i : lin) {
+            assert(!done[i]);
+            done.Set(i);
+            assert(done.IsSupersetOf(depgraph.Ancestors(i)));
+        }
+        assert(done == depgraph.Positions());
+        if (iter > iters && iter > MAXES[txn]) {
+            std::vector<unsigned char> ser;
+            VectorWriter writer(ser, 0);
+            writer << Using<DepGraphFormatter>(depgraph);
+            std::cerr << "BEST n=" << txn << " iters=" << iter << ": " << HexStr(ser) << " i=" << i << "\n";
+        }
+        iters = std::max(iters, iter);
+        if (iters == MAX_ITERS) break;
+    }
+
+    if (iters > MAXES[txn]) {
+        MAXES[txn] = iters;
+        FuzzSave(std::span{buffer}.first(buffer.size() - reader.size()));
+        {
+            std::vector<uint8_t> ser;
+            VectorWriter writer(ser, 0);
+            writer << uint8_t{0} << rng_seed << Using<DepGraphFormatter>(depgraph);
+            FuzzSave(ser);
+        }
+        for (unsigned i = 0; i <= 64; ++i) {
+            std::cerr << "MAX n=" << i << " iters=" << MAXES[i] << "\n";
+        }
     }
 }
 
