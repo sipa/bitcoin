@@ -595,8 +595,14 @@ std::vector<FeeFrac> ChunkLinearization(const DepGraph<SetType>& depgraph, std::
  *     one, which was bottom->top). Call this a self-merge. If a self-merge does not occur after
  *     a split, the resulting linearization is strictly improved (the area under the convexified
  *     feerate diagram increases by at least gain/2), while self-merges do not change it.
- *   - Inside the selected chunk (see above), among the dependencies whose gain is maximal, if any
- *     with strictly positive gain exist, a uniformly random one is deactivated.
+ *   - Keep track of how many consecutive self-merges a chunk undergoes: incremented upon
+ *     self-merge, and reset to 0 in both top and bottom otherwise.
+ *   - If the number of consecutive self-merges is 2 mod 3 (i.e., it is 2, 5, 8, 11, ...), a
+ *     uniformly random dependency in the chunk among those with strictly positive gain is
+ *     deactivated.
+ *   - Otherwise (self-merges so far is not 2 mod 3), a uniformly random dependency within the
+ *     chunk among those with maximal gain is deactivated, if any with strictly positive gain
+ *     exist.
  *
  * - How to decide the exact output linearization:
  *   - When there are multiple equal-feerate chunks with no dependencies between them, output a
@@ -638,6 +644,8 @@ private:
         SetInfo<SetType> chunk_setinfo;
         /** Whether this transaction appears in m_suboptimal_chunks. */
         bool suboptimal{false};
+        /** Number of consecutive self-merges this chunk has experienced. */
+        uint32_t self_merges;
     };
 
     /** Structure with information about a single dependency. */
@@ -926,6 +934,8 @@ private:
     {
         auto& dep_data = m_dep_data[dep_idx];
         Assume(dep_data.active);
+        // Remember the number of self-merges this chunk underwent so far.
+        auto self_merges = m_tx_data[m_tx_data[dep_data.parent].chunk_rep].self_merges;
         // Deactivate the specified dependency, splitting it into two new chunks: a top containing
         // the parent, and a bottom containing the child. The top should have a higher feerate.
         Deactivate(dep_idx);
@@ -940,9 +950,15 @@ private:
         auto new_par_chunk_rep = MergeSequence<false>(dep_data.parent);
         // Determine if it merged with the bottom chunk, by checking if the top chunk contains the
         // dependency's child transaction.
-        if (!m_tx_data[new_par_chunk_rep].chunk_setinfo.transactions[dep_data.child]) {
-            // If not, see if the bottom merges with something else.
-            MergeSequence<true>(dep_data.child);
+        if (m_tx_data[new_par_chunk_rep].chunk_setinfo.transactions[dep_data.child]) {
+            // If so, increment the self_merges counter for this merged chunk.
+            m_tx_data[new_par_chunk_rep].self_merges = self_merges + 1;
+        } else {
+            // Otherwise, see if the bottom merges with something else, and set the counters for
+            // both chunks (incl. whatever they merged with) to zero.
+            auto new_chl_chunk_rep = MergeSequence<true>(dep_data.child);
+            m_tx_data[new_par_chunk_rep].self_merges = 0;
+            m_tx_data[new_chl_chunk_rep].self_merges = 0;
         }
     }
 
@@ -968,6 +984,7 @@ public:
             tx_data.chunk_rep = tx;
             tx_data.chunk_setinfo.transactions = SetType::Singleton(tx);
             tx_data.chunk_setinfo.feerate = depgraph.FeeRate(tx);
+            tx_data.self_merges = 0;
             // Add its dependencies.
             SetType parents = depgraph.GetReducedParents(tx);
             for (auto par : parents) {
@@ -1089,9 +1106,14 @@ public:
             // happen when a split chunk merges in Improve() with one or more existing chunks that
             // are themselves on the suboptimal queue already.
             if (chunk_data.chunk_rep != chunk) continue;
+            // Determine whether to use max-gain strategy or random strategy. Generally max-gain is
+            // used, but out of an abundance of caution that max-gain might in
+            // adversarially-contructed clusters reliably make bad choices, every 3rd attempt to
+            // split the same cluster uses the random strategy.
+            const bool use_max_gain = (chunk_data.self_merges % 3) != 2;
             // Remember the best dependency seen so far, together with its top feerate.
             DepIdx candidate_dep = DepIdx(-1);
-            FeeFrac candidate_top_feerate;
+            FeeFrac candidate_top_feerate; //!< Feerate of the candidate, or {} if random strategy.
             uint64_t candidate_tiebreak = std::numeric_limits<uint64_t>::max();
             // Iterate over all transactions.
             for (auto tx : chunk_data.chunk_setinfo.transactions) {
@@ -1114,8 +1136,9 @@ public:
                     // so we can use FeeRateCompare to discover if dep_data.top_setinfo has better
                     // gain than best_top_feerate. As FeeRateCompare() is actually implemented by
                     // checking the sign of the cross-product, it even works when
-                    // size(top1) <= size(top2). When no candidate exists so far, this is equal
-                    // to comparing the feerate with the chunk directly (= the sign of gain(top)).
+                    // size(top1) <= size(top2). When no candidate exists so far (or the random
+                    // strategy is in use), this is equal to comparing the feerate with the chunk
+                    // directly (= the sign of gain(top)).
                     auto cmp = FeeRateCompare(dep_data.top_setinfo.feerate - candidate_top_feerate,
                                               chunk_data.chunk_setinfo.feerate);
                     if (cmp < 0) continue;
@@ -1127,7 +1150,7 @@ public:
                     if (cmp == 0 && tiebreak <= candidate_tiebreak) continue;
                     // Remember this as our (new) candidate dependency.
                     candidate_dep = dep_idx;
-                    candidate_top_feerate = dep_data.top_setinfo.feerate;
+                    if (use_max_gain) candidate_top_feerate = dep_data.top_setinfo.feerate;
                     candidate_tiebreak = tiebreak;
                 }
             }
