@@ -595,8 +595,14 @@ std::vector<FeeFrac> ChunkLinearization(const DepGraph<SetType>& depgraph, std::
  *     one, which was bottom->top). Call this a self-merge. If a self-merge does not occur after
  *     a split, the resulting linearization is strictly improved (the area under the convexified
  *     feerate diagram increases by at least gain/2), while self-merges do not change it.
- *   - Inside the selected chunk (see above), among the dependencies whose gain is maximal, if any
- *     with strictly positive gain exist, a uniformly random one is deactivated.
+ *   - Keep track of how many consecutive self-merges a chunk undergoes: incremented upon
+ *     self-merge, and reset to 0 in both top and bottom otherwise.
+ *   - If the number of consecutive self-merges is 2 mod 3 (i.e., it is 2, 5, 8, 11, ...), a
+ *     uniformly random dependency in the chunk among those with strictly positive gain is
+ *     deactivated.
+ *   - Otherwise (self-merges so far is not 2 mod 3), a uniformly random dependency within the
+ *     chunk among those with maximal gain is deactivated, if any with strictly positive gain
+ *     exist.
  *
  * - How to decide the exact output linearization:
  *   - When there are multiple equal-feerate chunks with no dependencies between them, output a
@@ -669,6 +675,8 @@ private:
      *  be chunks: some of these sets may have been converted to a dependency's top set since being
      *  added to m_suboptimal_chunks. */
     SetType m_suboptimal_idxs;
+    /** How many times each chunk has experienced self-merges. Indexed by SetIdx. */
+    std::vector<uint32_t> m_self_merges;
 
     /** The number of updated transactions in activations/deactivations. */
     uint64_t m_cost{0};
@@ -886,9 +894,10 @@ private:
     }
 
 
-    /** Perform an upward or downward merge sequence on the specified chunk. */
+    /** Perform an upward or downward merge sequence on the specified chunk. Returns the merged
+     *  index. */
     template<bool DownWard>
-    void MergeSequence(SetIdx chunk_idx) noexcept
+    SetIdx MergeSequence(SetIdx chunk_idx) noexcept
     {
         Assume(m_chunk_idxs[chunk_idx]);
         while (true) {
@@ -901,12 +910,15 @@ private:
             m_suboptimal_idxs.Set(chunk_idx);
             m_suboptimal_chunks.push_back(chunk_idx);
         }
+        return chunk_idx;
     }
 
     /** Split a chunk, and then merge the resulting two chunks to make the graph topological
      *  again. */
     void Improve(TxIdx parent_idx, TxIdx child_idx) noexcept
     {
+        // Remember the number of self-merges this chunk underwent so far.
+        auto self_merges = m_self_merges[m_tx_data[parent_idx].chunk_idx];
         // Deactivate the specified dependency, splitting it into two new chunks: a top containing
         // the parent, and a bottom containing the child. The top should have a higher feerate.
         auto [parent_chunk_idx, child_chunk_idx] = Deactivate(parent_idx, child_idx);
@@ -918,11 +930,18 @@ private:
 
         // Merge the top chunk with lower-feerate chunks it depends on (which may be the bottom it
         // was just split from, or other pre-existing chunks).
-        MergeSequence<false>(parent_chunk_idx);
+        parent_chunk_idx = MergeSequence<false>(parent_chunk_idx);
         // Merge the bottom chunk with higher-feerate chunks that depend on it, if it didn't
         // already merge with the top.
-        if (m_chunk_idxs[child_chunk_idx]) {
-            MergeSequence<true>(child_chunk_idx);
+        if (!m_chunk_idxs[child_chunk_idx]) {
+            // If it merged with top, increment the self-merge counter for the merged chunk.
+            m_self_merges[parent_chunk_idx] = self_merges + 1;
+        } else {
+            // Otherwise, merge the bottom with whatever it needs, and result the self-merge
+            // counters for both resulting merged chunks.
+            child_chunk_idx = MergeSequence<true>(child_chunk_idx);
+            m_self_merges[parent_chunk_idx] = 0;
+            m_self_merges[child_chunk_idx] = 0;
         }
     }
 
@@ -935,6 +954,7 @@ public:
         auto num_transactions = m_transaction_idxs.Count();
         m_tx_data.resize(depgraph.PositionRange());
         m_set_data.resize(num_transactions);
+        m_self_merges.assign(num_transactions, 0);
         size_t num_chunks = 0;
         for (auto tx_idx : m_transaction_idxs) {
             // Fill in transaction data.
@@ -1044,9 +1064,16 @@ public:
             // happen when a split chunk merges in Improve() with one or more existing chunks that
             // are themselves on the suboptimal queue already.
             if (!m_chunk_idxs[chunk_idx]) continue;
+
+            // Determine whether to use max-gain strategy or random strategy. Generally max-gain is
+            // used, but out of an abundance of caution that max-gain might in
+            // adversarially-constructed clusters reliably make bad choices, every 3rd attempt to
+            // split the same cluster uses the random strategy.
+            const bool use_max_gain = (m_self_merges[chunk_idx] % 3) != 2;
+            // Remember the best dependency {par, chl} seen so far, together with its top feerate.
+            FeeFrac candidate_top_feerate; //!< Feerate of the candidate, or {} if random strategy.
             // Remember the best dependency {par, chl} seen so far, together with its top feerate.
             std::pair<TxIdx, TxIdx> candidate_dep;
-            FeeFrac candidate_top_feerate;
             uint64_t candidate_tiebreak = std::numeric_limits<uint64_t>::max();
             // Iterate over all transactions.
             for (auto tx_idx : chunk_data.Set()) {
@@ -1067,8 +1094,9 @@ public:
                     // so we can use FeeRateCompare to discover if dep_top_data.FeeRate() has better
                     // gain than candidate_top_feerate. As FeeRateCompare() is actually implemented by
                     // checking the sign of the cross-product, it even works when
-                    // size(top1) <= size(top2). When no candidate exists so far, this is equal
-                    // to comparing the feerate with the chunk directly (= the sign of gain(top)).
+                    // size(top1) <= size(top2). When no candidate exists so far, or the random
+                    // strategy is in use, candidate_top_feerate={}, and this is equivalent to
+                    // comparing the feerate with the chunk directly (= the sign of gain(top)).
                     auto cmp = FeeRateCompare(dep_top_data.FeeRate() - candidate_top_feerate,
                                               chunk_data.FeeRate());
                     if (cmp < 0) continue;
@@ -1080,7 +1108,7 @@ public:
                     if (cmp == 0 && tiebreak <= candidate_tiebreak) continue;
                     // Remember this as our (new) candidate dependency.
                     candidate_dep = {tx_idx, child_idx};
-                    candidate_top_feerate = dep_top_data.FeeRate();
+                    if (use_max_gain) candidate_top_feerate = dep_top_data.FeeRate();
                     candidate_tiebreak = tiebreak;
                 }
             }
