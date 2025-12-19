@@ -477,8 +477,9 @@ class SFL2
 
     struct SetData {
         SetInfo<SetType> setinfo;
-        unsigned suboptimal;
-        unsigned self_merges;
+        unsigned suboptimal{0};
+        unsigned self_merges{0};
+        SetType& Set() noexcept { return setinfo.transactions; }
     };
 
     SetType m_transaction_idxs;
@@ -492,7 +493,7 @@ class SFL2
             auto& tx_data = m_tx_data[tx];
             for (auto child : tx_data.active_children) {
                 auto& top_set_data = m_set_data[tx_data.top_set_by_child[child]];
-                if (top_set_data.setinfo.transactions[query]) {
+                if (top_set_data.Set()[query]) {
                     if constexpr (Remove) {
                         top_set_data.setinfo -= delta;
                     } else {
@@ -513,16 +514,16 @@ class SFL2
         Assume(top_set != bottom_set);
         auto& top_set_data = m_set_data[top_set];
         auto& bottom_set_data = m_set_data[bottom_set];
-        UpdateDeps<false>(top_set_data.setinfo.transactions, parent, bottom_set_data.setinfo);
-        UpdateDeps<false>(bottom_set_data.setinfo.transactions, child, top_set_data.setinfo);
-        for (auto tx : top_set_data.setinfo.transactions) m_tx_data[tx].chunk_set = bottom_set;
+        UpdateDeps<false>(top_set_data.Set(), parent, bottom_set_data.setinfo);
+        UpdateDeps<false>(bottom_set_data.Set(), child, top_set_data.setinfo);
+        for (auto tx : top_set_data.Set()) m_tx_data[tx].chunk_set = bottom_set;
         bottom_set_data.setinfo |= top_set_data.setinfo;
         parent_data.active_children.Set(child);
         parent_data.top_set_by_child[child] = top_set;
         return bottom_set;
     }
 
-    void Deactivate(TxIdx parent, TxIdx child) noexcept
+    std::pair<SetIdx, SetIdx> Deactivate(TxIdx parent, TxIdx child) noexcept
     {
         auto& parent_data = m_tx_data[parent];
         Assume(parent_data.active_children[child]);
@@ -533,9 +534,10 @@ class SFL2
         auto& bottom_set_data = m_set_data[bottom_set];
         parent_data.active_children.Reset(child);
         bottom_set_data.setinfo -= top_set_data.setinfo;
-        UpdateDeps<true>(top_set_data.setinfo.transactions, parent, bottom_set_data.setinfo);
-        UpdateDeps<true>(bottom_set_data.setinfo.transactions, child, top_set_data.setinfo);
-        for (auto tx : top_set_data.setinfo.transactions) m_tx_data[tx].chunk_set = top_set;
+        UpdateDeps<true>(top_set_data.Set(), parent, bottom_set_data.setinfo);
+        UpdateDeps<true>(bottom_set_data.Set(), child, top_set_data.setinfo);
+        for (auto tx : top_set_data.Set()) m_tx_data[tx].chunk_set = top_set;
+        return {top_set, bottom_set};
     }
 
     SetIdx MergeChunks(SetIdx top_chunk, SetIdx bottom_chunk) noexcept
@@ -544,12 +546,12 @@ class SFL2
         auto& top_chunk_data = m_set_data[top_chunk];
         auto& bottom_chunk_data = m_set_data[bottom_chunk];
         for (auto tx : top_chunk_data.transactions) {
-            num_candidates += (m_tx_data[tx].children & bottom_chunk_data.transactions).Count();
+            num_candidates += (m_tx_data[tx].children & bottom_chunk_data.Set()).Count();
         }
         if (num_candidates == 0) return INVALID_SETIDX;
         auto rand = m_rng.randrange<TxIdx>(num_candidates);
-        for (auto tx : top_chunk_data.transactions) {
-            auto intersect = m_tx_data[tx].children & bottom_chunk_data.transactions;
+        for (auto tx : top_chunk_data.Set()) {
+            auto intersect = m_tx_data[tx].children & bottom_chunk_data.Set();
             auto count = intersect.Count();
             if (rand < count) {
                 for (auto child : intersect) {
@@ -567,93 +569,73 @@ class SFL2
     template<bool DownWard>
     SetIdx MergeStep(SetIdx chunk) noexcept
     {
-        /** Information about the chunk that tx_idx is currently in. */
-        auto& chunk_data = m_tx_data[chunk_rep];
-        SetType chunk_txn = chunk_data.chunk_setinfo.transactions;
-        // Iterate over all transactions in the chunk, figuring out which other chunk each
-        // depends on, but only testing each other chunk once. For those depended-on chunks,
-        // remember the highest-feerate (if DownWard) or lowest-feerate (if !DownWard) one.
-        // If multiple equal-feerate candidate chunks to merge with exist, pick a random one
-        // among them.
-
-        /** Which transactions have been reached from this chunk already. Initialize with the
-         *  chunk itself, so internal dependencies within the chunk are ignored. */
+        auto& chunk_set_data = m_set_data[chunk];
+        SetType chunk_txn = chunk_data.Set();
         SetType explored = chunk_txn;
-        /** The minimum feerate (if downward) or maximum feerate (if upward) to consider when
-         *  looking for candidate chunks to merge with. Initially, this is the original chunk's
-         *  feerate, but is updated to be the current best candidate whenever one is found. */
         FeeFrac best_other_chunk_feerate = chunk_data.chunk_setinfo.feerate;
-        /** The representative for the best candidate chunk to merge with. -1 if none. */
-        TxIdx best_other_chunk_rep = TxIdx(-1);
-        /** We generate random tiebreak values to pick between equal-feerate candidate chunks.
-         *  This variable stores the tiebreak of the current best candidate. */
+        SetIdx best_other_chunk = INVALID_SET_IDX;
         uint64_t best_other_chunk_tiebreak{0};
         for (auto tx : chunk_txn) {
             auto& tx_data = m_tx_data[tx];
-            /** The transactions reached by following dependencies from tx that have not been
-             *  explored before. */
             auto newly_reached = (DownWard ? tx_data.children : tx_data.parents) - explored;
             explored |= newly_reached;
             while (newly_reached.Any()) {
                 m_cost += 3;
-                // Find a chunk inside newly_reached, and remove it from newly_reached.
-                auto reached_chunk_rep = m_tx_data[newly_reached.First()].chunk_rep;
-                auto& reached_chunk = m_tx_data[reached_chunk_rep].chunk_setinfo;
-                newly_reached -= reached_chunk.transactions;
+                auto reached_chunk = m_tx_data[newly_reached.First()].chunk_rep;
+                auto& reached_chunk_set = m_set_data[reached_chunk];
+                newly_reached -= reached_chunk_set.Set();
                 // See if it has an acceptable feerate.
-                auto cmp = DownWard ? FeeRateCompare(best_other_chunk_feerate, reached_chunk.feerate)
-                                    : FeeRateCompare(reached_chunk.feerate, best_other_chunk_feerate);
+                auto cmp = DownWard ? FeeRateCompare(best_other_chunk_feerate, reached_chunk_set.set_info.feerate)
+                                    : FeeRateCompare(reached_chunk_set.set_info.feerate, best_other_chunk_feerate);
                 if (cmp > 0) continue;
                 uint64_t tiebreak = m_rng.rand64();
                 if (cmp < 0 || tiebreak >= best_other_chunk_tiebreak) {
-                    best_other_chunk_feerate = reached_chunk.feerate;
+                    best_other_chunk_feerate = reached_chunk_set.set_info.feerate;
                     best_other_chunk_rep = reached_chunk_rep;
                     best_other_chunk_tiebreak = tiebreak;
                 }
             }
         }
         // Stop if there are no candidate chunks to merge with.
-        if (best_other_chunk_rep == TxIdx(-1)) return TxIdx(-1);
+        if (best_other_chunk == INVALID_SET_IDX) return INVALID_SET_IDX;
         if constexpr (DownWard) {
-            chunk_rep = MergeChunks(chunk_rep, best_other_chunk_rep);
+            chunk = MergeChunks(chunk, best_other_chunk);
         } else {
-            chunk_rep = MergeChunks(best_other_chunk_rep, chunk_rep);
+            chunk = MergeChunks(best_other_chunk, chunk);
         }
-        Assume(chunk_rep != TxIdx(-1));
-        return chunk_rep;
+        Assume(chunk != INVALID_SET_IDX);
+        return chunk;
     }
 
-
-    /** Perform an upward or downward merge sequence on the specified transaction. Returns the
+    /** Perform an upward or downward merge sequence on the specified chunk. Returns the
      *  representative of the merged chunk. */
     template<bool DownWard>
-    TxIdx MergeSequence(TxIdx tx_idx) noexcept
+    SetIdx MergeSequence(SetIdx chunk) noexcept
     {
-        auto chunk_rep = m_tx_data[tx_idx].chunk_rep;
+        auto chunk = m_tx_data[tx_idx].chunk_set;
         while (true) {
-            auto merged_rep = MergeStep<DownWard>(chunk_rep);
-            if (merged_rep == TxIdx(-1)) break;
-            chunk_rep = merged_rep;
+            auto merged = MergeStep<DownWard>(chunk);
+            if (merged == INVALID_SET_IDX) break;
+            chunk = merged;
         }
         // Add the chunk to the queue of improvable chunks, if it wasn't already there.
-        auto& chunk_data = m_tx_data[chunk_rep];
-        if (!chunk_data.suboptimal) {
-            chunk_data.suboptimal = 1;
-            m_suboptimal_chunks.push_back(chunk_rep);
+        auto& chunk_set_data = m_tx_data[chunk];
+        if (!chunk_set_data.suboptimal) {
+            chunk_set_data.suboptimal = 1;
+            m_suboptimal_chunks.push_back(chunk);
         }
-        return chunk_rep;
+        return chunk;
     }
 
     /** Split a chunk, and then merge the resulting two chunks to make the graph topological
      *  again. */
-    void Improve(DepIdx dep_idx) noexcept
+    void Improve(TxIdx parent, TxIdx child) noexcept
     {
-        auto& dep_data = m_dep_data[dep_idx];
         // Remember the number of self-merges this chunk underwent so far.
-        auto self_merges = m_tx_data[m_tx_data[dep_data.parent].chunk_rep].self_merges;
+        auto self_merges = m_set_data[m_tx_data[parent].chunk_set].self_merged;
         // Deactivate the specified dependency, splitting it into two new chunks: a top containing
         // the parent, and a bottom containing the child. The top should have a higher feerate.
-        Deactivate(dep_idx);
+        auto [par_chunk, chl_chunk] = Deactivate(parent, child);
 
         // At this point we have exactly two chunks which may violate topology constraints (the
         // parent chunk and child chunk that were produced by deactivating dep_idx). We can fix
@@ -662,18 +644,18 @@ class SFL2
 
         // Merge the top chunk with lower-feerate chunks it depends on (which may be the bottom it
         // was just split from, or other pre-existing chunks).
-        auto new_par_chunk_rep = MergeSequence<false>(dep_data.parent);
+        auto new_par_chunk = MergeSequence<false>(par_chunk);
         // Determine if it merged with the bottom chunk, by checking if the top chunk contains the
         // dependency's child transaction.
-        if (m_tx_data[new_par_chunk_rep].chunk_setinfo.transactions[dep_data.child]) {
+        if (m_set_data[new_par_chunk].Set()[child]) {
             // If so, increment the self_merges counter for this merged chunk.
-            m_tx_data[new_par_chunk_rep].self_merges = self_merges + 1;
+            m_set_data[new_par_chunk].self_merges = self_merges + 1;
         } else {
             // Otherwise, see if the bottom merges with something else, and set the counters for
             // both chunks (incl. whatever they merged with) to zero.
-            auto new_chl_chunk_rep = MergeSequence<true>(dep_data.child);
-            m_tx_data[new_par_chunk_rep].self_merges = 0;
-            m_tx_data[new_chl_chunk_rep].self_merges = 0;
+            auto new_chl_chunk = MergeSequence<true>(chl_chunk);
+            m_set_data[new_par_chunk].self_merges = 0;
+            m_set_data[new_chl_chunk].self_merges = 0;
         }
     }
 
@@ -682,14 +664,16 @@ public:
     {
         m_transaction_idxs = depgraph.Positions();
         m_tx_data.resize(depgraph.PositionRange());
-        m_set_data.reserve(m_transaction_idxs.Count());
+        m_set_data.resize(m_transaction_idxs.Count());
+        size_t deps = 0;
 
         for (auto tx : m_transaction_idxs) {
             auto& tx_data = m_tx_data[tx];
             tx_data.parents = depgraph.GetReducedParents(tx);
             tx_data.children = depgraph.GetReducedChildren(tx);
             tx_data.chunk_set = m_set_data.size();
-            m_set_data.emplace_back(depgraph, tx);
+            m_set_data[deps].set_info = SetInfo(depgraph, tx);
+            ++deps;
         }
     }
 };
