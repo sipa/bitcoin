@@ -461,6 +461,122 @@ std::vector<FeeFrac> ChunkLinearization(const DepGraph<SetType>& depgraph, std::
     return ret;
 }
 
+template<typename SetType>
+class SFL2
+{
+    InsecureRandomContext m_rng;
+    using TxIdx = uint32_t;
+    using SetIdx = std::conditional_t<(SetType::Size() <= 0xff), uint8_t, std::conditional_t<(SetType::Size() <= 0xffff), uint16_t, uint32_t>>;
+    static constexpr SetIdx INVALID_SETIDX = SetIdx(-1);
+
+    struct TxData {
+        std::array<SetIdx, SetType::Size()> active_child_dep_sets;
+        SetType parents, children, active_children;
+        SetIdx chunk_set;
+    };
+
+    SetType m_transaction_idxs;
+    std::vector<TxData> m_tx_data;
+    std::vector<SetInfo<SetType>> m_set_data;
+
+    template<bool Remove>
+    void UpdateDeps(const SetType& chunk, TxIdx query, const SetInfo<SetType>& delta) noexcept
+    {
+        for (auto tx : chunk) {
+            auto& tx_data = m_tx_data[tx];
+            for (auto child : tx_data.active_children) {
+                auto& top_set = m_set_data[tx_data.active_child_dep_sets[child]];
+                if (top_set.transactions[query]) {
+                    if constexpr (Remove) {
+                        top_set -= delta;
+                    } else {
+                        top_set |= delta;
+                    }
+                }
+            }
+        }
+    }
+
+    SetIdx Activate(TxIdx parent, TxIdx child) noexcept
+    {
+        auto& parent_data = m_tx_data[parent];
+        auto& child_data = m_tx_data[child];
+        Assume(!parent_data.active_children[child]);
+        auto top_set = parent_data.chunk_set;
+        auto bottom_set = child_data.chunk_set;
+        Assume(top_set != bottom_set);
+        auto& top_set_data = m_set_data[top_set];
+        auto& bottom_set_data = m_set_data[bottom_set];
+        UpdateDeps<false>(top_set_data.transactions, parent, bottom_set_data);
+        UpdateDeps<false>(bottom_set_data.transactions, child, top_set_data);
+        for (auto tx : top_set_data.transactions) m_tx_data[tx].chunk_set = bottom_set;
+        bottom_set_data |= top_set_data;
+        parent_data.active_children.Set(child);
+        parent_data.active_child_dep_sets[child] = top_set;
+        return bottom_set;
+    }
+
+    void Deactivate(TxIdx parent, TxIdx child) noexcept
+    {
+        auto& parent_data = m_tx_data[parent];
+        Assume(parent_data.active_children[child]);
+        auto top_set = parent_data.active_child_dep_sets[child];
+        auto bottom_set = parent_data.chunk_set;
+        Assume(top_set != bottom_set);
+        auto& top_set_data = m_set_data[top_set];
+        auto& bottom_set_data = m_set_data[bottom_set];
+        parent_data.active_children.Reset(child);
+        bottom_set_data -= top_set_data;
+        UpdateDeps<true>(top_set_data.transactions, parent, bottom_set_data);
+        UpdateDeps<true>(bottom_set_data.transactions, child, top_set_data);
+        for (auto tx : top_set_data.transactions) m_tx_data[tx].chunk_set = top_set;
+    }
+
+    SetIdx MergeChunks(SetIdx top_chunk, SetIdx bottom_chunk) noexcept
+    {
+        TxIdx num_candidates = 0;
+        auto& top_chunk_data = m_set_data[top_chunk];
+        auto& bottom_chunk_data = m_set_data[bottom_chunk];
+        for (auto tx : top_chunk_data.transactions) {
+            num_candidates += (m_tx_data[tx].children & bottom_chunk_data.transactions).Count();
+        }
+        if (num_candidates == 0) return INVALID_SETIDX;
+        auto rand = m_rng.randrange<TxIdx>(num_candidates);
+        for (auto tx : top_chunk_data.transactions) {
+            auto intersect = m_tx_data[tx].children & bottom_chunk_data.transactions;
+            auto count = intersect.Count();
+            if (rand < count) {
+                for (auto child : intersect) {
+                    if (rand == 0) return Activate(tx, child);
+                    --rand;
+                }
+                Assume(false);
+            }
+            rand -= count;
+        }
+        Assume(false);
+        return INVALID_SETIDX;
+    }
+
+public:
+    SFL2(const DepGraph<SetType>& depgraph, uint64_t rng_seed) noexcept : m_rng(rng_seed)
+    {
+        m_transaction_idxs = depgraph.Positions();
+        m_tx_data.resize(depgraph.PositionRange());
+        m_set_data.reserve(m_transaction_idxs.Count());
+
+        std::vector<std::pair<TxIdx, TxIdx>> deps;
+        for (auto tx : m_transaction_idxs) {
+            auto& tx_data = m_tx_data[tx];
+            tx_data.parents = depgraph.GetReducedParents(tx);
+            tx_data.children = depgraph.GetReducedChildren(tx);
+            tx_data.chunk_set = m_set_data.size();
+            m_set_data.emplace_back(depgraph, tx);
+            for (auto par : tx_data.parents) deps.emplace_back(par, tx);
+        }
+    }
+};
+
 /** Class to represent the internal state of the spanning-forest linearization (SFL) algorithm.
  *
  * At all times, each dependency is marked as either "active" or "inactive". The subset of active

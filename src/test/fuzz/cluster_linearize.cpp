@@ -890,6 +890,22 @@ FUZZ_TARGET(clusterlin_simple_linearize)
     }
 }
 
+FUZZ_TARGET(clusterlin_sfl2)
+{
+    SpanReader reader(buffer);
+    DepGraph<TestBitSet> depgraph;
+    uint8_t flags{1};
+    uint64_t rng_seed{0};
+    try {
+        reader >> rng_seed >> flags >> Using<DepGraphFormatter>(depgraph);
+    } catch (const std::ios_base::failure&) {}
+    if (depgraph.TxCount() <= 1) return;
+    InsecureRandomContext rng(rng_seed);
+    const bool make_connected = flags & 1;
+    if (make_connected) MakeConnected(depgraph);
+    SFL2 sfl(depgraph, rng.rand64());
+}
+
 FUZZ_TARGET(clusterlin_sfl)
 {
     // Verify the individual steps of the SFL algorithm.
