@@ -21,6 +21,7 @@
 #include <util/readwritefile.h>
 #include <util/strencodings.h>
 #include <util/string.h>
+#include <util/tdigest.h>
 #include <util/time.h>
 #include <util/vector.h>
 
@@ -32,6 +33,7 @@
 #include <limits>
 #include <map>
 #include <optional>
+#include <random>
 #include <string>
 #include <thread>
 #include <univalue.h>
@@ -1831,6 +1833,22 @@ BOOST_AUTO_TEST_CASE(mib_string_literal_test)
     BOOST_CHECK_EQUAL(1_MiB, 1024 * 1024);
     const auto max_mib{std::numeric_limits<size_t>::max() >> 20};
     BOOST_CHECK_EXCEPTION(operator""_MiB(static_cast<unsigned long long>(max_mib) + 1), std::overflow_error, HasReason("MiB value too large for size_t byte conversion"));
+}
+
+BOOST_AUTO_TEST_CASE(tdigest_test)
+{
+    FastRandomContext rng;
+    std::normal_distribution d;
+
+    // Verify that the 99th percentile of the standard normal distribution is around 2.326.
+    for (int r = 0; r < 10; ++r) {
+        TDigest td(1000, 4000);
+        for (int i = 0; i < 100000; ++i) {
+            td.Add(d(rng));
+        }
+        auto m = td.Evaluate(0.99);
+        assert(m >= 2.23 && m <= 2.42);
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()
