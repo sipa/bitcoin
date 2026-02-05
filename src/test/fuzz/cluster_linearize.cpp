@@ -1072,6 +1072,7 @@ FUZZ_TARGET(clusterlin_linearize)
     try {
         reader >> VARINT(max_cost) >> Using<DepGraphFormatter>(depgraph) >> rng_seed >> flags;
     } catch (const std::ios_base::failure&) {}
+    if (depgraph.TxCount() <= 1) return;
     bool make_connected = flags & 1;
     // The following 3 booleans have 4 combinations:
     // - (flags & 6) == 0: do not provide input linearization.
