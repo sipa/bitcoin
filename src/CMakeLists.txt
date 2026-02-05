@@ -344,6 +344,16 @@ target_link_libraries(bitcoin_cli
     univalue
 )
 
+if(BUILD_COSTMODEL)
+  add_executable(bitcoin-costmodel
+    bitcoin-costmodel.cpp
+  )
+  target_link_libraries(bitcoin-costmodel
+    bitcoin_common
+    bitcoin_util
+  )
+  install_binary_component(bitcoin-costmodel)
+endif()
 
 # Bitcoin Core RPC client
 if(BUILD_CLI)
