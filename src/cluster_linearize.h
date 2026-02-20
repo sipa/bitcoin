@@ -498,6 +498,7 @@ class SFLDefaultCostModel
     uint64_t m_cost{0};
 
 public:
+#if 0
     inline void InitializeBegin() noexcept {}
     inline void InitializeEnd(int num_txns, int num_deps) noexcept
     {
@@ -539,6 +540,34 @@ public:
     inline void MinimizeStepBegin() noexcept {}
     inline void MinimizeStepMid(int num_txns) noexcept { m_cost += 11 * num_txns + 11; }
     inline void MinimizeStepEnd(bool split) noexcept { m_cost += 17 * split + 7; }
+#else
+    inline void InitializeBegin() noexcept {}
+    inline void InitializeEnd(int num_txns, int num_deps) noexcept {}
+    inline void GetLinearizationBegin() noexcept {}
+    inline void GetLinearizationEnd(int num_txns, int num_deps) noexcept {}
+    inline void MakeTopologicalBegin() noexcept {}
+    inline void MakeTopologicalEnd(int num_chunks, int num_steps) noexcept {}
+    inline void StartOptimizingBegin() noexcept {}
+    inline void StartOptimizingEnd(int num_chunks) noexcept {}
+    inline void ActivateBegin() noexcept {}
+    inline void ActivateEnd(int num_deps) noexcept { m_cost += num_deps + 1; }
+    inline void DeactivateBegin() noexcept {}
+    inline void DeactivateEnd(int num_deps) noexcept { m_cost += num_deps + 1; }
+    inline void MergeChunksBegin() noexcept {}
+    inline void MergeChunksMid(int num_txns) noexcept {}
+    inline void MergeChunksEnd(int num_steps) noexcept {}
+    inline void PickMergeCandidateBegin() noexcept {}
+    inline void PickMergeCandidateEnd(int num_steps) noexcept {}
+    inline void PickChunkToOptimizeBegin() noexcept {}
+    inline void PickChunkToOptimizeEnd(int num_steps) noexcept {}
+    inline void PickDependencyToSplitBegin() noexcept {}
+    inline void PickDependencyToSplitEnd(int num_txns) noexcept {}
+    inline void StartMinimizingBegin() noexcept {}
+    inline void StartMinimizingEnd(int num_chunks) noexcept {}
+    inline void MinimizeStepBegin() noexcept {}
+    inline void MinimizeStepMid(int num_txns) noexcept {}
+    inline void MinimizeStepEnd(bool split) noexcept {}
+#endif
 
     inline uint64_t GetCost() const noexcept { return m_cost; }
 };
