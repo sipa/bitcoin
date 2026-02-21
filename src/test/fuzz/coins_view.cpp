@@ -84,10 +84,16 @@ public:
             // entry for. This can happen if the fuzzer calls AddCoin -> Flush -> AddCoin -> Flush on the child cache.
             // There's not an easy way to prevent the fuzzer from reaching this, so we handle it here.
             // Since it is thrown in the middle of the write, we reset our own state and iterate through
-            // the cursor so the caller's state is also reset.
+            // the remaining cursor entries so the caller's dirty count reaches zero.
+            //
+            // We must resume from cursor.CurrentBegin() rather than cursor.Begin() here. When the cursor
+            // was created with will_erase=true (i.e. from Flush), processed entries are NOT removed from
+            // the linked list, so Begin() always returns the first entry. Entries before the throw point
+            // have already had their dirty count decremented via NextAndMaybeErase; reprocessing them
+            // from Begin() would double-decrement, causing m_dirty_count to underflow.
             assert(e.what() == std::string{"FRESH flag misapplied to coin that exists in parent cache"});
             Reset();
-            for (auto it{cursor.Begin()}; it != cursor.End(); it = cursor.NextAndMaybeErase(*it)) {}
+            for (auto it{cursor.CurrentBegin()}; it != cursor.End(); it = cursor.NextAndMaybeErase(*it)) {}
         }
         m_expected_snapshot = ComputeCacheCoinsSnapshot();
     }

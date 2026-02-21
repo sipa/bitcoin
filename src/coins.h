@@ -269,15 +269,25 @@ struct CoinsViewCacheCursor
                          CoinsCachePair& sentinel LIFETIMEBOUND,
                          CCoinsMap& map LIFETIMEBOUND,
                          bool will_erase) noexcept
-        : m_dirty_count(dirty_count), m_sentinel(sentinel), m_map(map), m_will_erase(will_erase) {}
+        : m_dirty_count(dirty_count), m_sentinel(sentinel), m_map(map), m_will_erase(will_erase),
+          m_current_begin(sentinel.second.Next()) {}
 
+    //! Return the first entry in the linked list (always the absolute start).
     inline CoinsCachePair* Begin() const noexcept { return m_sentinel.second.Next(); }
+
+    //! Return the next entry that has not yet been passed to NextAndMaybeErase.
+    //! When will_erase=false, this equals Begin() because processed entries are removed from the list.
+    //! When will_erase=true, entries are not removed, so CurrentBegin() tracks the position explicitly.
+    //! Use this to resume iteration after an exception thrown inside a BatchWrite loop.
+    inline CoinsCachePair* CurrentBegin() const noexcept { return m_current_begin; }
+
     inline CoinsCachePair* End() const noexcept { return &m_sentinel; }
 
     //! Return the next entry after current, possibly erasing current
     inline CoinsCachePair* NextAndMaybeErase(CoinsCachePair& current) noexcept
     {
         const auto next_entry{current.second.Next()};
+        m_current_begin = next_entry;
         m_dirty_count -= current.second.IsDirty();
         // If we are not going to erase the cache, we must still erase spent entries.
         // Otherwise, clear the state of the entry.
@@ -300,6 +310,7 @@ private:
     CoinsCachePair& m_sentinel;
     CCoinsMap& m_map;
     bool m_will_erase;
+    CoinsCachePair* m_current_begin;
 };
 
 /** Abstract view on the open txout dataset. */
