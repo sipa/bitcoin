@@ -750,6 +750,11 @@ private:
         SetType active_children;
         /** Which chunk this transaction belongs to. */
         SetIdx chunk_idx;
+        /** Priority for tie-breaking equal-feerate chunks. Lower priority means earlier.
+         *  This is just for helping splitting up chunks. The final linearization order uses
+         *  a different ordering, specified by the fallout_ordering argument to GetLinearization.
+         */
+         uint32_t priority;
     };
 
     /** The set of all TxIdx's of transactions in the cluster indexing into m_tx_data. */
@@ -1187,6 +1192,7 @@ public:
         for (auto tx_idx : m_transaction_idxs) {
             // Fill in transaction data.
             auto& tx_data = m_tx_data[tx_idx];
+            tx_data.priority = m_rng.randbits<32>();
             tx_data.parents = depgraph.GetReducedParents(tx_idx);
             for (auto parent_idx : tx_data.parents) {
                 m_tx_data[parent_idx].children.Set(tx_idx);
@@ -1214,7 +1220,9 @@ public:
     void LoadLinearization(std::span<const DepGraphIndex> old_linearization) noexcept
     {
         // Add transactions one by one, in order of existing linearization.
+        uint32_t priority = 0;
         for (DepGraphIndex tx_idx : old_linearization) {
+            m_tx_data[tx_idx].priority = priority++;
             auto chunk_idx = m_tx_data[tx_idx].chunk_idx;
             // Merge the chunk upwards, as long as merging succeeds.
             while (true) {
@@ -1290,6 +1298,16 @@ public:
                     }
                 }
             }
+        }
+
+        std::vector<std::tuple<uint32_t, uint32_t, TxIdx>> reorder;
+        reorder.reserve(m_transaction_idxs.Count());
+        for (auto idx : m_transaction_idxs) {
+            reorder.emplace_back(m_depgraph.Ancestors(idx).Count(), m_tx_data[idx].priority, idx);
+        }
+        std::ranges::sort(reorder);
+        for (size_t pos = 0; pos < reorder.size(); ++pos) {
+            m_tx_data[std::get<2>(reorder[pos])].priority = pos;
         }
         m_cost.MakeTopologicalEnd(/*num_chunks=*/chunks, /*num_steps=*/steps);
     }
@@ -1752,6 +1770,8 @@ public:
             assert(dep_top_info.transactions == expected_top);
             // Verify the top set's feerate.
             assert(dep_top_info.feerate == m_depgraph.FeeRate(dep_top_info.transactions));
+            // Verify that priorities are compatible with every active dependency.
+            assert(m_tx_data[par_idx].priority < m_tx_data[chl_idx].priority);
         }
 
         //
