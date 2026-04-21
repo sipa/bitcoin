@@ -973,13 +973,6 @@ FUZZ_TARGET(clusterlin_sfl)
         if (!sfl.OptimizeStep()) break;
     }
 
-    // Loop until minimal.
-    test_fn(/*is_optimal=*/true);
-    sfl.StartMinimizing();
-    while (true) {
-        test_fn(/*is_optimal=*/true);
-        if (!sfl.MinimizeStep()) break;
-    }
     test_fn(/*is_optimal=*/true, /*is_minimal=*/true);
 
     // Verify that optimality is reached within an expected amount of work. This protects against
