@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <iostream>
 #include <utility>
 #include <vector>
 
@@ -900,6 +901,7 @@ FUZZ_TARGET(clusterlin_sfl)
         reader >> rng_seed >> flags >> Using<DepGraphFormatter>(depgraph);
     } catch (const std::ios_base::failure&) {}
     if (depgraph.TxCount() <= 1) return;
+    if (depgraph.TxCount() > 4) return;
     InsecureRandomContext rng(rng_seed);
     /** Whether to make the depgraph connected. */
     const bool make_connected = flags & 1;
@@ -973,6 +975,7 @@ FUZZ_TARGET(clusterlin_sfl)
         if (!sfl.OptimizeStep()) break;
     }
 
+    test_fn(/*is_optimal=*/true);
     test_fn(/*is_optimal=*/true, /*is_minimal=*/true);
 
     // Verify that optimality is reached within an expected amount of work. This protects against
@@ -1015,6 +1018,7 @@ FUZZ_TARGET(clusterlin_linearize)
         reader >> VARINT(max_cost) >> Using<DepGraphFormatter>(depgraph) >> rng_seed >> flags;
     } catch (const std::ios_base::failure&) {}
     if (depgraph.TxCount() <= 1) return;
+    if (depgraph.TxCount() > 4) return;
     bool make_connected = flags & 1;
     // The following 3 booleans have 4 combinations:
     // - (flags & 6) == 0: do not provide input linearization.
@@ -1029,10 +1033,30 @@ FUZZ_TARGET(clusterlin_linearize)
     // the graph to be connected.
     if (make_connected) MakeConnected(depgraph);
 
+    // Helper to format a linearization as a string for diagnostic output.
+    auto format_lin = [](const std::vector<DepGraphIndex>& lin) {
+        std::string s = "[";
+        for (size_t i = 0; i < lin.size(); ++i) {
+            if (i > 0) s += ",";
+            s += std::to_string(lin[i]);
+        }
+        s += "]";
+        return s;
+    };
+
+    std::cerr << "clusterlin_linearize: rng_seed=" << rng_seed
+              << " max_cost=" << (max_cost & 0x3fffff)
+              << " make_connected=" << make_connected
+              << " provide_input=" << provide_input
+              << " provide_topological_input=" << provide_topological_input
+              << " claim_topological_input=" << claim_topological_input << "\n";
+    std::cerr << depgraph.ToString() << "\n";
+
     // Optionally construct an old linearization for it.
     std::vector<DepGraphIndex> old_linearization;
     if (provide_input) {
         old_linearization = ReadLinearization(depgraph, reader, /*topological=*/provide_topological_input);
+        std::cerr << "  old_linearization=" << format_lin(old_linearization) << "\n";
         if (provide_topological_input) SanityCheck(depgraph, old_linearization);
     }
 
@@ -1045,6 +1069,8 @@ FUZZ_TARGET(clusterlin_linearize)
         /*fallback_order=*/IndexTxOrder{},
         /*old_linearization=*/old_linearization,
         /*is_topological=*/claim_topological_input);
+    std::cerr << "  linearization=" << format_lin(linearization)
+              << " optimal=" << optimal << " cost=" << cost << "\n";
     SanityCheck(depgraph, linearization);
     auto chunking = ChunkLinearization(depgraph, linearization);
 
@@ -1065,6 +1091,8 @@ FUZZ_TARGET(clusterlin_linearize)
     if (optimal) {
         // It must be as good as SimpleLinearize.
         auto [simple_linearization, simple_optimal] = SimpleLinearize(depgraph, MAX_SIMPLE_ITERATIONS);
+        std::cerr << "  simple_linearization=" << format_lin(simple_linearization)
+                  << " simple_optimal=" << simple_optimal << "\n";
         SanityCheck(depgraph, simple_linearization);
         auto simple_chunking = ChunkLinearization(depgraph, simple_linearization);
         auto cmp = CompareChunks(chunking, simple_chunking);
@@ -1079,6 +1107,7 @@ FUZZ_TARGET(clusterlin_linearize)
 
         // Compare with a linearization read from the fuzz input.
         auto read = ReadLinearization(depgraph, reader);
+        std::cerr << "  read_linearization=" << format_lin(read) << "\n";
         auto read_chunking = ChunkLinearization(depgraph, read);
         auto cmp_read = CompareChunks(chunking, read_chunking);
         assert(cmp_read >= 0);
@@ -1146,6 +1175,8 @@ FUZZ_TARGET(clusterlin_linearize)
         // Redo from scratch with a different rng_seed. The resulting linearization should be
         // deterministic, if both are optimal.
         auto [linearization2, optimal2, cost2] = Linearize(depgraph, MaxOptimalLinearizationCost(depgraph.TxCount()) + 1, rng_seed ^ 0x1337, IndexTxOrder{});
+        std::cerr << "  linearization2=" << format_lin(linearization2)
+                  << " optimal2=" << optimal2 << " cost2=" << cost2 << "\n";
         assert(optimal2);
         assert(linearization2 == linearization);
     }

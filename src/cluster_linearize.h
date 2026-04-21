@@ -7,8 +7,11 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <iostream>
 #include <numeric>
 #include <optional>
+#include <sstream>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -342,6 +345,30 @@ public:
             ret += GetReducedParents(i).Count();
         }
         return ret;
+    }
+
+    /** Return a human-readable description of this DepGraph, listing each transaction's index,
+     *  fee/size, and the reduced set of parents. */
+    std::string ToString() const noexcept
+    {
+        std::ostringstream ss;
+        ss << "DepGraph:";
+        for (auto i : Positions()) {
+            const auto& fr = FeeRate(i);
+            ss << "\n  [" << i << "] fee=" << fr.fee << " size=" << fr.size;
+            auto parents = GetReducedParents(i);
+            if (parents.Any()) {
+                ss << " parents={";
+                bool first = true;
+                for (auto p : parents) {
+                    if (!first) ss << ",";
+                    ss << p;
+                    first = false;
+                }
+                ss << "}";
+            }
+        }
+        return ss.str();
     }
 
     /** Reduce memory usage if possible. No observable effect. */
@@ -1493,6 +1520,18 @@ public:
             ready_chunks.pop_back();
             Assume(chunk_deps[chunk_idx] == 0);
             const auto& chunk_txn = m_set_info[chunk_idx].transactions;
+            // Print the chunk being linearized.
+            std::cerr << "  GetLinearization chunk idx=" << chunk_idx
+                      << " priority=" << m_chunk_priority[chunk_idx]
+                      << " feerate=" << m_set_info[chunk_idx].feerate.fee
+                      << "/" << m_set_info[chunk_idx].feerate.size << " txs={";
+            bool first = true;
+            for (auto tx_idx : chunk_txn) {
+                if (!first) std::cerr << ",";
+                std::cerr << tx_idx;
+                first = false;
+            }
+            std::cerr << "}\n";
             // Build heap of all includable transactions in chunk.
             Assume(ready_tx.empty());
             for (TxIdx tx_idx : chunk_txn) {
