@@ -774,6 +774,8 @@ private:
     /** For each chunk, indexed by SetIdx, the set of out-of-chunk reachable transactions, in the
      *  upwards (.first) and downwards (.second) direction. */
     std::vector<std::pair<SetType, SetType>> m_reachable;
+    /** For each chunk, indexed by SetIdx, the minimum priority of any transaction in it. */
+    std::vector<uint32_t> m_chunk_priority;
     /** A FIFO of chunk SetIdxs for chunks that may be improved still. */
     VecDeque<SetIdx> m_suboptimal_chunks;
     /** A FIFO of chunk indexes with a pivot transaction in them, and a flag to indicate their
@@ -881,6 +883,7 @@ private:
         m_reachable[child_chunk_idx].second |= m_reachable[parent_chunk_idx].second;
         m_reachable[child_chunk_idx].first -= bottom_info.transactions;
         m_reachable[child_chunk_idx].second -= bottom_info.transactions;
+        m_chunk_priority[child_chunk_idx] = std::min(m_chunk_priority[child_chunk_idx], m_chunk_priority[parent_chunk_idx]);
         // Make parent chunk the set for the new active dependency.
         parent_data.dep_top_idx[child_idx] = parent_chunk_idx;
         parent_data.active_children.Set(child_idx);
@@ -918,21 +921,25 @@ private:
         // See the comment above in Activate(). We perform the opposite operations here, removing
         // instead of adding. Simultaneously, aggregate the top/bottom's union of parents/children.
         SetType top_parents, top_children;
+        uint32_t top_min_priority = uint32_t(-1);
         for (auto tx_idx : top_info.transactions) {
             auto& tx_data = m_tx_data[tx_idx];
             tx_data.chunk_idx = parent_chunk_idx;
             top_parents |= tx_data.parents;
             top_children |= tx_data.children;
+            top_min_priority = std::min(top_min_priority, tx_data.priority);
             for (auto dep_child_idx : tx_data.active_children) {
                 auto& dep_top_info = m_set_info[tx_data.dep_top_idx[dep_child_idx]];
                 if (dep_top_info.transactions[parent_idx]) dep_top_info -= bottom_info;
             }
         }
         SetType bottom_parents, bottom_children;
+        uint32_t bottom_min_priority = uint32_t(-1);
         for (auto tx_idx : bottom_info.transactions) {
             auto& tx_data = m_tx_data[tx_idx];
             bottom_parents |= tx_data.parents;
             bottom_children |= tx_data.children;
+            bottom_min_priority = std::min(bottom_min_priority, tx_data.priority);
             for (auto dep_child_idx : tx_data.active_children) {
                 auto& dep_top_info = m_set_info[tx_data.dep_top_idx[dep_child_idx]];
                 if (dep_top_info.transactions[child_idx]) dep_top_info -= top_info;
@@ -944,6 +951,8 @@ private:
         m_reachable[parent_chunk_idx].second = top_children - top_info.transactions;
         m_reachable[child_chunk_idx].first = bottom_parents - bottom_info.transactions;
         m_reachable[child_chunk_idx].second = bottom_children - bottom_info.transactions;
+        m_chunk_priority[parent_chunk_idx] = top_min_priority;
+        m_chunk_priority[child_chunk_idx] = bottom_min_priority;
         // Return the two new set idxs.
         m_cost.DeactivateEnd(/*num_deps=*/ntx - 1);
         return {parent_chunk_idx, child_chunk_idx};
@@ -1013,8 +1022,9 @@ private:
         auto& chunk_info = m_set_info[chunk_idx];
         // Iterate over all chunks reachable from this one. For those depended-on chunks,
         // remember the highest-feerate (if DownWard) or lowest-feerate (if !DownWard) one.
-        // If multiple equal-feerate candidate chunks to merge with exist, pick a random one
-        // among them.
+        // Equal-feerate candidates are only eligible if their priority is strictly better than
+        // this chunk's own (lower for DownWard, higher for !DownWard); among those, pick the
+        // one with the lowest priority (if DownWard) or highest priority (if !DownWard).
 
         /** The minimum feerate (if downward) or maximum feerate (if upward) to consider when
          *  looking for candidate chunks to merge with. Initially, this is the original chunk's
@@ -1022,9 +1032,10 @@ private:
         FeeFrac best_other_chunk_feerate = chunk_info.feerate;
         /** The chunk index for the best candidate chunk to merge with. INVALID_SET_IDX if none. */
         SetIdx best_other_chunk_idx = INVALID_SET_IDX;
-        /** We generate random tiebreak values to pick between equal-feerate candidate chunks.
-         *  This variable stores the tiebreak of the current best candidate. */
-        uint64_t best_other_chunk_tiebreak{0};
+        /** The priority of the current best candidate chunk. Initialized to this chunk's own
+         *  priority, so equal-feerate candidates are only eligible if their priority is strictly
+         *  better (lower for DownWard, higher for !DownWard) than our own. */
+        uint32_t best_other_chunk_priority = m_chunk_priority[chunk_idx];
 
         /** Which parent/child transactions we still need to process the chunks for. */
         auto todo = DownWard ? m_reachable[chunk_idx].second : m_reachable[chunk_idx].first;
@@ -1039,11 +1050,13 @@ private:
             auto cmp = DownWard ? FeeRateCompare(best_other_chunk_feerate, reached_chunk_info.feerate)
                                 : FeeRateCompare(reached_chunk_info.feerate, best_other_chunk_feerate);
             if (cmp > 0) continue;
-            uint64_t tiebreak = m_rng.rand64();
-            if (cmp < 0 || tiebreak >= best_other_chunk_tiebreak) {
+            uint32_t reached_priority = m_chunk_priority[reached_chunk_idx];
+            bool priority_better = DownWard ? (reached_priority < best_other_chunk_priority)
+                                            : (reached_priority > best_other_chunk_priority);
+            if (cmp < 0 || priority_better) {
                 best_other_chunk_feerate = reached_chunk_info.feerate;
                 best_other_chunk_idx = reached_chunk_idx;
-                best_other_chunk_tiebreak = tiebreak;
+                best_other_chunk_priority = reached_priority;
             }
         }
         Assume(steps <= m_set_info.size());
@@ -1148,6 +1161,17 @@ private:
         Assume(m_chunk_idxs[chunk_idx]);
         auto& chunk_info = m_set_info[chunk_idx];
 
+        // Find the lowest-priority transaction in the chunk, used to filter equal-feerate deps.
+        uint32_t chunk_min_priority = m_chunk_priority[chunk_idx];
+        TxIdx lowest_prio_tx = TxIdx(-1);
+        for (auto tx_idx : chunk_info.transactions) {
+            if (m_tx_data[tx_idx].priority == chunk_min_priority) {
+                lowest_prio_tx = tx_idx;
+                break;
+            }
+        }
+        Assume(lowest_prio_tx != TxIdx(-1));
+
         // Remember the best dependency {par, chl} seen so far.
         std::pair<TxIdx, TxIdx> candidate_dep = {TxIdx(-1), TxIdx(-1)};
         uint64_t candidate_tiebreak = 0;
@@ -1157,10 +1181,12 @@ private:
             // Iterate over all active child dependencies of the transaction.
             for (auto child_idx : tx_data.active_children) {
                 auto& dep_top_info = m_set_info[tx_data.dep_top_idx[child_idx]];
-                // Skip if this dependency is ineligible (the top chunk that would be created
-                // does not have higher feerate than the chunk it is currently part of).
+                // Skip if this dependency is ineligible: the top chunk that would be created must
+                // have higher feerate than the chunk it is currently part of, or equal feerate
+                // with the lowest-priority transaction in the top chunk.
                 auto cmp = FeeRateCompare(dep_top_info.feerate, chunk_info.feerate);
-                if (cmp <= 0) continue;
+                if (cmp < 0) continue;
+                if (cmp == 0 && !dep_top_info.transactions[lowest_prio_tx]) continue;
                 // Generate a random tiebreak for this dependency, and reject it if its tiebreak
                 // is worse than the best so far. This means that among all eligible
                 // dependencies, a uniformly random one will be chosen.
@@ -1187,6 +1213,7 @@ public:
         m_tx_data.resize(depgraph.PositionRange());
         m_set_info.resize(num_transactions);
         m_reachable.resize(num_transactions);
+        m_chunk_priority.resize(num_transactions);
         size_t num_chunks = 0;
         size_t num_deps = 0;
         for (auto tx_idx : m_transaction_idxs) {
@@ -1207,6 +1234,7 @@ public:
             auto& tx_data = m_tx_data[m_set_info[chunk_idx].transactions.First()];
             m_reachable[chunk_idx].first = tx_data.parents;
             m_reachable[chunk_idx].second = tx_data.children;
+            m_chunk_priority[chunk_idx] = tx_data.priority;
         }
         Assume(num_chunks == num_transactions);
         // Mark all chunk sets as chunks.
@@ -1224,6 +1252,11 @@ public:
         for (DepGraphIndex tx_idx : old_linearization) {
             m_tx_data[tx_idx].priority = priority++;
             auto chunk_idx = m_tx_data[tx_idx].chunk_idx;
+            uint32_t min_prio = uint32_t(-1);
+            for (auto other_idx : m_set_info[chunk_idx].transactions) {
+                min_prio = std::min(min_prio, m_tx_data[other_idx].priority);
+            }
+            m_chunk_priority[chunk_idx] = min_prio;
             // Merge the chunk upwards, as long as merging succeeds.
             while (true) {
                 chunk_idx = MergeStep<false>(chunk_idx);
@@ -1237,6 +1270,24 @@ public:
     {
         m_cost.MakeTopologicalBegin();
         Assume(m_suboptimal_chunks.empty());
+
+        std::vector<std::tuple<uint32_t, uint32_t, TxIdx>> reorder;
+        reorder.reserve(m_transaction_idxs.Count());
+        for (auto idx : m_transaction_idxs) {
+            reorder.emplace_back(m_depgraph.Ancestors(idx).Count(), m_tx_data[idx].priority, idx);
+        }
+        std::ranges::sort(reorder);
+        for (size_t pos = 0; pos < reorder.size(); ++pos) {
+            m_tx_data[std::get<2>(reorder[pos])].priority = pos;
+        }
+        for (auto chunk_idx : m_chunk_idxs) {
+            uint32_t min_prio = uint32_t(-1);
+            for (auto tx_idx : m_set_info[chunk_idx].transactions) {
+                min_prio = std::min(min_prio, m_tx_data[tx_idx].priority);
+            }
+            m_chunk_priority[chunk_idx] = min_prio;
+        }
+
         /** What direction to initially merge chunks in; one of the two directions is enough. This
          *  is sufficient because if a non-topological inactive dependency exists between two
          *  chunks, at least one of the two chunks will eventually be processed in a direction that
@@ -1300,15 +1351,6 @@ public:
             }
         }
 
-        std::vector<std::tuple<uint32_t, uint32_t, TxIdx>> reorder;
-        reorder.reserve(m_transaction_idxs.Count());
-        for (auto idx : m_transaction_idxs) {
-            reorder.emplace_back(m_depgraph.Ancestors(idx).Count(), m_tx_data[idx].priority, idx);
-        }
-        std::ranges::sort(reorder);
-        for (size_t pos = 0; pos < reorder.size(); ++pos) {
-            m_tx_data[std::get<2>(reorder[pos])].priority = pos;
-        }
         m_cost.MakeTopologicalEnd(/*num_chunks=*/chunks, /*num_steps=*/steps);
     }
 
@@ -1715,6 +1757,12 @@ public:
             // Verify that the chunk's reachable transactions don't include its own transactions.
             assert(!m_reachable[chunk_idx].first.Overlaps(chunk_info.transactions));
             assert(!m_reachable[chunk_idx].second.Overlaps(chunk_info.transactions));
+            // Verify the chunk's priority.
+            uint32_t expected_priority = uint32_t(-1);
+            for (auto tx_idx : chunk_info.transactions) {
+                expected_priority = std::min(expected_priority, m_tx_data[tx_idx].priority);
+            }
+            assert(m_chunk_priority[chunk_idx] == expected_priority);
         }
         // Verify that together, the chunks cover all transactions.
         assert(chunk_cover == m_depgraph.Positions());
