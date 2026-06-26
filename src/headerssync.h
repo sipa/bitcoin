@@ -55,6 +55,14 @@ struct CompressedHeader {
     };
 };
 
+//! Configuration for headers sync memory usage.
+struct HeadersSyncParams {
+    //! Distance in blocks between header commitments.
+    size_t commitment_period{0};
+    //! Minimum number of validated headers to accumulate in the redownload
+    //! buffer before feeding them into the permanent block index.
+    size_t redownload_buffer_size{0};
+};
 
 /** Find the best (period, bufsize) headers synchronization configuration for:
  *
