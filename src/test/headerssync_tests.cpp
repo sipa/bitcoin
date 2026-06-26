@@ -9,7 +9,6 @@
 #include <boost/test/unit_test.hpp>
 
 #include <cstdint>
-#include <iterator>
 
 BOOST_FIXTURE_TEST_SUITE(headerssync_tests, BasicTestingSetup)
 
