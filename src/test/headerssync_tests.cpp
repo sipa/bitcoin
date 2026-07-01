@@ -86,13 +86,11 @@ BOOST_AUTO_TEST_CASE(compute_headers_sync_params)
         {6168635190, 1335470, 2.876811767724857e-05, 811, 19828},
         {1709740236, 57056, 3.177749891774726e-07, 389, 11475},
     };
-    // Temporary: the random search the optimizer uses at this point is too slow to run every case
-    // on each test run, so for now only check one randomly chosen case. A later commit computes the
-    // attack rate in closed form, making this fast enough to check all of them.
-    const auto& cas = cases[m_rng.randrange(std::size(cases))];
-    const auto params = ComputeHeadersSyncParamsInner(cas.max_headers, cas.minchainwork_headers, cas.attack_headers);
-    BOOST_CHECK_EQUAL(params.commitment_period, cas.expected_period);
-    BOOST_CHECK_EQUAL(params.redownload_buffer_size, cas.expected_bufsize);
+    for (const auto& cas : cases) {
+        const auto params = ComputeHeadersSyncParamsInner(cas.max_headers, cas.minchainwork_headers, cas.attack_headers);
+        BOOST_CHECK_EQUAL(params.commitment_period, cas.expected_period);
+        BOOST_CHECK_EQUAL(params.redownload_buffer_size, cas.expected_bufsize);
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

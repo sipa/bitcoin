@@ -5,7 +5,6 @@
 #include <headerssync.h>
 
 #include <pow.h>
-#include <random.h>
 #include <util/check.h>
 #include <util/log.h>
 #include <util/time.h>
@@ -17,7 +16,6 @@
 #include <numbers>
 #include <optional>
 #include <utility>
-#include <vector>
 
 HeadersSyncParams ComputeHeadersSyncParamsInner(int64_t max_headers, int64_t minchainwork_headers, double attack_headers)
 {
@@ -33,8 +31,13 @@ HeadersSyncParams ComputeHeadersSyncParamsInner(int64_t max_headers, int64_t min
      *
      * If limit is provided, the computation is stopped early when the result is known to exceed the
      * value in limit.
+     *
+     * The period and bufsize arguments are generalized to accept floating-point inputs. This is
+     * meaningless on its own, as the actual algorithm can only operate with integer values. It is
+     * however used to find the optimum for the continunous extension below, which is used as a
+     * starting point for the actual optimum (with integer period/bufsize).
      */
-    auto attack_rate = [&](int64_t period, int64_t bufsize, std::optional<double> limit = std::nullopt) -> double {
+    auto attack_rate = [&](double period, double bufsize, std::optional<double> limit = std::nullopt) -> double {
         /** Each batch's probability is a factor 2^(HEADER_BATCH_COUNT/period) smaller than the
          *  previous one, so the contributions of all future batches form a geometric series.
          *  future_limit bounds the ratio of that sum to a single batch's HEADER_BATCH_COUNT*prob.
@@ -56,14 +59,14 @@ HeadersSyncParams ComputeHeadersSyncParamsInner(int64_t max_headers, int64_t min
                 const int64_t forged_headers = (batch + 1) * HEADER_BATCH_COUNT - honest;
                 /** The number of forged headers that would be accepted if the commitments in this
                  *  batch and all earlier batches verify correctly. */
-                const int accept_forged_headers = std::clamp<int>(forged_headers - bufsize, 0.0, HEADER_BATCH_COUNT);
+                const double accept_forged_headers = std::clamp<double>(forged_headers - bufsize, 0.0, HEADER_BATCH_COUNT);
                 if (accept_forged_headers > 0.0) {
                     /** The minimum number of commitments that fall within the forged headers,
                      *  independent of where those commitments fall. */
                     const int min_commitments = forged_headers / period;
                     /** The number of forged headers that may be covered by an extra commitment,
                      *  depending on where those commitments fall. */
-                    const int extra = forged_headers - min_commitments * period;
+                    const double extra = forged_headers - min_commitments * period;
                     /** The probability this batch (and all previous ones) gets accepted, averaged
                      *  over all places where the commitments may fall. Out of all {period} possible
                      *  offsets for the commitments, {extra} of them have {min_commitments + 1}
@@ -120,88 +123,130 @@ HeadersSyncParams ComputeHeadersSyncParamsInner(int64_t max_headers, int64_t min
         return fail_buf;
     };
 
-    /** Solve the equation x*exp(x)=value (x > 0, value > 0). */
-    auto lambert_w = [&](double value) -> double {
-        // Initial approximation.
-        double approx = std::max(std::log(value), 0.0);
-        for (int i = 0; i < 10; ++i) {
-            // Newton-Raphson iteration steps.
-            approx += (value * std::exp(-approx) - approx) / (approx + 1.0);
+    // The overall strategy to solve our problem (minimizing peak memory usage while staying under
+    // the acceptable attack rate), is as follows:
+    //
+    // Step 1: assume that period and bufsize can be arbitrary real numbers, find the optimal
+    //         solution to it, and round its period to an integer.
+    // Step 2: find the bufsize and memory M for that rounded continuous-optimal period.
+    // Step 3: try all integer periods for which a lower bound on memory usage does not exceed M,
+    //         to see if any are actually below it.
+    //
+    // It is important to note that Step 1 is only used to find a good initial guess. Better
+    // guesses mean less work in Step 3, but bad guesses do not affect the correctness of the
+    // result.
+
+    // Step 1: find the optimum solution to the continuous relaxation of the problem, and round
+    //         the resulting real period to an integer.
+    const int64_t cont_period = [&]() -> int64_t {
+        // Abstractly, our goal is to find (period, bufsize):
+        // (1) such that attack_rate(period, bufsize) <= attack_headers
+        // (2) such that memory_usage(period, bufsize) is minimal
+        //
+        // Both of these turn into exact equalities in the continuous relaxation:
+        // (1) becomes attack_rate(period, bufsize) = attack_headers, because there is no need to
+        //     overshoot.
+        // (2) becomes mem_timewarp(period, bufsize) = mem_mainchain(period, bufsize), because
+        //     timewarp memory generally goes down with increasing period, and mainchain memory
+        //     generally goes up with increasing period (at bufsize for a given attack_rate). The
+        //     minimum of both is exactly where they intersect. This can be shown to be the case
+        //     whenever max_headers > 2 * minchainwork_headers, which is practically always true.
+        //
+        // (2) written out and simplfied is:
+        //
+        //    (max_headers - minchainwork_headers) / COMPACT_HEADER_SIZE = bufsize * period
+        //
+        // With the introduction of
+        const double memory_scale = double(max_headers - minchainwork_headers) / COMPACT_HEADER_SIZE;
+        // and beta = bufsize / period, we get:
+        //
+        //    period = sqrt(memory_scale / beta)
+        //    bufsize = sqrt(memory_scale * beta)
+        //    period * bufsize = memory_scale
+        //
+        // If we now define
+        //
+        //    phi(beta) = log(attack_rate(period, bufsize) / attack_headers)
+        //              = log(attack_rate(sqrt(memory_scale / beta), sqrt(memory_scale * beta)) / attack_headers)
+        //
+        // Then equation (1) becomes just solving an equation in one variable:
+        //
+        //    phi(beta) = 0
+        //
+        // We will use Newton-Rhapson iterations to find beta, but this requires knowing the
+        // derivative of the attack_rate w.r.t. beta, which we cannot easily compute. We can however
+        // approximate:
+        //
+        //   attack_rate(period, bufsize) =~ kappa * period * 2^-(bufsize/period)
+        //
+        // for some constant kappa. To see why, consider that every x'th header arriving has a
+        // probability of roughly 2^-(x / period) of being accepted, for x >= bufsize. The
+        // integral of 2^(-x/period) over x=bufsize..infinity is period * 2^-(bufsize/period) / log(2).
+        // So, kappa = 1/log(2), but in reality it also needs to capture minor constributions from
+        // the fact that headers arrive in groups of HEADERS_BATCH_COUNT, resulting in a lower value
+        // (in the 0.6 - 0.9 range). In reality, kappa also depends on bufsize and period, but only
+        // slightly.
+        //
+        // With that, we get
+        //
+        //   phi(beta) = log(kappa) + 0.5 * log(memory_scale / beta) - beta*log(2) - log(attack_headers)
+        //
+        // Its derivative w.r.t beta is -(log(2) + 0.5 / beta), and thus Newton-Rhapson iterations
+        // become:
+        //
+        //   beta += phi(beta) / (log(2) + 0.5 / beta)
+        //
+        // In which kappa disappeared. That only worked because we assumed kappa was a constant, and
+        // in reality it isn't. However, we can compensate for that by computing phi(beta) exactly
+        // using attack_rate(), rather than through the approximation. This effectively updates the
+        // implicit kappa on every iteration.
+
+        using std::numbers::ln2;
+        // Compute an initial guess for beta assuming kappa = 0.7.
+        constexpr double kappa0 = 0.7;
+        const double beta0 = std::log(kappa0 * std::sqrt(memory_scale) / attack_headers) / ln2;
+        double beta = beta0 - 0.5 * std::log(beta0) / ln2;
+        // And the corresponding period:
+        double period = std::sqrt(memory_scale / beta);
+
+        // Newton-Rhapson step on phi(beta). Stop once the period moves less than half an integer,
+        // because less is unlikely to change the integer-rounded value (which is the only that 
+        // affects Step 2). Also add a limit of 5 iterations as protection against non-converging
+        // input.
+        for (int i = 0; i < 5; ++i) {
+            // Compute bufsize corresponding to current beta.
+            const double bufsize = period * beta;
+            // Evaluate phi(beta) using the actual (continuous) attack_rate.
+            const double phi = std::log(attack_rate(period, bufsize) / attack_headers);
+            // Actual Newton-Rhapson step.
+            beta += phi / (ln2 + 0.5 / beta);
+            // Compute period corresponding to updated beta, and see if we should stop.
+            const double next_period = std::sqrt(memory_scale / beta);
+            if (std::fabs(next_period - period) < 0.5) break;
+            period = next_period;
         }
-        return approx;
-    };
+        return std::min<int64_t>(std::round(period), minchainwork_headers);
+    }();
 
-    // When period*bufsize = memory_scale, the per-peer memory for a mainchain sync and a maximally
-    // long low-difficulty header sync are equal.
-    const double memory_scale = double(max_headers - minchainwork_headers) / COMPACT_HEADER_SIZE;
-    // Compute approximation for {bufsize/period}, using a formula for a simplified problem.
-    const double approx_ratio = lambert_w(std::log(4.0) * memory_scale / (attack_headers * attack_headers)) / std::log(4.0);
-    // Use those for a first attempt.
-    int64_t period = int64_t(std::sqrt(memory_scale / approx_ratio) + 0.5);
-    int64_t bufsize = find_bufsize(period, attack_headers);
-    int64_t best_period = period;
-    int64_t best_bufsize = bufsize;
-    int64_t best_mem = memory_usage(period, bufsize);
-    // (period, bufsize) configurations found so far, used to lower-bound find_bufsize.
-    std::vector<std::pair<int64_t, int64_t>> maps{{period, bufsize}};
+    // Phase 2: find corresponding integral bufsize and memory.
+    int64_t best_period = cont_period;
+    int64_t best_bufsize = find_bufsize(best_period, attack_headers);
+    int64_t best_max_mem = memory_usage(best_period, best_bufsize);
 
-    // Consider all period values between 1 and minchainwork_headers, except the one just tried.
-    std::vector<int64_t> periods;
-    periods.reserve(minchainwork_headers);
-    for (int64_t iv = 1; iv <= minchainwork_headers; ++iv) {
-        if (iv != period) periods.push_back(iv);
-    }
-
-    // The search order is randomized; the result is the true optimum regardless of seed.
-    InsecureRandomContext rng(/*seedval=*/0);
-    // Iterate, picking a random element from periods, computing its corresponding bufsize, and
-    // then using the result to shrink the period.
-    while (true) {
-        // Remove all periods whose memory usage for low-work long chain sync exceed the best
-        // memory usage we've found so far.
-        std::erase_if(periods, [&](int64_t p) { return max_headers / p >= best_mem; });
-        // Stop if there is nothing left to try.
-        if (periods.empty()) break;
-        // Pick a random remaining option for period size, and compute corresponding bufsize.
-        const std::size_t idx = rng.randrange(periods.size());
-        period = periods[idx];
-        periods[idx] = periods.back();
-        periods.pop_back();
-        // The buffer size (at a given attack level) cannot shrink as the period grows. Find the
-        // largest period smaller than the selected one we know the buffer size for, and use that
-        // as a lower bound to find_bufsize.
-        std::pair<int64_t, int64_t> lower{0, 0};
-        for (const auto& entry : maps) {
-            if (entry.first < period && entry > lower) lower = entry;
-        }
+    // Phase 3: search the range of periods whose memory may stay under best_max_mem.
+    for (int64_t period = max_headers / best_max_mem + 1; period <= minchainwork_headers; ++period) {
+        // Skip the continuous-optimum period itself, because that was used to seed best_max_mem.
+        if (period == cont_period) continue;
         const int64_t bufsize = find_bufsize(period, attack_headers);
+        // Once the second term of the mainchain memory alone reaches best_max_mem, this and every
+        // larger period are ruled out, so the window is exhausted.
+        if (bufsize * COMPACT_HEADER_SIZE >= best_max_mem) break;
         const int64_t mem = memory_usage(period, bufsize);
-        if (mem <= best_mem) {
-            // We found a (period, bufsize) configuration with better memory usage than our best
-            // so far. Remember it for future lower bounds.
-            maps.emplace_back(period, bufsize);
-            // Remove all periods that are on the other side of the former best as the new best.
-            std::erase_if(periods, [&](int64_t p) { return (p < best_period) != (period < best_period); });
+        if (mem < best_max_mem) {
             best_period = period;
             best_bufsize = bufsize;
-            best_mem = mem;
-        } else {
-            // The (period, bufsize) configuration we found is worse than what we already had.
-            // Remove all periods that are on the other side of the tried configuration as the
-            // best one.
-            std::erase_if(periods, [&](int64_t p) { return (p < period) != (best_period < period); });
+            best_max_mem = mem;
         }
-    }
-
-    // Break ties deterministically toward the smallest period (the convex memory curve can be flat
-    // over several adjacent periods), so the result does not depend on the random search order.
-    while (best_period > 1) {
-        const int64_t cand_bufsize = find_bufsize(best_period - 1, attack_headers);
-        const int64_t cand_mem = memory_usage(best_period - 1, cand_bufsize);
-        if (cand_mem != best_mem) break;
-        best_period -= 1;
-        best_bufsize = cand_bufsize;
-        best_mem = cand_mem;
     }
 
     return HeadersSyncParams{
