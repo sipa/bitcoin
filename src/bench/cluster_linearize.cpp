@@ -4,6 +4,8 @@
 
 #include <bench/bench.h>
 #include <cluster_linearize.h>
+#include <hash.h>
+#include <random.h>
 #include <serialize.h>
 #include <streams.h>
 #include <test/util/cluster_linearize.h>
@@ -12,10 +14,23 @@
 #include <util/check.h>
 #include <util/strencodings.h>
 
+#include <algorithm>
+#include <array>
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstdint>
+#include <cstdlib>
+#include <fstream>
+#include <iostream>
+#include <map>
+#include <mutex>
+#include <optional>
 #include <span>
 #include <string>
+#include <thread>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 using namespace cluster_linearize;
@@ -164,3 +179,339 @@ BENCHMARK(PostLinearize99TxWorstCase);
 
 BENCHMARK(LinearizeOptimallyTotal);
 BENCHMARK(LinearizeOptimallyPerCost);
+
+// Configurable multithreaded benchmark comparing the various linearization algorithms over a
+// file of hex-encoded DepGraphFormatter-serialized clusters (one per line). Configured through
+// environment variables:
+// - BENCH_CLUSTER_FILE: path of the cluster file (required).
+// - BENCH_CLUSTER_MIN_TX: minimum number of transactions per cluster (default 2).
+// - BENCH_CLUSTER_MAX_TX: maximum number of transactions per cluster (default 64).
+// - BENCH_CLUSTER_THREADS: number of parallel benchmark threads (default 1). Parallelism
+//   introduces some variance and generally reduces individual measurement performance, but the
+//   results are averaged over many runs, and only the relative performance of the algorithms
+//   matters.
+// - BENCH_CLUSTER_MED: how many times each (cluster, algorithm, set, rng_seed) combination is
+//   measured, of which the median is used; must be odd (default 3).
+// - BENCH_CLUSTER_MUL: the number of benchmark sets s=0..MUL-1 per cluster, where set s
+//   benchmarks rng_seeds 100*s through 100*s+99 (default 1).
+//
+// The main thread reads groups of clusters (after filtering), and turns each group into a job
+// set of 5 * MUL * 100 * MED entries per cluster (5 algorithms, MUL sets, 100 rng_seeds per set,
+// MED repetitions each), which is then randomly shuffled. The group size is chosen as large as
+// possible without letting the job set exceed 32 MiB per benchmark thread (a group is smaller
+// only at EOF). The benchmark threads are then woken up, and use a shared atomic counter to walk
+// through the job set, timing each entry and recording the result in a per-thread data
+// structure. Whenever an algorithm reports an optimal result, its linearization is verified to
+// exactly match a (non-PostLinearize'd) reference linearization precomputed for the cluster. When the job set is exhausted the threads pause, and the main thread aggregates
+// the results before continuing with the next group of clusters:
+// - Per (cluster, algorithm, s, rng_seed), the median of its MED measurements is computed.
+// - Per (cluster, algorithm, s), the average ("medavg") and maximum ("medmax") of those medians
+//   across the 100 rng_seeds are computed.
+// At the very end, after all clusters in the file have been processed, the average and maximum
+// of the medavgs, and the maximum of the medmaxes, computed across all (cluster, s), are
+// reported for every (number of transactions, algorithm) combination.
+
+static constexpr uint32_t NUM_ALGOS{5};
+static constexpr std::array<const char*, NUM_ALGOS> ALGO_NAMES = {"ggt", "ggt1", "ggtr", "sfl-scratch", "sfl-fromopt"};
+static constexpr uint32_t SEEDS_PER_SET{100};
+/** Maximum size of the job set of a group of clusters, in bytes per benchmark thread. */
+static constexpr size_t JOBS_MEM_PER_THREAD{32 * 1024 * 1024};
+
+static void BenchClusterLinearize(benchmark::Bench& bench)
+{
+    // Read and validate the configuration from the environment.
+    const char* filename = std::getenv("BENCH_CLUSTER_FILE");
+    if (filename == nullptr) {
+        std::cerr << "BenchClusterLinearize requires BENCH_CLUSTER_FILE to be set; skipping" << std::endl;
+        return;
+    }
+    auto env_num_fn = [](const char* name, uint64_t def) -> std::optional<uint64_t> {
+        const char* val = std::getenv(name);
+        if (val == nullptr) return def;
+        auto ret = ToIntegral<uint64_t>(val);
+        if (!ret.has_value()) std::cerr << "Cannot parse " << name << "=" << val << std::endl;
+        return ret;
+    };
+    const auto min_tx = env_num_fn("BENCH_CLUSTER_MIN_TX", 2);
+    const auto max_tx = env_num_fn("BENCH_CLUSTER_MAX_TX", 64);
+    const auto num_threads = env_num_fn("BENCH_CLUSTER_THREADS", 1);
+    const auto med = env_num_fn("BENCH_CLUSTER_MED", 3);
+    const auto mul = env_num_fn("BENCH_CLUSTER_MUL", 1);
+    if (!min_tx || !max_tx || !num_threads || !med || !mul) return;
+    if (*min_tx < 1 || *max_tx > 64 || *min_tx > *max_tx) {
+        std::cerr << "Invalid BENCH_CLUSTER_MIN_TX/BENCH_CLUSTER_MAX_TX" << std::endl;
+        return;
+    }
+    if (*num_threads < 1 || *num_threads > 1024) {
+        std::cerr << "Invalid BENCH_CLUSTER_THREADS" << std::endl;
+        return;
+    }
+    if ((*med & 1) != 1) {
+        std::cerr << "BENCH_CLUSTER_MED must be odd" << std::endl;
+        return;
+    }
+    if (*mul < 1) {
+        std::cerr << "BENCH_CLUSTER_MUL must be positive" << std::endl;
+        return;
+    }
+    std::ifstream infile(filename);
+    if (!infile) {
+        std::cerr << "Cannot open " << filename << std::endl;
+        return;
+    }
+
+    /** The clusters of the current group. */
+    std::vector<DepGraph<BitSet<64>>> graphs;
+    /** For each cluster of the current group, an optimal linearization (for sfl-fromopt). */
+    std::vector<std::vector<DepGraphIndex>> optins;
+    /** For each cluster of the current group, the canonical linearization all algorithms'
+     *  optimal outputs must match (empty in the exceptional case that none was found). */
+    std::vector<std::vector<DepGraphIndex>> refs;
+
+    /** One benchmark job: run one algorithm on one cluster with one rng_seed. */
+    struct Job {
+        uint32_t bucket;      //!< Index of the result bucket (unique per (cluster, algo, s, rng_seed)).
+        uint32_t cluster_idx; //!< Cluster index within the current group.
+        uint32_t algo;        //!< Which algorithm to run (index into ALGO_NAMES).
+        uint32_t rng_seed;    //!< The RNG seed to run it with.
+    };
+    /** Maximum size of a group's job set, in bytes. */
+    const uint64_t max_jobs_mem{JOBS_MEM_PER_THREAD * *num_threads};
+    /** The size (in bytes) each cluster contributes to a group's job set. */
+    const auto jobs_mem_per_cluster{__uint128_t{NUM_ALGOS} * *mul * SEEDS_PER_SET * *med * sizeof(Job)};
+    if (jobs_mem_per_cluster > max_jobs_mem) {
+        std::cerr << "BENCH_CLUSTER_MUL * BENCH_CLUSTER_MED too large" << std::endl;
+        return;
+    }
+    /** The number of clusters per group, such that the job set stays within max_jobs_mem. */
+    const uint32_t group_size(max_jobs_mem / uint64_t(jobs_mem_per_cluster));
+    /** The (shuffled) job set for the current group. */
+    std::vector<Job> jobs;
+    /** The next job in jobs to be picked up by a benchmark thread. */
+    std::atomic<size_t> next_job{0};
+    /** Measurements (in nanoseconds) gathered by each thread, as (bucket, time) pairs. */
+    std::vector<std::vector<std::pair<uint32_t, double>>> thread_results(*num_threads);
+
+    // Thread coordination state (protected by mutex).
+    std::mutex mutex;
+    std::condition_variable cv_start; //!< Signals workers that a new job set (or shutdown) is ready.
+    std::condition_variable cv_done;  //!< Signals the main thread that all workers are done.
+    uint64_t generation{0};           //!< Incremented for every new job set.
+    uint32_t running{0};              //!< How many workers have not yet finished the current job set.
+    bool shutdown{false};             //!< Set when workers must exit instead of waiting for more.
+
+    /** Run a single benchmark job, returning the measured time in nanoseconds. */
+    auto bench_one_fn = [&](const Job& job) noexcept -> double {
+        const auto& depgraph = graphs[job.cluster_idx];
+        std::tuple<std::vector<DepGraphIndex>, bool, uint64_t> result;
+        const auto start = std::chrono::high_resolution_clock::now();
+        switch (job.algo) {
+        case 0:
+            result = GGTLinearize(depgraph, job.rng_seed, IndexTxOrder{});
+            break;
+        case 1:
+            result = GGT1Linearize(depgraph, job.rng_seed, IndexTxOrder{});
+            break;
+        case 2:
+            result = GGTRLinearize(depgraph, job.rng_seed, IndexTxOrder{});
+            break;
+        case 3:
+            result = Linearize(depgraph, 1000000000, job.rng_seed, IndexTxOrder{});
+            break;
+        case 4:
+            result = Linearize(depgraph, 1000000000, job.rng_seed, IndexTxOrder{}, optins[job.cluster_idx]);
+            break;
+        }
+        const auto stop = std::chrono::high_resolution_clock::now();
+        ankerl::nanobench::doNotOptimizeAway(result);
+        // Outside of the timed window, verify that optimal results match the cluster's reference
+        // linearization exactly.
+        const auto& ref = refs[job.cluster_idx];
+        if (std::get<1>(result) && !ref.empty()) assert(std::get<0>(result) == ref);
+        return std::chrono::duration<double, std::nano>(stop - start).count();
+    };
+
+    /** Main loop of the benchmark threads. */
+    auto worker_fn = [&](uint32_t thread_idx) {
+        uint64_t seen_generation{0};
+        while (true) {
+            {
+                std::unique_lock lock(mutex);
+                cv_start.wait(lock, [&] { return shutdown || generation != seen_generation; });
+                if (shutdown) return;
+                seen_generation = generation;
+            }
+            auto& results = thread_results[thread_idx];
+            while (true) {
+                size_t job_idx = next_job.fetch_add(1, std::memory_order_relaxed);
+                if (job_idx >= jobs.size()) break;
+                const Job& job = jobs[job_idx];
+                results.emplace_back(job.bucket, bench_one_fn(job));
+            }
+            {
+                std::unique_lock lock(mutex);
+                if (--running == 0) cv_done.notify_all();
+            }
+        }
+    };
+    std::vector<std::thread> threads;
+    threads.reserve(*num_threads);
+    for (uint32_t t = 0; t < *num_threads; ++t) threads.emplace_back(worker_fn, t);
+
+    /** Statistics accumulated over all processed groups, keyed by (cluster size, algorithm). */
+    struct Stat {
+        uint64_t num{0};       //!< Number of (cluster, s) combinations accumulated.
+        double sum_medavg{0.0};
+        double max_medavg{0.0};
+        double max_medmax{0.0};
+    };
+    std::map<std::pair<uint32_t, uint32_t>, Stat> stats;
+    uint64_t total_clusters{0};
+
+    /** RNG used for shuffling job sets. */
+    InsecureRandomContext shuffle_rng(0xa93bc4762fe10c8f);
+    /** All measurements of the current group, indexed by bucket * med + repetition. */
+    std::vector<double> measurements;
+    /** Number of measurements gathered so far in each bucket of the current group. */
+    std::vector<uint32_t> counts;
+    /** Per bucket of the current group, the median of its measurements. */
+    std::vector<double> medians;
+
+    std::string line;
+    bool eof{false};
+    while (!eof) {
+        // Read the next group of clusters.
+        graphs.clear();
+        optins.clear();
+        refs.clear();
+        while (graphs.size() < group_size) {
+            if (!std::getline(infile, line)) {
+                eof = true;
+                break;
+            }
+            auto serdata = TryParseHex<uint8_t>(line);
+            if (!serdata.has_value()) continue;
+            DepGraph<BitSet<64>> depgraph;
+            try {
+                SpanReader reader(*serdata);
+                reader >> Using<DepGraphFormatter>(depgraph);
+            } catch (const std::ios_base::failure&) {
+                continue;
+            }
+            uint64_t ntx = depgraph.TxCount();
+            if (ntx < *min_tx || ntx > *max_tx) continue;
+            // Construct a randomized optimal linearization, for the sfl-fromopt benchmarks.
+            HashWriter hasher;
+            hasher << std::span{*serdata};
+            InsecureRandomContext rng(hasher.GetCheapHash());
+            std::vector<DepGraphIndex> optin;
+            optin.reserve(ntx);
+            for (auto t : depgraph.Positions()) optin.push_back(t);
+            std::shuffle(optin.begin(), optin.end(), rng);
+            auto [lin, lin_optimal, lin_cost] = Linearize(depgraph, 1000000000, rng.rand64(), IndexTxOrder{}, optin, /*is_topological=*/false);
+            // Before PostLinearize, the linearization is in canonical form (if optimal), serving
+            // as the reference to compare the benchmarked algorithms' outputs against.
+            refs.push_back(lin_optimal ? lin : std::vector<DepGraphIndex>{});
+            optin = std::move(lin);
+            PostLinearize(depgraph, optin);
+            graphs.push_back(std::move(depgraph));
+            optins.push_back(std::move(optin));
+        }
+        if (graphs.empty()) break;
+
+        // Construct a shuffled job set out of the group.
+        jobs.clear();
+        jobs.reserve(graphs.size() * NUM_ALGOS * *mul * SEEDS_PER_SET * *med);
+        for (uint32_t cluster_idx = 0; cluster_idx < graphs.size(); ++cluster_idx) {
+            for (uint32_t algo = 0; algo < NUM_ALGOS; ++algo) {
+                for (uint32_t s = 0; s < *mul; ++s) {
+                    for (uint32_t seed_off = 0; seed_off < SEEDS_PER_SET; ++seed_off) {
+                        Job job{
+                            .bucket = ((cluster_idx * NUM_ALGOS + algo) * uint32_t(*mul) + s) * SEEDS_PER_SET + seed_off,
+                            .cluster_idx = cluster_idx,
+                            .algo = algo,
+                            .rng_seed = s * SEEDS_PER_SET + seed_off,
+                        };
+                        for (uint32_t rep = 0; rep < *med; ++rep) jobs.push_back(job);
+                    }
+                }
+            }
+        }
+        std::shuffle(jobs.begin(), jobs.end(), shuffle_rng);
+
+        // Wake the benchmark threads, and wait for them to finish the job set.
+        {
+            std::unique_lock lock(mutex);
+            next_job.store(0, std::memory_order_relaxed);
+            running = *num_threads;
+            ++generation;
+        }
+        cv_start.notify_all();
+        {
+            std::unique_lock lock(mutex);
+            cv_done.wait(lock, [&] { return running == 0; });
+        }
+
+        // Gather the measurements into their buckets.
+        size_t num_buckets = graphs.size() * NUM_ALGOS * *mul * SEEDS_PER_SET;
+        measurements.assign(num_buckets * *med, 0.0);
+        counts.assign(num_buckets, 0);
+        for (auto& results : thread_results) {
+            for (const auto& [bucket, time] : results) {
+                measurements[bucket * *med + counts[bucket]++] = time;
+            }
+            results.clear();
+        }
+        // Compute the per-bucket medians.
+        medians.resize(num_buckets);
+        for (size_t bucket = 0; bucket < num_buckets; ++bucket) {
+            assert(counts[bucket] == *med);
+            auto begin = measurements.begin() + bucket * *med;
+            std::nth_element(begin, begin + *med / 2, begin + *med);
+            medians[bucket] = *(begin + *med / 2);
+        }
+        // Compute the medavg and medmax per (cluster, algo, s), and accumulate the statistics.
+        for (uint32_t cluster_idx = 0; cluster_idx < graphs.size(); ++cluster_idx) {
+            uint32_t ntx = graphs[cluster_idx].TxCount();
+            for (uint32_t algo = 0; algo < NUM_ALGOS; ++algo) {
+                for (uint32_t s = 0; s < *mul; ++s) {
+                    size_t base = ((cluster_idx * NUM_ALGOS + algo) * *mul + s) * SEEDS_PER_SET;
+                    double sum{0.0}, max{0.0};
+                    for (uint32_t seed_off = 0; seed_off < SEEDS_PER_SET; ++seed_off) {
+                        sum += medians[base + seed_off];
+                        max = std::max(max, medians[base + seed_off]);
+                    }
+                    auto& stat = stats[{ntx, algo}];
+                    stat.num += 1;
+                    stat.sum_medavg += sum / SEEDS_PER_SET;
+                    stat.max_medavg = std::max(stat.max_medavg, sum / SEEDS_PER_SET);
+                    stat.max_medmax = std::max(stat.max_medmax, max);
+                }
+            }
+        }
+        total_clusters += graphs.size();
+        std::cerr << "PROGRESS clusters=" << total_clusters << std::endl;
+    }
+
+    // Shut the benchmark threads down.
+    {
+        std::unique_lock lock(mutex);
+        shutdown = true;
+    }
+    cv_start.notify_all();
+    for (auto& thread : threads) thread.join();
+
+    // Report the final statistics.
+    for (const auto& [key, stat] : stats) {
+        const auto& [ntx, algo] = key;
+        std::cerr << "RESULT ntx=" << ntx
+                  << " algo=" << ALGO_NAMES[algo]
+                  << " num=" << stat.num
+                  << " avg_medavg=" << (stat.sum_medavg / stat.num)
+                  << " max_medavg=" << stat.max_medavg
+                  << " max_medmax=" << stat.max_medmax
+                  << std::endl;
+    }
+}
+
+BENCHMARK(BenchClusterLinearize);
