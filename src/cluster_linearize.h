@@ -6,10 +6,13 @@
 #define BITCOIN_CLUSTER_LINEARIZE_H
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
+#include <limits>
 #include <numeric>
 #include <optional>
 #include <ranges>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -1838,6 +1841,1028 @@ std::tuple<std::vector<DepGraphIndex>, bool, uint64_t> Linearize(
         } while (forest.GetCost() < max_cost);
     }
     return {forest.GetLinearization(fallback_order), optimal, forest.GetCost()};
+}
+
+/** The status of a group's forward-direction min-cut computation within MinCutState (see
+ *  MinCutState::SplitTies). */
+enum class MinCutForwardState {
+    UNINITIALIZED, //!< InitMinCut<false> has not been called for the group.
+    INITIALIZED,   //!< InitMinCut<false> has been called, but StepMinCut<false> has not yet returned true.
+    COMPLETE,      //!< StepMinCut<false> has returned true for the group.
+};
+
+/** Class to represent the internal state of the min-cut algorithm (matrix version). */
+template<typename SetType>
+class MinCutState
+{
+    /** Internal rng. */
+    InsecureRandomContext m_rng;
+
+    /** Data type to represent indexing into m_tx_data. */
+    using TxIdx = uint32_t;
+    /** Data type to represent indexing into m_dep_data. */
+    using DepIdx = std::conditional_t<SetType::Size() <= 32, uint8_t, std::conditional_t<SetType::Size() <= 512, uint16_t, uint32_t>>;
+
+    using FlowType = __int128;
+    static constexpr FlowType MAX_FLOW = std::numeric_limits<FlowType>::max();
+
+    /** Structure with information about a single transaction. The hottest fields (those
+     *  accessed by every push/relabel operation) come first, the per-cut snapshots and immutable
+     *  identity data last. */
+    struct TxData
+    {
+        /** Which transactions are (direct) parents of this one (immutable). */
+        SetType parents[2];
+        /** Whether the edge from this transaction to indexed peer (in that direction) is unsaturated. */
+        SetType unsaturated[2];
+        /** Excess flow in this node (always >= 0). */
+        FlowType excess[2];
+        /** Used flow from source (positive) or to sink (negative). */
+        FlowType sink_source_flow[2];
+        /** Allowed flow from source (positive) or to sink (negative). */
+        FlowType sink_source_capacity;
+        /** Individual feerate of this transaction (immutable). */
+        FeeFrac feerate;
+        /** Like sink_source_flow, but the value the flow had at the start of this cut. */
+        FlowType init_sink_source_flow[2];
+        /** Like excess, but the value the excess had at the start of this cut. */
+        FlowType init_excess[2];
+        /** Original DepGraphIndex (immutable). */
+        DepGraphIndex original_idx;
+        /** Indexes of dependencies involving this transaction as parent or child, by peer TxIdx (immutable). */
+        std::array<DepIdx, SetType::Size()> deps;
+    };
+
+    /** Structure with information about a single dependency. */
+    struct DepData
+    {
+        /** What the parent and child transactions are. Immutable after construction. */
+        TxIdx parent[2];
+        /** The flow of this edge. */
+        FlowType flow[2];
+        /** Like above, but the value the flow had at the start of this cut. */
+        FlowType init_flow[2];
+    };
+
+    size_t m_num_transactions;
+    std::vector<TxData> m_tx_data;
+    std::vector<DepData> m_dep_data;
+    FlowType m_scale;
+    bool m_optimal;
+
+    SetType m_current_group;
+    FeeFrac m_group_feerate;
+    int m_ntx;
+    uint64_t m_cost[2] = {0, 0};
+    SetType m_active_nodes[2];
+    SetType m_active_heights[2];
+    std::array<SetType, SetType::Size()> m_nodes_by_height[2];
+    int m_max_height[2];
+
+    uint64_t m_total_cost{0};
+
+    /** Scratch space for SplitTies (per-transaction reachable sets). */
+    std::vector<SetType> m_reach;
+
+public:
+    MinCutState(const DepGraph<SetType>& depgraph, uint64_t rng_seed) noexcept : m_rng(rng_seed)
+    {
+        std::vector<TxIdx> old_to_new(depgraph.PositionRange());
+        std::vector<DepGraphIndex> new_to_old;
+        new_to_old.reserve(depgraph.TxCount());
+        for (auto i : depgraph.Positions()) new_to_old.push_back(i);
+        std::shuffle(new_to_old.begin(), new_to_old.end(), m_rng);
+        m_num_transactions = 0;
+        for (auto i : new_to_old) old_to_new[i] = m_num_transactions++;
+        m_tx_data.resize(m_num_transactions);
+        m_reach.resize(m_num_transactions);
+        // Gather all reduced parent sets up front, so m_dep_data can be reserved.
+        std::vector<SetType> cached_parents(m_num_transactions);
+        size_t num_deps{0};
+        for (TxIdx tx = 0; tx < m_num_transactions; ++tx) {
+            cached_parents[tx] = depgraph.GetReducedParents(new_to_old[tx]);
+            num_deps += cached_parents[tx].Count();
+        }
+        m_dep_data.reserve(num_deps);
+        uint64_t sum_sizes{0};
+        __int128 sum_fees{0};
+        for (TxIdx tx = 0; tx < m_num_transactions; ++tx) {
+            m_total_cost += 2;
+            auto& tx_data = m_tx_data[tx];
+            tx_data.original_idx = new_to_old[tx];
+            tx_data.feerate = depgraph.FeeRate(new_to_old[tx]);
+            tx_data.sink_source_capacity = 0;
+            tx_data.sink_source_flow[0] = 0;
+            tx_data.sink_source_flow[1] = 0;
+            tx_data.init_sink_source_flow[0] = 0;
+            tx_data.init_sink_source_flow[1] = 0;
+            tx_data.excess[0] = 0;
+            tx_data.excess[1] = 0;
+            tx_data.init_excess[0] = 0;
+            tx_data.init_excess[1] = 0;
+            sum_sizes += tx_data.feerate.size;
+            if (tx_data.feerate.fee < 0) {
+                sum_fees -= tx_data.feerate.fee;
+            } else {
+                sum_fees += tx_data.feerate.fee;
+            }
+            for (auto old_par : cached_parents[tx]) {
+                m_total_cost += 5;
+                auto par = old_to_new[old_par];
+                tx_data.parents[0].Set(par);
+                DepIdx dep = m_dep_data.size();
+                auto& dep_data = m_dep_data.emplace_back();
+                dep_data.parent[0] = par;
+                dep_data.parent[1] = tx;
+                dep_data.flow[0] = 0;
+                dep_data.flow[1] = 0;
+                dep_data.init_flow[0] = 0;
+                dep_data.init_flow[1] = 0;
+                tx_data.deps[par] = dep;
+                m_tx_data[par].deps[tx] = dep;
+                m_tx_data[par].parents[1].Set(tx);
+                m_tx_data[par].unsaturated[1].Set(tx);
+            }
+            tx_data.unsaturated[0] = tx_data.parents[0];
+        }
+        auto limit = (((MAX_FLOW / sum_sizes) / sum_sizes) / sum_sizes) / 2;
+        if (sum_fees > limit) {
+            m_scale = (MAX_FLOW / sum_sizes) / sum_fees;
+            m_optimal = false;
+        } else {
+            m_scale = 2 * FlowType(sum_sizes) * sum_sizes;
+            m_optimal = true;
+        }
+    }
+
+    SetType FullGroup() const noexcept { return SetType::Fill(m_num_transactions); }
+    /** Compute the combined feerate of a set of transactions (in internal indexes). */
+    FeeFrac GroupFeeRate(const SetType& group) const noexcept
+    {
+        FeeFrac ret;
+        for (auto i : group) ret += m_tx_data[i].feerate;
+        return ret;
+    }
+    SetType OriginalIndexes(const SetType& group) const noexcept
+    {
+        SetType ret;
+        for (auto i : group) {
+            ret.Set(m_tx_data[i].original_idx);
+        }
+        return ret;
+    }
+
+    size_t GetNumDeps() const noexcept { return m_dep_data.size(); }
+
+    template<bool Reverse>
+    SetType FullRelabel() noexcept
+    {
+        SetType reachable, old_reachable;
+        m_active_nodes[Reverse] = SetType{};
+        m_active_heights[Reverse] = SetType();
+        m_max_height[Reverse] = -1;
+        // Only the first m_ntx entries can be in use (all heights are below the group size).
+        std::fill_n(m_nodes_by_height[Reverse].begin(), m_ntx, SetType{});
+        for (auto tx : m_current_group) {
+            auto& tx_data = m_tx_data[tx];
+            if (tx_data.sink_source_flow[Reverse] > (Reverse ? -tx_data.sink_source_capacity : tx_data.sink_source_capacity)) {
+                reachable.Set(tx);
+            }
+        }
+        m_total_cost += 4 * m_ntx;
+        int dist = 0;
+        while (true) {
+            auto added = reachable - old_reachable;
+            if (added.None()) break;
+            m_nodes_by_height[Reverse][dist] = added;
+            m_max_height[Reverse] = dist;
+            old_reachable = reachable;
+            m_total_cost += 1;
+            for (auto tx : added) {
+                m_total_cost += 2;
+                auto& tx_data = m_tx_data[tx];
+                if (tx_data.excess[Reverse] > 0) {
+                    m_active_nodes[Reverse].Set(tx);
+                    m_active_heights[Reverse].Set(dist);
+                }
+                Assume(dist < m_ntx);
+                reachable |= tx_data.parents[!Reverse] & m_current_group;
+                m_total_cost += 1;
+                for (auto parent : tx_data.parents[Reverse] & m_current_group) {
+                    m_total_cost += 2;
+                    auto& dep_data = m_dep_data[tx_data.deps[parent]];
+                    if (dep_data.flow[Reverse] > 0) {
+                        reachable.Set(parent);
+                    }
+                }
+            }
+            ++dist;
+        }
+        return reachable;
+    }
+
+    template<bool Reverse>
+    void InitMinCut(const SetType& group, const FeeFrac& group_feerate) noexcept
+    {
+        Assume(group.Any());
+        Assume(m_cost[Reverse] == 0);
+        m_current_group = group;
+        m_group_feerate = group_feerate;
+        Assume(group_feerate.size > 0);
+        m_total_cost += 10;
+        // Divide, rounding up, so that subsets whose feerate exactly equals the group's get
+        // (weakly) negative excess: the cuts computed here then only split off strictly-better
+        // subsets, and SplitTies() can refine a completed forward computation into an
+        // exact-lambda maximum flow using only capacity increases.
+        auto lambda = (m_scale * group_feerate.fee) / group_feerate.size;
+        lambda += (m_scale * group_feerate.fee) % group_feerate.size > 0;
+        m_ntx = group.Count();
+        for (auto i : group) {
+            m_total_cost += 5;
+            auto& tx_data = m_tx_data[i];
+            tx_data.sink_source_capacity = m_scale * tx_data.feerate.fee - lambda * tx_data.feerate.size;
+            const auto& real_capacity = Reverse ? -tx_data.sink_source_capacity : tx_data.sink_source_capacity;
+            if (tx_data.sink_source_flow[Reverse] < real_capacity) {
+                tx_data.excess[Reverse] += real_capacity - tx_data.sink_source_flow[Reverse];
+                tx_data.sink_source_flow[Reverse] = real_capacity;
+            }
+            Assume(tx_data.excess[Reverse] >= 0);
+        }
+        FullRelabel<Reverse>();
+        SanityCheck<Reverse>();
+    }
+
+    template<bool Reverse>
+    void SanityCheck() const noexcept
+    {
+        if constexpr (!G_FUZZING_BUILD) return;
+        assert(m_ntx >= 1);
+        assert(unsigned(m_ntx) <= SetType::Size());
+        int max_height = -1;
+        SetType active_nodes;
+        SetType active_heights;
+        for (auto tx : m_current_group) {
+            auto& tx_data = m_tx_data[tx];
+            if (tx_data.excess[Reverse] > 0) {
+                active_nodes.Set(tx);
+            }
+            for (auto par : tx_data.parents[Reverse]) {
+                assert(tx_data.unsaturated[Reverse][par]);
+            }
+            for (auto chl : tx_data.parents[!Reverse]) {
+                auto& dep_data = m_dep_data[tx_data.deps[chl]];
+                assert(tx_data.unsaturated[Reverse][chl] == (dep_data.flow[Reverse] > 0));
+            }
+        }
+        SetType seen;
+        bool had_gap = false;
+        for (int h = 0; h < m_ntx; ++h) {
+            auto current = m_nodes_by_height[Reverse][h];
+            assert(!current.Overlaps(seen));
+            seen |= current;
+            if (current.Overlaps(active_nodes)) {
+                active_heights.Set(h);
+            }
+            if (current.Any()) {
+                assert(!had_gap);
+                max_height = h;
+            } else {
+                had_gap = true;
+            }
+        }
+        assert(m_active_nodes[Reverse] == (active_nodes & seen));
+        assert(m_active_heights[Reverse] == active_heights);
+        assert(m_max_height[Reverse] == max_height);
+    }
+
+    template<bool Reverse>
+    bool StepMinCut() noexcept
+    {
+        // Find height with active nodes.
+        if (m_active_heights[Reverse].None()) return true;
+        int height = m_active_heights[Reverse].Last();
+        Assume(height < m_ntx);
+
+        // Pick an active node.
+        Assume(m_active_nodes[Reverse].Overlaps(m_nodes_by_height[Reverse][height]));
+        TxIdx tx = (m_active_nodes[Reverse] & m_nodes_by_height[Reverse][height]).First();
+        auto& tx_data = m_tx_data[tx];
+        Assume(tx_data.excess[Reverse] > 0 && height >= 0 && height < m_ntx);
+        // Mark it inactive (the loop below will run until it is inactive).
+        m_active_nodes[Reverse].Reset(tx);
+        if (!m_active_nodes[Reverse].Overlaps(m_nodes_by_height[Reverse][height])) {
+            m_active_heights[Reverse].Reset(height);
+        }
+
+        // Account for the work of picking an active node.
+        m_cost[Reverse] += 1;
+
+        if (height == 0) {
+            // Push to sink.
+            m_cost[Reverse] += 3;
+            auto discharge = std::min(tx_data.excess[Reverse], Reverse ? tx_data.sink_source_flow[Reverse] + tx_data.sink_source_capacity : tx_data.sink_source_flow[Reverse] - tx_data.sink_source_capacity);
+            if (discharge > 0) {
+                m_cost[Reverse] += 1;
+                tx_data.sink_source_flow[Reverse] -= discharge;
+                tx_data.excess[Reverse] -= discharge;
+                if (tx_data.excess[Reverse] == 0) return false;
+            }
+        }
+
+        Assume(tx_data.excess[Reverse] > 0);
+
+        while (true) {
+            Assume(tx_data.excess[Reverse] > 0);
+            Assume(height >= 0);
+            Assume(height < m_ntx);
+            // Check if there are any edges to push through; if not, relabel.
+            m_cost[Reverse] += 1;
+            if (height == 0 || !tx_data.unsaturated[Reverse].Overlaps(m_nodes_by_height[Reverse][height - 1])) {
+                // Unregister this transaction at its current height, because that height will
+                // increase.
+                m_cost[Reverse] += 1;
+                m_nodes_by_height[Reverse][height].Reset(tx);
+                // Gap detection optimization.
+                if (m_nodes_by_height[Reverse][height].None()) {
+                    // Update m_max_height if needed.
+                    if (height == m_max_height[Reverse]) {
+                        --m_max_height[Reverse];
+                    }
+                    Assume(m_max_height[Reverse] == -1 || m_nodes_by_height[Reverse][m_max_height[Reverse]].Any());
+                    // Mark this and higher nodes as unreachable.
+                    m_max_height[Reverse] = height - 1;
+                    ++height;
+                    while (height < m_ntx && m_nodes_by_height[Reverse][height].Any()) {
+                        m_cost[Reverse] += 1;
+                        m_nodes_by_height[Reverse][height] = SetType();
+                        m_active_heights[Reverse].Reset(height);
+                        ++height;
+                    }
+                    return false;
+                }
+                // Increment height until limit is reached, or edges are found.
+                do {
+                    m_cost[Reverse] += 1;
+                    // If incrementing further would introduce a gap, leave this node unreachable.
+                    if (height == m_max_height[Reverse] + 1 || height == m_ntx - 1) {
+                        return false;
+                    }
+                    ++height;
+                    Assume(height < m_ntx);
+                } while (!tx_data.unsaturated[Reverse].Overlaps(m_nodes_by_height[Reverse][height - 1]));
+                // Register the transaction at its new height.
+                m_nodes_by_height[Reverse][height].Set(tx);
+                m_max_height[Reverse] = std::max(m_max_height[Reverse], height);
+            }
+            Assume(tx_data.excess[Reverse] > 0);
+            Assume(height >= 1);
+            Assume(height < m_ntx);
+
+            m_cost[Reverse] += 6;
+            Assume(tx_data.unsaturated[Reverse].Overlaps(m_nodes_by_height[Reverse][height - 1]));
+            auto push_to = (tx_data.unsaturated[Reverse] & (m_nodes_by_height[Reverse][height - 1])).First();
+            m_active_nodes[Reverse].Set(push_to);
+            m_active_heights[Reverse].Set(height - 1);
+            auto& push_to_data = m_tx_data[push_to];
+            auto dep = tx_data.deps[push_to];
+            auto& dep_data = m_dep_data[dep];
+            Assume(tx_data.excess[Reverse] > 0);
+            if (dep_data.parent[!Reverse] == tx) {
+                // Upward non-saturating push (capacity is infinite).
+                push_to_data.unsaturated[Reverse].Set(tx);
+                dep_data.flow[Reverse] += tx_data.excess[Reverse];
+                push_to_data.excess[Reverse] += tx_data.excess[Reverse];
+                tx_data.excess[Reverse] = 0;
+                return false;
+            } else if (tx_data.excess[Reverse] < dep_data.flow[Reverse]) {
+                // Downward non-saturating push.
+                Assume(dep_data.flow[Reverse] > 0);
+                dep_data.flow[Reverse] -= tx_data.excess[Reverse];
+                Assume(dep_data.flow[Reverse] >= 0);
+                push_to_data.excess[Reverse] += tx_data.excess[Reverse];
+                tx_data.excess[Reverse] = 0;
+                return false;
+            } else {
+                // Downward saturating push.
+                Assume(dep_data.flow[Reverse] > 0);
+                push_to_data.excess[Reverse] += dep_data.flow[Reverse];
+                tx_data.excess[Reverse] -= dep_data.flow[Reverse];
+                Assume(tx_data.excess[Reverse] >= 0);
+                dep_data.flow[Reverse] = 0;
+                tx_data.unsaturated[Reverse].Reset(push_to);
+                if (tx_data.excess[Reverse] == 0) return false;
+            }
+        }
+    }
+
+    template<bool Reverse>
+        std::pair<SetType, SetType> GetCut() noexcept
+    {
+        auto sink_side = FullRelabel<Reverse>();
+        auto source_side = m_current_group - sink_side;
+        m_total_cost += 1;
+        if constexpr (Reverse) {
+            return {sink_side, source_side};
+        } else {
+            return {source_side, sink_side};
+        }
+    }
+
+    void AccountForPushes() noexcept
+    {
+        m_total_cost += m_cost[0];
+        m_total_cost += m_cost[1];
+        m_cost[0] = 0;
+        m_cost[1] = 0;
+    }
+
+    /** Split a group in two, breaking the dependencies between them, and from each side's
+     *  perspective, contract the other one into the source or sink. */
+    void SplitGraph(const SetType& top_side, const SetType& bottom_side) noexcept
+    {
+        for (auto par : top_side) {
+            m_total_cost += 2;
+            auto& par_data = m_tx_data[par];
+            for (auto child : par_data.parents[1] & bottom_side) {
+                m_total_cost += 3;
+                auto& dep_data = m_dep_data[par_data.deps[child]];
+                // Found an edge across the cut.
+                // Convert current forward flow across into sink/source flow.
+                par_data.sink_source_flow[0] += dep_data.flow[0];
+                // Convert initial forward flow across into initial sink/source flow.
+                par_data.init_sink_source_flow[0] += dep_data.init_flow[0];
+                // Convert current reverse flow across into sink/source flow.
+                par_data.sink_source_flow[1] -= dep_data.flow[1];
+                // Convert initial reverse flow across into initial sink/source flow.
+                par_data.init_sink_source_flow[1] -= dep_data.init_flow[1];
+            }
+            par_data.parents[1] -= bottom_side;
+        }
+        for (auto chl : bottom_side) {
+            m_total_cost += 2;
+            auto& chl_data = m_tx_data[chl];
+            for (auto par : chl_data.parents[0] & top_side) {
+                m_total_cost += 3;
+                auto& dep_data = m_dep_data[chl_data.deps[par]];
+                // Found an edge across the cut.
+                // Convert current forward flow across into sink/source flow.
+                chl_data.sink_source_flow[0] -= dep_data.flow[0];
+                // Convert initial forward flow across into initial sink/source flow.
+                chl_data.init_sink_source_flow[0] -= dep_data.init_flow[0];
+                // Convert current reverse flow across into sink/source flow.
+                chl_data.sink_source_flow[1] += dep_data.flow[1];
+                // Convert initial reverse flow across into initial sink/source flow.
+                chl_data.init_sink_source_flow[1] += dep_data.init_flow[1];
+            }
+            chl_data.parents[0] -= top_side;
+        }
+    }
+
+    template<bool Reverse>
+    void UndoFlows(const SetType& group) noexcept
+    {
+        for (auto i : group) {
+            m_total_cost += 1;
+            auto& tx_data = m_tx_data[i];
+            tx_data.sink_source_flow[Reverse] = tx_data.init_sink_source_flow[Reverse];
+            tx_data.excess[Reverse] = tx_data.init_excess[Reverse];
+            tx_data.unsaturated[Reverse] = tx_data.parents[Reverse];
+            for (auto chl : tx_data.parents[!Reverse]) {
+                m_total_cost += 2;
+                auto dep = tx_data.deps[chl];
+                auto& dep_data = m_dep_data[dep];
+                dep_data.flow[Reverse] = dep_data.init_flow[Reverse];
+                if (dep_data.flow[Reverse] > 0) tx_data.unsaturated[Reverse].Set(chl);
+            }
+        }
+    }
+
+    template<bool Reverse>
+    void AcceptFlows(const SetType& group) noexcept
+    {
+        for (auto i : group) {
+            m_total_cost += 1;
+            auto& tx_data = m_tx_data[i];
+            tx_data.init_sink_source_flow[Reverse] = tx_data.sink_source_flow[Reverse];
+            tx_data.init_excess[Reverse] = tx_data.excess[Reverse];
+            for (auto chl : tx_data.parents[!Reverse]) {
+                m_total_cost += 2;
+                auto dep = tx_data.deps[chl];
+                auto& dep_data = m_dep_data[dep];
+                dep_data.init_flow[Reverse] = dep_data.flow[Reverse];
+            }
+        }
+    }
+
+    /** Split the current group into minimal chunks, calling emit_fn for each of them (as a set
+     *  of original DepGraphIndexes, together with its feerate, in no particular order).
+     *
+     * Can only be called on a group whose min-cut computation completed with a trivial cut (one
+     * side empty), meaning no subset of the group that contains all its own in-group ancestors
+     * has feerate strictly higher than the group itself: the group is a chunk. It may however
+     * still consist of multiple minimal chunks of feerate exactly equal to the group's; this
+     * function computes that decomposition. forward_state must describe the status of the
+     * group's forward-direction computation (which may not have run, or run to completion, when
+     * the cut was found using the reverse direction).
+     *
+     * Call a subset of the group which contains all its own in-group ancestors, and whose
+     * feerate exactly equals the group's, a tie-set. This includes the empty set and the group
+     * itself, and with group feerate p/q in lowest terms, the size of every tie-set is a
+     * multiple of q. Tie-sets are closed under union and intersection, and the minimal chunks
+     * are the equivalence classes of the relation "appearing together in every tie-set". The
+     * tie-sets are exactly the maximum-weight closures of the group's min-cut network at lambda
+     * equal to the exact group feerate, which makes those equivalence classes the strongly
+     * connected components of the residual graph of any maximum flow at that lambda:
+     * - Dependency arcs only cross tie-set boundaries in one direction, while every transaction
+     *   uses its (exact-lambda) source or sink capacity fully, so conservation forces the flow
+     *   across each tie-set boundary to zero in aggregate, and thus per arc. No residual arc
+     *   therefore leaves any tie-set, and no strongly connected component spans multiple
+     *   minimal chunks.
+     * - Conversely, a subset of a minimal chunk without outgoing residual arcs would itself be a
+     *   tie-set, contradicting the chunk's minimality.
+     *
+     * Because InitMinCut() rounds lambda up, the capacities used so far were (in q-scaled units)
+     * at most the exact-lambda ones, and the completed forward computation left a genuine
+     * maximum flow for them (rounding up means no closed set has positive excess, which forces
+     * all excess to drain). Multiplying the flow by q and raising the capacities to the exact
+     * values therefore yields a state from which the push-relabel computation can simply resume,
+     * re-terminating in a maximum flow for the exact lambda.
+     */
+    template<typename EmitFn>
+    void SplitTies(MinCutForwardState forward_state, EmitFn&& emit_fn) noexcept
+    {
+        // Singleton groups are always minimal.
+        if (m_ntx == 1) {
+            emit_fn(OriginalIndexes(m_current_group), m_tx_data[m_current_group.First()].feerate);
+            return;
+        }
+        // Compute the denominator q of the group feerate's reduced form p/q.
+        const int64_t fee = m_group_feerate.fee;
+        const int32_t size = m_group_feerate.size;
+        const uint64_t fee_mag = fee < 0 ? 0 - uint64_t(fee) : uint64_t(fee);
+        const int64_t gcd = fee_mag == 0 ? size : int64_t(std::gcd(fee_mag, uint64_t(size)));
+        const int64_t q = size / gcd;
+        // A nonempty tie-set that is a proper subset of the group has size q, 2q, ..., but less
+        // than the group size itself. If no such multiple exists (the common case), the group is
+        // a single minimal chunk.
+        if (2 * q > size) {
+            emit_fn(OriginalIndexes(m_current_group), m_group_feerate);
+            return;
+        }
+        // Make sure the forward-direction min-cut computation has completed.
+        if (forward_state != MinCutForwardState::COMPLETE) {
+            if (forward_state == MinCutForwardState::UNINITIALIZED) InitMinCut<false>(m_current_group, m_group_feerate);
+            while (!StepMinCut<false>()) {}
+        }
+        // Determine by how much every capacity, rescaled by q, needs to increase per unit of
+        // transaction size in order to correspond to the exact lambda.
+        const FlowType num = m_scale * fee;
+        FlowType lambda = num / size;
+        lambda += (num % size) > 0; // lambda = ceil(num / size), matching InitMinCut.
+        const FlowType cap_shift = FlowType{q} * lambda - m_scale * (fee / gcd);
+        Assume(cap_shift >= 0 && cap_shift < q);
+        if (cap_shift > 0) {
+            // Rescale the flow state by q, and raise the capacities to the exact-lambda values,
+            // converting new unused source capacity into excess like InitMinCut() does.
+            for (auto i : m_current_group) {
+                m_total_cost += 5;
+                auto& tx_data = m_tx_data[i];
+                Assume(tx_data.excess[0] == 0);
+                tx_data.sink_source_flow[0] *= q;
+                tx_data.sink_source_capacity = tx_data.sink_source_capacity * q + cap_shift * tx_data.feerate.size;
+                if (tx_data.sink_source_flow[0] < tx_data.sink_source_capacity) {
+                    tx_data.excess[0] = tx_data.sink_source_capacity - tx_data.sink_source_flow[0];
+                    tx_data.sink_source_flow[0] = tx_data.sink_source_capacity;
+                }
+                for (auto par : tx_data.parents[0]) {
+                    m_total_cost += 1;
+                    m_dep_data[tx_data.deps[par]].flow[0] *= q;
+                }
+            }
+            FullRelabel<false>();
+            SanityCheck<false>();
+            while (!StepMinCut<false>()) {}
+        }
+        // The state now holds a maximum flow for the exact lambda, using all capacities exactly
+        // (the group itself is a tie-set, forcing zero excess and exact saturation everywhere).
+        // Its residual graph among the group's transactions is recorded in unsaturated[0]: each
+        // transaction's in-group parents (as dependency arcs have unbounded capacity), plus the
+        // children whose dependency carries flow. Compute every transaction's set of
+        // residual-reachable transactions with a fixpoint iteration.
+        auto& reach = m_reach;
+        for (auto i : m_current_group) {
+            m_total_cost += 2;
+            Assume(m_tx_data[i].excess[0] == 0);
+            Assume(m_tx_data[i].sink_source_flow[0] == m_tx_data[i].sink_source_capacity);
+            reach[i] = m_tx_data[i].unsaturated[0] & m_current_group;
+            reach[i].Set(i);
+        }
+        bool changed{true};
+        while (changed) {
+            changed = false;
+            for (auto i : m_current_group) {
+                m_total_cost += 2;
+                SetType new_reach = reach[i];
+                for (auto j : reach[i]) new_reach |= reach[j];
+                if (new_reach != reach[i]) {
+                    reach[i] = new_reach;
+                    changed = true;
+                }
+            }
+        }
+        // Emit the components (sets of mutually reachable transactions).
+        SetType todo = m_current_group;
+        for (auto i : m_current_group) {
+            if (!todo[i]) continue;
+            SetType component;
+            FeeFrac component_feerate;
+            for (auto j : reach[i]) {
+                m_total_cost += 1;
+                if (reach[j][i]) {
+                    component.Set(j);
+                    component_feerate += m_tx_data[j].feerate;
+                }
+            }
+            todo -= component;
+            // Every minimal chunk has feerate exactly equal to the group's.
+            Assume(FlowType{component_feerate.fee} * size == FlowType{fee} * component_feerate.size);
+            emit_fn(OriginalIndexes(component), component_feerate);
+        }
+        Assume(todo.None());
+    }
+
+    int FasterDirection() const noexcept { return m_cost[1] < m_cost[0]; }
+    bool MayBeOptimal() const noexcept { return m_optimal; }
+    /** Return a uniformly random boolean, using the internal RNG. */
+    bool RandBool() noexcept { return m_rng.randbool(); }
+    uint64_t CountDeps() const noexcept { return m_dep_data.size(); }
+    uint64_t GetCost() const noexcept { return m_total_cost; }
+};
+
+/** Construct a linearization whose chunks are the provided ones, ordered canonically.
+ *
+ * chunks must be a partition of depgraph's transactions such that a topologically valid
+ * linearization exists which has exactly these chunks (in some order). The order of the input
+ * chunks is irrelevant.
+ *
+ * The result matches what SpanningForestState::GetLinearization would produce for a forest state
+ * with the same chunks:
+ * - The chunks are sorted by (in decreasing order of priority):
+ *   - topology (chunks that are depended upon come first)
+ *   - highest chunk feerate first
+ *   - smallest chunk size first
+ *   - the chunk with the lowest maximum transaction, by fallback_order, first
+ * - The transactions within a chunk are sorted by (in decreasing order of priority):
+ *   - topology (parents before children)
+ *   - highest tx feerate first
+ *   - smallest tx size first
+ *   - the lowest transaction, by fallback_order, first
+ */
+template<typename SetType>
+std::vector<DepGraphIndex> LinearizeChunks(
+    const DepGraph<SetType>& depgraph,
+    std::span<const SetInfo<SetType>> chunks,
+    const StrongComparator<DepGraphIndex> auto& fallback_order) noexcept
+{
+    /** The output linearization. */
+    std::vector<DepGraphIndex> ret;
+    ret.reserve(depgraph.TxCount());
+    /** For every transaction, the index in chunks of the chunk it belongs to. */
+    std::vector<uint32_t> tx_chunk(depgraph.PositionRange());
+    /** For every transaction, its set of reduced parents. */
+    std::vector<SetType> tx_parents(depgraph.PositionRange());
+    /** For every transaction, its set of children (matching the reduced parents). */
+    std::vector<SetType> tx_children(depgraph.PositionRange());
+    /** For every transaction, the number of unmet dependencies it has. */
+    std::vector<uint32_t> tx_deps(depgraph.PositionRange(), 0);
+    /** For every chunk, the number of unmet dependencies its transactions have on transactions
+     *  in other chunks. */
+    std::vector<uint32_t> chunk_deps(chunks.size(), 0);
+    for (uint32_t chunk_idx = 0; chunk_idx < chunks.size(); ++chunk_idx) {
+        for (auto tx : chunks[chunk_idx].transactions) {
+            tx_chunk[tx] = chunk_idx;
+            tx_parents[tx] = depgraph.GetReducedParents(tx);
+            for (auto par : tx_parents[tx]) tx_children[par].Set(tx);
+            tx_deps[tx] = tx_parents[tx].Count();
+            chunk_deps[chunk_idx] += (tx_parents[tx] - chunks[chunk_idx].transactions).Count();
+        }
+    }
+    /** A heap with all chunks (by index in chunks) that can currently be included, sorted by
+     *  chunk feerate (high to low), chunk size (small to large), and by least maximum element
+     *  according to the fallback order (which is the second pair element). */
+    std::vector<std::pair<uint32_t, DepGraphIndex>> ready_chunks;
+    ready_chunks.reserve(chunks.size());
+    /** A heap with all transactions within the current chunk that can be included, sorted by
+     *  tx feerate (high to low), tx size (small to large), and fallback order. */
+    std::vector<DepGraphIndex> ready_tx;
+    ready_tx.reserve(depgraph.TxCount());
+    /** Function to compute the highest element of a chunk, by fallback_order. */
+    auto max_fallback_fn = [&](uint32_t chunk_idx) noexcept {
+        const auto& chunk = chunks[chunk_idx].transactions;
+        auto it = chunk.begin();
+        DepGraphIndex ret = *it;
+        ++it;
+        while (it != chunk.end()) {
+            if (fallback_order(*it, ret) > 0) ret = *it;
+            ++it;
+        }
+        return ret;
+    };
+    /** Comparison function for the transaction heap. Note that it is a max-heap, so
+     *  tx_cmp_fn(a, b) == true means "a appears after b in the linearization". */
+    auto tx_cmp_fn = [&](const auto& a, const auto& b) noexcept {
+        // Bail out for identical transactions.
+        if (a == b) return false;
+        // First sort by increasing transaction feerate.
+        auto& a_feerate = depgraph.FeeRate(a);
+        auto& b_feerate = depgraph.FeeRate(b);
+        auto feerate_cmp = ByRatio{a_feerate} <=> ByRatio{b_feerate};
+        if (feerate_cmp != 0) return feerate_cmp < 0;
+        // Then by decreasing transaction size.
+        if (a_feerate.size != b_feerate.size) {
+            return a_feerate.size > b_feerate.size;
+        }
+        // Tie-break by decreasing fallback_order.
+        auto fallback_cmp = fallback_order(a, b);
+        if (fallback_cmp != 0) return fallback_cmp > 0;
+        // This should not be hit, because fallback_order defines a strong ordering.
+        Assume(false);
+        return a < b;
+    };
+    /** Comparison function for the chunk heap. Note that it is a max-heap, so
+     *  chunk_cmp_fn(a, b) == true means "a appears after b in the linearization". */
+    auto chunk_cmp_fn = [&](const auto& a, const auto& b) noexcept {
+        // Bail out for identical chunks.
+        if (a.first == b.first) return false;
+        // First sort by increasing chunk feerate.
+        auto& chunk_feerate_a = chunks[a.first].feerate;
+        auto& chunk_feerate_b = chunks[b.first].feerate;
+        auto feerate_cmp = ByRatio{chunk_feerate_a} <=> ByRatio{chunk_feerate_b};
+        if (feerate_cmp != 0) return feerate_cmp < 0;
+        // Then by decreasing chunk size.
+        if (chunk_feerate_a.size != chunk_feerate_b.size) {
+            return chunk_feerate_a.size > chunk_feerate_b.size;
+        }
+        // Tie-break by decreasing fallback_order.
+        auto fallback_cmp = fallback_order(a.second, b.second);
+        if (fallback_cmp != 0) return fallback_cmp > 0;
+        // This should not be hit, because fallback_order defines a strong ordering.
+        Assume(false);
+        return a.second < b.second;
+    };
+    // Construct a heap with all chunks that have no out-of-chunk dependencies.
+    for (uint32_t chunk_idx = 0; chunk_idx < chunks.size(); ++chunk_idx) {
+        if (chunk_deps[chunk_idx] == 0) {
+            ready_chunks.emplace_back(chunk_idx, max_fallback_fn(chunk_idx));
+        }
+    }
+    std::make_heap(ready_chunks.begin(), ready_chunks.end(), chunk_cmp_fn);
+    // Pop chunks off the heap.
+    while (!ready_chunks.empty()) {
+        auto [chunk_idx, _max_fallback] = ready_chunks.front();
+        std::pop_heap(ready_chunks.begin(), ready_chunks.end(), chunk_cmp_fn);
+        ready_chunks.pop_back();
+        Assume(chunk_deps[chunk_idx] == 0);
+        const auto& chunk_txn = chunks[chunk_idx].transactions;
+        // Build heap of all includable transactions in chunk.
+        Assume(ready_tx.empty());
+        for (auto tx_idx : chunk_txn) {
+            if (tx_deps[tx_idx] == 0) ready_tx.push_back(tx_idx);
+        }
+        Assume(!ready_tx.empty());
+        std::make_heap(ready_tx.begin(), ready_tx.end(), tx_cmp_fn);
+        // Pick transactions from the ready heap, append them to linearization, and decrement
+        // dependency counts.
+        while (!ready_tx.empty()) {
+            // Pop an element from the tx_ready heap.
+            auto tx_idx = ready_tx.front();
+            std::pop_heap(ready_tx.begin(), ready_tx.end(), tx_cmp_fn);
+            ready_tx.pop_back();
+            // Append to linearization.
+            ret.push_back(tx_idx);
+            // Decrement dependency counts.
+            for (auto chl_idx : tx_children[tx_idx]) {
+                // Decrement tx dependency count.
+                Assume(tx_deps[chl_idx] > 0);
+                if (--tx_deps[chl_idx] == 0 && chunk_txn[chl_idx]) {
+                    // Child tx has no dependencies left, and is in this chunk. Add it to the tx heap.
+                    ready_tx.push_back(chl_idx);
+                    std::push_heap(ready_tx.begin(), ready_tx.end(), tx_cmp_fn);
+                }
+                // Decrement chunk dependency count if this is an out-of-chunk dependency.
+                if (tx_chunk[chl_idx] != chunk_idx) {
+                    Assume(chunk_deps[tx_chunk[chl_idx]] > 0);
+                    if (--chunk_deps[tx_chunk[chl_idx]] == 0) {
+                        // Child chunk has no dependencies left. Add it to the chunk heap.
+                        ready_chunks.emplace_back(tx_chunk[chl_idx], max_fallback_fn(tx_chunk[chl_idx]));
+                        std::push_heap(ready_chunks.begin(), ready_chunks.end(), chunk_cmp_fn);
+                    }
+                }
+            }
+        }
+    }
+    Assume(ret.size() == depgraph.TxCount());
+    return ret;
+}
+
+/** Which direction(s) GGTLinearizeImpl runs its min-cut computations in. */
+enum class GGTDirection {
+    BOTH,    //!< Race the forward and reverse direction against one another (GGTLinearize).
+    FORWARD, //!< Always run the forward direction (GGT1Linearize).
+    RANDOM,  //!< Run a uniformly random direction per min-cut computation (GGTRLinearize).
+};
+
+/** Shared implementation of GGTLinearize(), GGT1Linearize(), and GGTRLinearize(). Performs a
+ *  breakpoint decomposition of the cluster through repeated parametric min-cut computations (in
+ *  the direction(s) determined by Dir), splits the resulting chunks into minimal ones, and
+ *  orders the result canonically. */
+template<GGTDirection Dir, typename SetType>
+std::tuple<std::vector<DepGraphIndex>, bool, uint64_t> GGTLinearizeImpl(
+    const DepGraph<SetType>& depgraph,
+    uint64_t rng_seed,
+    const StrongComparator<DepGraphIndex> auto& fallback_order) noexcept
+{
+    if (depgraph.TxCount() == 0) return {{}, true, 0};
+    /** The chunks of the (optimal) linearization being computed. */
+    std::vector<SetInfo<SetType>> chunks;
+    chunks.reserve(depgraph.TxCount());
+    /** Stack of groups of transactions that remain to be decomposed (with their feerates, in
+     *  MinCutState's internal transaction indexes). */
+    std::vector<SetInfo<SetType>> groups;
+    groups.reserve(depgraph.TxCount());
+    MinCutState state(depgraph, rng_seed);
+    bool optimal = state.MayBeOptimal();
+    /** Emit a finished group: one that has no closed subset with strictly higher feerate than
+     *  itself, making it a chunk (though one possibly consisting of multiple equal-feerate
+     *  minimal chunks). forward_state describes the status of the group's forward-direction
+     *  min-cut computation. */
+    auto emit_group_fn = [&](const SetInfo<SetType>& group_info, MinCutForwardState forward_state) noexcept {
+        if (optimal) {
+            state.SplitTies(forward_state, [&](const SetType& chunk_txn, const FeeFrac& chunk_feerate) noexcept {
+                chunks.emplace_back(chunk_txn, chunk_feerate);
+            });
+        } else {
+            // Without exact min-cut computations, the finished groups are not guaranteed to be
+            // actual chunks, and SplitTies' preconditions may not hold.
+            chunks.emplace_back(state.OriginalIndexes(group_info.transactions), group_info.feerate);
+        }
+    };
+    groups.emplace_back(state.FullGroup(), state.GroupFeeRate(state.FullGroup()));
+    while (!groups.empty()) {
+        auto group_info = groups.back();
+        groups.pop_back();
+        const auto& group = group_info.transactions;
+        Assume(group.Any());
+
+        // Find a min cut that splits the group into a part with feerate strictly higher than the
+        // group's overall feerate (top_side), and a part with feerate strictly lower than it
+        // (bottom_side). If either of those is empty, the group cannot be split further, and
+        // forms a chunk of the output.
+        SetType top_side, bottom_side;
+        MinCutForwardState forward_state{MinCutForwardState::UNINITIALIZED};
+        if constexpr (Dir == GGTDirection::BOTH) {
+            state.template InitMinCut<false>(group, group_info.feerate);
+            state.template InitMinCut<true>(group, group_info.feerate);
+            forward_state = MinCutForwardState::INITIALIZED;
+            while (true) {
+                state.template SanityCheck<false>();
+                state.template SanityCheck<true>();
+                if (state.FasterDirection() == 1) {
+                    // Do a step in the reverse direction.
+                    if (state.template StepMinCut<true>()) {
+                        // Get the cut, if it completes.
+                        std::tie(top_side, bottom_side) = state.template GetCut<true>();
+                        // Complete the forward direction if its source side is more than half the graph.
+                        if (top_side.Any() && bottom_side.Count() * 2 > group.Count()) {
+                            while (!state.template StepMinCut<false>()) {}
+                            forward_state = MinCutForwardState::COMPLETE;
+                        }
+                        break;
+                    }
+                } else {
+                    // Do a step in the forward direction.
+                    if (state.template StepMinCut<false>()) {
+                        forward_state = MinCutForwardState::COMPLETE;
+                        // Get the cut, if it completes.
+                        std::tie(top_side, bottom_side) = state.template GetCut<false>();
+                        // Complete the backward direction if its source side is more than half the graph.
+                        if (bottom_side.Any() && top_side.Count() * 2 > group.Count()) {
+                            while (!state.template StepMinCut<true>()) {}
+                        }
+                        break;
+                    }
+                }
+            }
+        } else {
+            /** Whether to run this group's min-cut computation in the reverse direction. */
+            bool use_reverse{false};
+            if constexpr (Dir == GGTDirection::RANDOM) use_reverse = state.RandBool();
+            if (use_reverse) {
+                state.template InitMinCut<true>(group, group_info.feerate);
+                do {
+                    state.template SanityCheck<true>();
+                } while (!state.template StepMinCut<true>());
+                std::tie(top_side, bottom_side) = state.template GetCut<true>();
+            } else {
+                state.template InitMinCut<false>(group, group_info.feerate);
+                do {
+                    state.template SanityCheck<false>();
+                } while (!state.template StepMinCut<false>());
+                forward_state = MinCutForwardState::COMPLETE;
+                std::tie(top_side, bottom_side) = state.template GetCut<false>();
+            }
+        }
+
+        if (bottom_side.None() || top_side.None()) {
+            emit_group_fn(group_info, forward_state);
+        } else {
+            Assume(top_side.Any());
+            Assume(bottom_side.Any());
+            // Compute the feerates of the two sides (one by summing, the other by subtracting
+            // from the group's known feerate).
+            SetInfo<SetType> top_info(top_side, state.GroupFeeRate(top_side));
+            SetInfo<SetType> bottom_info(bottom_side, group_info.feerate - top_info.feerate);
+            state.SplitGraph(top_side, bottom_side);
+            state.template UndoFlows<false>(top_side);
+            state.template AcceptFlows<false>(bottom_side);
+            if constexpr (Dir != GGTDirection::FORWARD) {
+                // Also maintain the reverse-direction flow snapshots, as later min-cut
+                // computations may use that direction. When this group's computation did not run
+                // in the reverse direction, these are no-ops, as outside of a reverse-direction
+                // computation, every reverse flow equals its last snapshot.
+                state.template UndoFlows<true>(bottom_side);
+                state.template AcceptFlows<true>(top_side);
+            }
+            groups.push_back(std::move(bottom_info));
+            groups.push_back(std::move(top_info));
+        }
+        state.AccountForPushes();
+    }
+
+    return {LinearizeChunks<SetType>(depgraph, chunks, fallback_order), optimal, state.GetCost()};
+}
+
+/** Find an optimal linearization for a cluster, using the parametric min-cut breakpoint
+ *  decomposition approach of Gallo, Grigoriadis, and Tarjan (GGT), racing min-cut computations
+ *  in the forward and reverse directions against one another.
+ *
+ * Unlike Linearize(), this computes an optimal linearization directly; it cannot improve an
+ * existing linearization incrementally, and has no cost limit.
+ *
+ * @param[in] depgraph        Dependency graph of the cluster to be linearized.
+ * @param[in] rng_seed        A random number seed to control the order in which the internal
+ *                            min-cut computations process transactions. It has no impact on the
+ *                            result, except when the optimality guarantee does not hold (see
+ *                            below).
+ * @param[in] fallback_order  A comparator to order transactions, used to sort equal-feerate
+ *                            chunks and transactions. See LinearizeChunks for details.
+ * @return                    A tuple of:
+ *                            - The resulting linearization, in the same canonical form
+ *                              Linearize() produces for optimal results.
+ *                            - A boolean indicating whether the result is guaranteed to be
+ *                              optimal with minimal chunks. This is true, except when the
+ *                              cluster's combined fees and sizes are so large that the internal
+ *                              flow computations could overflow.
+ *                            - How much work was performed, in cost units specific to this
+ *                              algorithm (not comparable with Linearize's cost).
+ *
+ * Complexity: O(N^2 sqrt(M)), where N=depgraph.TxCount() and M=number of reduced dependencies
+ * (N-1 <= M <= N^2/4).
+ */
+template<typename SetType>
+std::tuple<std::vector<DepGraphIndex>, bool, uint64_t> GGTLinearize(
+    const DepGraph<SetType>& depgraph,
+    uint64_t rng_seed,
+    const StrongComparator<DepGraphIndex> auto& fallback_order) noexcept
+{
+    return GGTLinearizeImpl<GGTDirection::BOTH>(depgraph, rng_seed, fallback_order);
+}
+
+/** Like GGTLinearize(), but performing min-cut computations in the forward direction only,
+ *  rather than racing both directions against one another. */
+template<typename SetType>
+std::tuple<std::vector<DepGraphIndex>, bool, uint64_t> GGT1Linearize(
+    const DepGraph<SetType>& depgraph,
+    uint64_t rng_seed,
+    const StrongComparator<DepGraphIndex> auto& fallback_order) noexcept
+{
+    return GGTLinearizeImpl<GGTDirection::FORWARD>(depgraph, rng_seed, fallback_order);
+}
+
+/** Like GGTLinearize(), but running each min-cut computation in a single uniformly random
+ *  direction, rather than racing both directions against one another. Averaged over the
+ *  randomness this is expected to perform comparably to GGTLinearize() (each computation runs
+ *  the faster direction with probability 1/2, at half GGTLinearize's cost per direction), but
+ *  with a worst case over the randomness that matches GGT1Linearize(). Like for the other
+ *  variants, rng_seed has no impact on the result (except when the optimality guarantee does not
+ *  hold), even though it controls the chosen directions. */
+template<typename SetType>
+std::tuple<std::vector<DepGraphIndex>, bool, uint64_t> GGTRLinearize(
+    const DepGraph<SetType>& depgraph,
+    uint64_t rng_seed,
+    const StrongComparator<DepGraphIndex> auto& fallback_order) noexcept
+{
+    return GGTLinearizeImpl<GGTDirection::RANDOM>(depgraph, rng_seed, fallback_order);
 }
 
 /** Improve a given linearization.
