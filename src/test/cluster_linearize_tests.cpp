@@ -99,6 +99,36 @@ void TestOptimalLinearization(std::span<const uint8_t> enc, std::initializer_lis
             BOOST_CHECK(cost <= MaxOptimalLinearizationCost(depgraph.TxCount()));
             SanityCheck(depgraph, lin);
             BOOST_CHECK(std::ranges::equal(lin, optimal_linearization));
+
+            // Verify that the GGT, GGT1, and GGTR algorithms produce the same optimal
+            // linearization (they take no input linearization, and are seeded independently).
+            std::vector<DepGraphIndex> lin_ggt;
+            bool opt_ggt;
+            std::tie(lin_ggt, opt_ggt, std::ignore) = GGTLinearize(
+                /*depgraph=*/depgraph,
+                /*rng_seed=*/rng.rand64(),
+                /*fallback_order=*/IndexTxOrder{});
+            BOOST_CHECK(opt_ggt);
+            SanityCheck(depgraph, lin_ggt);
+            BOOST_CHECK(std::ranges::equal(lin_ggt, optimal_linearization));
+            std::vector<DepGraphIndex> lin_ggt1;
+            bool opt_ggt1;
+            std::tie(lin_ggt1, opt_ggt1, std::ignore) = GGT1Linearize(
+                /*depgraph=*/depgraph,
+                /*rng_seed=*/rng.rand64(),
+                /*fallback_order=*/IndexTxOrder{});
+            BOOST_CHECK(opt_ggt1);
+            SanityCheck(depgraph, lin_ggt1);
+            BOOST_CHECK(std::ranges::equal(lin_ggt1, optimal_linearization));
+            std::vector<DepGraphIndex> lin_ggtr;
+            bool opt_ggtr;
+            std::tie(lin_ggtr, opt_ggtr, std::ignore) = GGTRLinearize(
+                /*depgraph=*/depgraph,
+                /*rng_seed=*/rng.rand64(),
+                /*fallback_order=*/IndexTxOrder{});
+            BOOST_CHECK(opt_ggtr);
+            SanityCheck(depgraph, lin_ggtr);
+            BOOST_CHECK(std::ranges::equal(lin_ggtr, optimal_linearization));
         }
         tx_count = depgraph.PositionRange();
     };
