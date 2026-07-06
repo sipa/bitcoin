@@ -54,6 +54,8 @@
  *   - clusterlin_components
  * - ChunkLinearization and ChunkLinearizationInfo tests:
  *   - clusterlin_chunking
+ * - GGTLinearize, GGT1Linearize, and GGTRLinearize tests (compared with Linearize):
+ *   - clusterlin_ggt
  * - PostLinearize tests:
  *   - clusterlin_postlinearize
  *   - clusterlin_postlinearize_tree
@@ -1155,6 +1157,54 @@ FUZZ_TARGET(clusterlin_linearize)
         auto [linearization2, optimal2, cost2] = Linearize(depgraph, MaxOptimalLinearizationCost(depgraph.TxCount()) + 1, rng_seed ^ 0x1337, IndexTxOrder{});
         assert(optimal2);
         assert(linearization2 == linearization);
+    }
+}
+
+FUZZ_TARGET(clusterlin_ggt)
+{
+    // Verify the behavior of GGTLinearize(), GGT1Linearize(), and GGTRLinearize(), by comparing
+    // with Linearize().
+
+    // Retrieve an RNG seed, a depgraph, and whether to make it connected from the fuzz input.
+    SpanReader reader(buffer);
+    DepGraph<TestBitSet> depgraph;
+    uint64_t rng_seed{0};
+    uint8_t make_connected{1};
+    try {
+        reader >> Using<DepGraphFormatter>(depgraph) >> rng_seed >> make_connected;
+    } catch (const std::ios_base::failure&) {}
+    if (depgraph.TxCount() <= 1) return;
+    // The most complicated graphs are connected ones (other ones just split up). Optionally force
+    // the graph to be connected.
+    if (make_connected & 1) MakeConnected(depgraph);
+
+    // Invoke both GGT variants, with independent seeds (the result must not depend on them).
+    auto [lin_ggt, opt_ggt, cost_ggt] = GGTLinearize(depgraph, rng_seed, IndexTxOrder{});
+    SanityCheck(depgraph, lin_ggt);
+    auto [lin_ggt1, opt_ggt1, cost_ggt1] = GGT1Linearize(depgraph, ~rng_seed, IndexTxOrder{});
+    SanityCheck(depgraph, lin_ggt1);
+    auto [lin_ggtr, opt_ggtr, cost_ggtr] = GGTRLinearize(depgraph, rng_seed ^ 0x5555555555555555, IndexTxOrder{});
+    SanityCheck(depgraph, lin_ggtr);
+    // Whether the optimality guarantee holds only depends on the cluster's combined fees and
+    // sizes, not on the direction(s) the min-cut computations were performed in.
+    assert(opt_ggt == opt_ggt1);
+    assert(opt_ggt == opt_ggtr);
+
+    // If the optimality guarantee holds (which is the case except for clusters with extreme
+    // combined fees and sizes), both variants must produce the exact linearization that
+    // Linearize() produces for optimal results, including its fallback_order-based tie-breaking
+    // of equal-feerate chunks and transactions, and its minimal chunks. This also demonstrates
+    // that the result does not depend on the RNG seed.
+    if (opt_ggt) {
+        auto [linearization, optimal, cost] = Linearize(
+            /*depgraph=*/depgraph,
+            /*max_cost=*/MaxOptimalLinearizationCost(depgraph.TxCount()) + 1,
+            /*rng_seed=*/rng_seed,
+            /*fallback_order=*/IndexTxOrder{});
+        assert(optimal);
+        assert(lin_ggt == linearization);
+        assert(lin_ggt1 == linearization);
+        assert(lin_ggtr == linearization);
     }
 }
 
