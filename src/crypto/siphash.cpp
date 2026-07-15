@@ -10,6 +10,8 @@
 #include <cassert>
 #include <span>
 
+static constexpr uint64_t SIPHASH_FINALIZER_UNPADDED = 0x6465646461706E75;
+
 #define SIPROUND do { \
     v0 += v1; v1 = std::rotl(v1, 13); v1 ^= v0; \
     v0 = std::rotl(v0, 32); \
@@ -82,6 +84,57 @@ uint64_t CSipHasher::Finalize() const
     v0 ^= t;
     v2 ^= 0xFF;
     SIPROUND;
+    SIPROUND;
+    SIPROUND;
+    SIPROUND;
+    return v0 ^ v1 ^ v2 ^ v3;
+}
+
+SipHasher13UJ::SipHasher13UJ(uint64_t k0, uint64_t k1) noexcept : m_state{k0, k1} {}
+
+SipHasher13UJ& SipHasher13UJ::Write(uint64_t data) noexcept
+{
+    uint64_t v0 = m_state.v[0], v1 = m_state.v[1], v2 = m_state.v[2], v3 = m_state.v[3];
+
+    v3 ^= data;
+    SIPROUND;
+    v0 ^= data;
+
+    m_state.v[0] = v0;
+    m_state.v[1] = v1;
+    m_state.v[2] = v2;
+    m_state.v[3] = v3;
+
+    return *this;
+}
+
+SipHasher13UJ& SipHasher13UJ::WriteJumbo(const uint256& data) noexcept
+{
+    uint64_t v0 = m_state.v[0], v1 = m_state.v[1], v2 = m_state.v[2], v3 = m_state.v[3];
+
+    v3 ^= data.GetUint64(0);
+    v0 ^= data.GetUint64(1);
+    v1 ^= data.GetUint64(2);
+    v2 ^= data.GetUint64(3);
+    SIPROUND;
+    v0 ^= data.GetUint64(0);
+    v1 ^= data.GetUint64(1);
+    v2 ^= data.GetUint64(2);
+    v3 ^= data.GetUint64(3);
+
+    m_state.v[0] = v0;
+    m_state.v[1] = v1;
+    m_state.v[2] = v2;
+    m_state.v[3] = v3;
+
+    return *this;
+}
+
+uint64_t SipHasher13UJ::Finalize() const noexcept
+{
+    uint64_t v0 = m_state.v[0], v1 = m_state.v[1], v2 = m_state.v[2], v3 = m_state.v[3];
+
+    v2 ^= SIPHASH_FINALIZER_UNPADDED;
     SIPROUND;
     SIPROUND;
     SIPROUND;
