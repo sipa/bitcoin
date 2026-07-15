@@ -124,4 +124,30 @@ public:
     uint64_t operator()(const uint256& val, uint32_t extra) const noexcept;
 };
 
+/**
+ * Optimized SipHash-1-3-UJ implementation for uint256 or uint256+uint64.
+ *
+ * This class caches the initial SipHash v[0..3] state derived from (k0, k1)
+ * and implements a specialized hashing path for uint256 values, with or
+ * without an extra 64-bit word. The internal state is immutable, so
+ * PresaltedSipHasher instances can be reused for multiple hashes with the
+ * same key.
+ */
+class PresaltedSipHasher13UJ
+{
+    const SipHashState m_state;
+
+public:
+    explicit PresaltedSipHasher13UJ(uint64_t k0, uint64_t k1) noexcept : m_state{k0, k1} {}
+
+    /** Equivalent to SipHasher13UJ(k0, k1).Write(val).Finalize(). */
+    uint64_t operator()(const uint256& val) const noexcept;
+
+    /**
+     * Equivalent to SipHasher13UJ(k0, k1).Write(val).Write(extra).Finalize(),
+     * with `extra` encoded as 8 little-endian bytes.
+     */
+    uint64_t operator()(const uint256& val, uint64_t extra) const noexcept;
+};
+
 #endif // BITCOIN_CRYPTO_SIPHASH_H

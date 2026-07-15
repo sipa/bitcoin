@@ -203,6 +203,19 @@ static void SipHash_32b(benchmark::Bench& bench)
     });
 }
 
+static void SipHash13UJ_32b(benchmark::Bench& bench)
+{
+    FastRandomContext rng{/*fDeterministic=*/true};
+    PresaltedSipHasher13UJ presalted_sip_hasher(rng.rand64(), rng.rand64());
+    auto val{rng.rand256()};
+    auto i{0U};
+    bench.run([&] {
+        ankerl::nanobench::doNotOptimizeAway(presalted_sip_hasher(val));
+        ++i;
+        val.data()[i % uint256::size()] ^= i & 0xFF;
+    });
+}
+
 static void MuHash(benchmark::Bench& bench)
 {
     MuHash3072 acc;
@@ -274,6 +287,7 @@ BENCHMARK(SHA256_32b_SSE4);
 BENCHMARK(SHA256_32b_AVX2);
 BENCHMARK(SHA256_32b_SHANI);
 BENCHMARK(SipHash_32b);
+BENCHMARK(SipHash13UJ_32b);
 BENCHMARK(SHA256D64_1024_STANDARD);
 BENCHMARK(SHA256D64_1024_SSE4);
 BENCHMARK(SHA256D64_1024_AVX2);

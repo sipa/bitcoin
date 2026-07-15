@@ -218,6 +218,26 @@ BOOST_AUTO_TEST_CASE(siphasher13uj_test_vectors)
         {0xecfdd5a1ea62a991, 0x6448b8f842081342, {uint64_t{0x51f7f0e2bcf7726d}, uint64_t{0x7fafa860968477e2}}, 0x89510c79ae874736},
         {0xab7a12b9c8774c7d, 0x38056b7041eb2098, {uint64_t{0x7e2ca9185faaebfe}, uint64_t{0xa73a2ee8c9792619}}, 0xa7cb7379701c754e},
         {0x13551d7a6089e83e, 0xec3f8c0f4cbc1f7c, {uint64_t{0x97d965937804077a}, uint256("4bb21a07f4b75d0208d5d4638edcc438c9f8ffcc78e2106a0637c629f81ffbdb"_hex_u8), uint256("a7d8197a04173065ec896b73a6803d6113201c56fd643b241200b7ea357e6efd"_hex_u8), uint64_t{0xa8e115cfebe10202}, uint64_t{0x73a44f46f5966c31}, uint256("0700f913bbe4dad357c5db1b7e79abd29e6e590e842141a16cb6e97e6933206c"_hex_u8)}, 0x638ab9733accc61a},
+        {0x0706050403020100, 0x0f0e0d0c0b0a0908, {uint256("0000000000000000000000000000000000000000000000000000000000000000"_hex_u8)}, 0x6a74cba00ddbfeba},
+        {0x0706050403020100, 0x0f0e0d0c0b0a0908, {uint256("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"_hex_u8)}, 0x7f745a471ec7c2f6},
+        {0x0706050403020100, 0x0f0e0d0c0b0a0908, {uint256("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"_hex_u8)}, 0xc67d87b08ca4b5c6},
+        {0x0706050403020100, 0x0f0e0d0c0b0a0908, {uint256("0000000000000000000000000000000000000000000000000000000000000080"_hex_u8)}, 0xc946b5eafdebf91d},
+        {0x0706050403020100, 0x0f0e0d0c0b0a0908, {uint256("0100000000000000010000000000000001000000000000000100000000000000"_hex_u8)}, 0x28193aab7f7f53b5},
+        {0x0000000000000000, 0x0000000000000000, {uint256("101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f"_hex_u8)}, 0x071384882b8b1ef6},
+        {0xffffffffffffffff, 0xffffffffffffffff, {uint256("101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f"_hex_u8)}, 0x6d3cb0c74116cdd5},
+        {0x25fd75c04a240044, 0x4e3816151d29e2ce, {uint256("8940d79240a5bf8acdf428eece829dc27d8cc2ff7b74aaeb134f66062192d308"_hex_u8)}, 0x16823b5389538dba},
+        {0xaea4345a0fc4e761, 0x49456a8e8d82e5ee, {uint256("6e0e507f21292ad46a49aa0b20efec23000474f6203f5ceaf4f9325c4e032bbe"_hex_u8)}, 0x36ae52fdbe166c9a},
+        {0xf7ce16edcfe54eeb, 0x81c22c4aed3e516d, {uint256("caf32c2d8d827c8e55ee92253cffc657359af1cab7f24804afabac89a436fc75"_hex_u8)}, 0xd8ebd74386d41628},
+        {0x0706050403020100, 0x0f0e0d0c0b0a0908, {uint256("0000000000000000000000000000000000000000000000000000000000000000"_hex_u8), uint64_t{0x0000000000000000}}, 0x71c3a354a6b56058},
+        {0x0706050403020100, 0x0f0e0d0c0b0a0908, {uint256("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"_hex_u8), uint64_t{0xffffffffffffffff}}, 0x958c1a52a5e57e8b},
+        {0x0706050403020100, 0x0f0e0d0c0b0a0908, {uint256("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"_hex_u8), uint64_t{0x4746454443424140}}, 0x6cfc788446f0491d},
+        {0x0706050403020100, 0x0f0e0d0c0b0a0908, {uint256("0100000000000000000000000000000000000000000000000000000000000000"_hex_u8), uint64_t{0x8000000000000000}}, 0x9e89e2fc7abb2ba2},
+        {0x0706050403020100, 0x0f0e0d0c0b0a0908, {uint256("101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f"_hex_u8), uint64_t{0x2726252423222120}}, 0xcdcd25f7a2ba32c5},
+        {0x0706050403020100, 0x0f0e0d0c0b0a0908, {uint256("101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f"_hex_u8), uint64_t{0x2827262524232221}}, 0x738d1f7d2d53622b},
+        {0x0000000000000000, 0x0000000000000000, {uint256("101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f"_hex_u8), uint64_t{0x2726252423222120}}, 0x0f078522df1349f3},
+        {0x49b001bc5a213d62, 0x80a330a42e60a89d, {uint256("6f7438d2dd360dcea691dd40e87426f4af6870315898ccbde0d3b19fcbb5ae6d"_hex_u8), uint64_t{0xc9ff5ff2126cc355}}, 0xda1c5bf6cf31653d},
+        {0xf4d704fa00ce074d, 0x6f1a65f3fe494b0a, {uint256("175202cb9f976ebd6c4ddc4a80d63b2b53e2976466041ae43b41397c41fe66ac"_hex_u8), uint64_t{0xa9c5d00a72013a80}}, 0x5725ddc762049274},
+        {0xc3f929b4cb53785c, 0x1693fa676a8ee165, {uint256("2ac097c589bc75eb6e294605cafb3198891ff93764032225756aab86de06514b"_hex_u8), uint64_t{0x85f91dd6ed2e645c}}, 0x49b121224ea53698},
     };
 
     FastRandomContext rng;
@@ -243,6 +263,13 @@ BOOST_AUTO_TEST_CASE(siphasher13uj_test_vectors)
                 }
             }
             BOOST_CHECK_EQUAL(hasher.Finalize(), testvec.expected);
+        }
+        // If the test vector data consists of a single uint256 input, or a uint256+uint64_t, test
+        // PresaltedSipHasher13UJ too.
+        if (testvec.blocks.size() == 1 && std::holds_alternative<uint256>(testvec.blocks[0])) {
+            BOOST_CHECK_EQUAL(PresaltedSipHasher13UJ(testvec.k0, testvec.k1)(std::get<uint256>(testvec.blocks[0])), testvec.expected);
+        } else if (testvec.blocks.size() == 2 && std::holds_alternative<uint256>(testvec.blocks[0]) && std::holds_alternative<uint64_t>(testvec.blocks[1])) {
+            BOOST_CHECK_EQUAL(PresaltedSipHasher13UJ(testvec.k0, testvec.k1)(std::get<uint256>(testvec.blocks[0]), std::get<uint64_t>(testvec.blocks[1])), testvec.expected);
         }
     }
 }

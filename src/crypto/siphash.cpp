@@ -213,3 +213,58 @@ uint64_t PresaltedSipHasher::operator()(const uint256& val, uint32_t extra) cons
     SIPROUND;
     return v0 ^ v1 ^ v2 ^ v3;
 }
+
+uint64_t PresaltedSipHasher13UJ::operator()(const uint256& val) const noexcept
+{
+    uint64_t v0 = m_state.v[0], v1 = m_state.v[1], v2 = m_state.v[2], v3 = m_state.v[3];
+
+    const uint64_t d0 = val.GetUint64(0);
+    const uint64_t d1 = val.GetUint64(1);
+    const uint64_t d2 = val.GetUint64(2);
+    const uint64_t d3 = val.GetUint64(3);
+    v3 ^= d0;
+    v0 ^= d1;
+    v1 ^= d2;
+    v2 ^= d3;
+    SIPROUND;
+    v0 ^= d0;
+    v1 ^= d1;
+    v2 ^= d2;
+    v3 ^= d3;
+
+    v2 ^= SIPHASH_FINALIZER_UNPADDED;
+    SIPROUND;
+    SIPROUND;
+    SIPROUND;
+    return v0 ^ v1 ^ v2 ^ v3;
+}
+
+/** Specialized implementation for efficiency */
+uint64_t PresaltedSipHasher13UJ::operator()(const uint256& val, uint64_t extra) const noexcept
+{
+    uint64_t v0 = m_state.v[0], v1 = m_state.v[1], v2 = m_state.v[2], v3 = m_state.v[3];
+
+    const uint64_t d0 = val.GetUint64(0);
+    const uint64_t d1 = val.GetUint64(1);
+    const uint64_t d2 = val.GetUint64(2);
+    const uint64_t d3 = val.GetUint64(3);
+    v3 ^= d0;
+    v0 ^= d1;
+    v1 ^= d2;
+    v2 ^= d3;
+    SIPROUND;
+    v0 ^= d0;
+    v1 ^= d1;
+    v2 ^= d2;
+    v3 ^= d3;
+
+    v3 ^= extra;
+    SIPROUND;
+    v0 ^= extra;
+
+    v2 ^= SIPHASH_FINALIZER_UNPADDED;
+    SIPROUND;
+    SIPROUND;
+    SIPROUND;
+    return v0 ^ v1 ^ v2 ^ v3;
+}
