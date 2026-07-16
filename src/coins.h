@@ -226,6 +226,12 @@ class SaltedCoinsCacheHasher
 public:
     SaltedCoinsCacheHasher(bool deterministic = false);
 
+    /** Hash a transaction ID, itself a cryptographic hash, as one jumbo block. */
+    size_t operator()(const Txid& id) const noexcept
+    {
+        return m_hasher.Hash(id.ToUint256());
+    }
+
     /**
      * Retained entries identify real transaction outputs, so their keys contain computed txids.
      * Missing-input lookups may contain arbitrary claimed prevouts, but FetchCoin() immediately
