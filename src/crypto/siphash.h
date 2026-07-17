@@ -7,81 +7,92 @@
 
 #include <attributes.h>
 #include <uint256.h>
+#include <util/check.h>
 
 #include <array>
 #include <bit>
 #include <cstdint>
 #include <span>
 
-namespace siphash_detail {
-
-inline constexpr uint64_t SIPHASH_FINALIZER{0xFF};
-inline constexpr uint64_t SIPHASH_FINALIZER_UNPADDED{0x6465646461706E75};
-static_assert(SIPHASH_FINALIZER_UNPADDED != SIPHASH_FINALIZER);
-
-ALWAYS_INLINE void SipRound(uint64_t& v0, uint64_t& v1, uint64_t& v2, uint64_t& v3)
-{
-    v0 += v1; v1 = std::rotl(v1, 13); v1 ^= v0;
-    v0 = std::rotl(v0, 32);
-    v2 += v3; v3 = std::rotl(v3, 16); v3 ^= v2;
-    v0 += v3; v3 = std::rotl(v3, 21); v3 ^= v0;
-    v2 += v1; v1 = std::rotl(v1, 17); v1 ^= v2;
-    v2 = std::rotl(v2, 32);
-}
-
-ALWAYS_INLINE void Compress2(uint64_t& v0, uint64_t& v1, uint64_t& v2, uint64_t& v3, uint64_t data)
-{
-    v3 ^= data;
-    SipRound(v0, v1, v2, v3);
-    SipRound(v0, v1, v2, v3);
-    v0 ^= data;
-}
-
-ALWAYS_INLINE uint64_t Finalize4(uint64_t v0, uint64_t v1, uint64_t v2, uint64_t v3)
-{
-    v2 ^= SIPHASH_FINALIZER;
-    SipRound(v0, v1, v2, v3);
-    SipRound(v0, v1, v2, v3);
-    SipRound(v0, v1, v2, v3);
-    SipRound(v0, v1, v2, v3);
-    return v0 ^ v1 ^ v2 ^ v3;
-}
-
-ALWAYS_INLINE void Compress1(uint64_t& v0, uint64_t& v1, uint64_t& v2, uint64_t& v3, uint64_t data)
-{
-    v3 ^= data;
-    SipRound(v0, v1, v2, v3);
-    v0 ^= data;
-}
-
-ALWAYS_INLINE void Compress1(uint64_t& v0, uint64_t& v1, uint64_t& v2, uint64_t& v3, const uint256& data)
-{
-    const uint64_t d0{data.GetUint64(0)}, d1{data.GetUint64(1)}, d2{data.GetUint64(2)}, d3{data.GetUint64(3)};
-    v3 ^= d0; v0 ^= d1; v1 ^= d2; v2 ^= d3;
-    SipRound(v0, v1, v2, v3);
-    v0 ^= d0; v1 ^= d1; v2 ^= d2; v3 ^= d3;
-}
-
-ALWAYS_INLINE uint64_t Finalize3U(uint64_t v0, uint64_t v1, uint64_t v2, uint64_t v3)
-{
-    v2 ^= SIPHASH_FINALIZER_UNPADDED;
-    SipRound(v0, v1, v2, v3);
-    SipRound(v0, v1, v2, v3);
-    SipRound(v0, v1, v2, v3);
-    return v0 ^ v1 ^ v2 ^ v3;
-}
-
-} // namespace siphash_detail
-
 /** Shared SipHash internal state v[0..3], initialized from (k0, k1). */
 class SipHashState
 {
+    /** SipHash initialization constants. */
     static constexpr uint64_t C0{0x736f6d6570736575ULL}, C1{0x646f72616e646f6dULL}, C2{0x6c7967656e657261ULL}, C3{0x7465646279746573ULL};
+    /** SipHash v2 finalizer constant. */
+    static inline constexpr uint64_t FINALIZER{0xFF};
+    /** SipHash custom unpadded finalizer constant. */
+    static inline constexpr uint64_t FINALIZER_UNPADDED{0x6465646461706E75};
+    static_assert(FINALIZER_UNPADDED != FINALIZER);
+
+    /** State variables. */
+    uint64_t m_v0, m_v1, m_v2, m_v3;
+
+    /** Construct a SipHashState with the specified values as state. */
+    ALWAYS_INLINE SipHashState(uint64_t v0, uint64_t v1, uint64_t v2, uint64_t v3) noexcept : m_v0{v0}, m_v1{v1}, m_v2{v2}, m_v3{v3} {}
+
+    /** Mutably perform one SipRound on this state. */
+    ALWAYS_INLINE void SipRound() noexcept
+    {
+        m_v0 += m_v1; m_v1 = std::rotl(m_v1, 13); m_v1 ^= m_v0;
+        m_v0 = std::rotl(m_v0, 32);
+        m_v2 += m_v3; m_v3 = std::rotl(m_v3, 16); m_v3 ^= m_v2;
+        m_v0 += m_v3; m_v3 = std::rotl(m_v3, 21); m_v3 ^= m_v0;
+        m_v2 += m_v1; m_v1 = std::rotl(m_v1, 17); m_v1 ^= m_v2;
+        m_v2 = std::rotl(m_v2, 32);
+    }
 
 public:
-    explicit SipHashState(uint64_t k0, uint64_t k1) noexcept : v{C0 ^ k0, C1 ^ k1, C2 ^ k0, C3 ^ k1} {}
-
-    std::array<uint64_t, 4> v{};
+    /** Construct a SipHashState initialized with the specified key. */
+    explicit ALWAYS_INLINE SipHashState(uint64_t k0, uint64_t k1) noexcept : SipHashState{C0 ^ k0, C1 ^ k1, C2 ^ k0, C3 ^ k1} {}
+    /** Construct a copy of this state. */
+    ALWAYS_INLINE SipHashState Copy() const noexcept { return {m_v0, m_v1, m_v2, m_v3}; }
+    /** Mutably compress one block into this state, with 1 SipRound. */
+    ALWAYS_INLINE SipHashState& Compress1(uint64_t data) noexcept
+    {
+        m_v3 ^= data;
+        SipRound();
+        m_v0 ^= data;
+        return *this;
+    }
+    /** Mutably compress one jumbo block into this state, with 1 SipRound. */
+    ALWAYS_INLINE SipHashState& Compress1Jumbo(const uint256& data) noexcept
+    {
+        const uint64_t d0{data.GetUint64(0)}, d1{data.GetUint64(1)}, d2{data.GetUint64(2)}, d3{data.GetUint64(3)};
+        m_v3 ^= d0; m_v0 ^= d1; m_v1 ^= d2; m_v2 ^= d3;
+        SipRound();
+        m_v0 ^= d0; m_v1 ^= d1; m_v2 ^= d2; m_v3 ^= d3;
+        return *this;
+    }
+    /** Mutably compress one block into this state, with 2 SipRounds. */
+    ALWAYS_INLINE SipHashState& Compress2(uint64_t data) noexcept
+    {
+        m_v3 ^= data;
+        SipRound();
+        SipRound();
+        m_v0 ^= data;
+        return *this;
+    }
+    /** Mutably finalize this state with 4 SipRounds, and return the resulting hash. */
+    ALWAYS_INLINE uint64_t Finalize4() noexcept
+    {
+        m_v2 ^= FINALIZER;
+        SipRound();
+        SipRound();
+        SipRound();
+        SipRound();
+        return m_v0 ^ m_v1 ^ m_v2 ^ m_v3;
+    }
+    /** Mutably finalize this state with 3 SipRounds using the unpadded finalizer, and return the
+     *  resulting hash. */
+    ALWAYS_INLINE uint64_t Finalize3U() noexcept
+    {
+        m_v2 ^= FINALIZER_UNPADDED;
+        SipRound();
+        SipRound();
+        SipRound();
+        return m_v0 ^ m_v1 ^ m_v2 ^ m_v3;
+    }
 };
 
 /** General SipHash-2-4 implementation. */
@@ -164,9 +175,9 @@ public:
     /** Hash a jumbo block after the data written so far and finalize without modifying the object. */
     ALWAYS_INLINE uint64_t Hash(const uint256& hash) const noexcept
     {
-        uint64_t v0{m_state.v[0]}, v1{m_state.v[1]}, v2{m_state.v[2]}, v3{m_state.v[3]};
-        siphash_detail::Compress1(v0, v1, v2, v3, hash);
-        return siphash_detail::Finalize3U(v0, v1, v2, v3);
+        return m_state.Copy()
+                      .Compress1Jumbo(hash)
+                      .Finalize3U();
     }
 
     /**
@@ -175,10 +186,10 @@ public:
      */
     ALWAYS_INLINE uint64_t Hash(const uint256& hash, uint64_t extra) const noexcept
     {
-        uint64_t v0{m_state.v[0]}, v1{m_state.v[1]}, v2{m_state.v[2]}, v3{m_state.v[3]};
-        siphash_detail::Compress1(v0, v1, v2, v3, hash);
-        siphash_detail::Compress1(v0, v1, v2, v3, extra);
-        return siphash_detail::Finalize3U(v0, v1, v2, v3);
+        return m_state.Copy()
+                      .Compress1Jumbo(hash)
+                      .Compress1(extra)
+                      .Finalize3U();
     }
 };
 
