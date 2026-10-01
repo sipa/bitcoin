@@ -157,22 +157,22 @@ std::string GetOpName(opcodetype opcode)
     return "OP_UNKNOWN";
 }
 
-unsigned int CScript::GetSigOpCount(bool fAccurate) const
+unsigned int GetSigOpCount(std::span<const unsigned char> script, bool fAccurate)
 {
     unsigned int n = 0;
-    const_iterator pc = begin();
     opcodetype lastOpcode = OP_INVALIDOPCODE;
-    while (pc < end())
+    while (script.size() > 0)
     {
-        opcodetype opcode;
-        if (!GetOp(pc, opcode))
+        const auto op = GetScriptOp(script);
+        if (!op)
             break;
+        const opcodetype opcode = op->first;
         if (opcode == OP_CHECKSIG || opcode == OP_CHECKSIGVERIFY)
             n++;
         else if (opcode == OP_CHECKMULTISIG || opcode == OP_CHECKMULTISIGVERIFY)
         {
             if (fAccurate && lastOpcode >= OP_1 && lastOpcode <= OP_16)
-                n += DecodeOP_N(lastOpcode);
+                n += CScript::DecodeOP_N(lastOpcode);
             else
                 n += MAX_PUBKEYS_PER_MULTISIG;
         }
@@ -181,28 +181,37 @@ unsigned int CScript::GetSigOpCount(bool fAccurate) const
     return n;
 }
 
-unsigned int CScript::GetSigOpCount(const CScript& scriptSig) const
+unsigned int CScript::GetSigOpCount(bool fAccurate) const
 {
-    if (!IsPayToScriptHash())
-        return GetSigOpCount(true);
+    return ::GetSigOpCount(*this, fAccurate);
+}
+
+unsigned int GetSigOpCount(std::span<const unsigned char> script_pub_key, std::span<const unsigned char> script_sig)
+{
+    if (!IsPayToScriptHash(script_pub_key))
+        return GetSigOpCount(script_pub_key, /*fAccurate=*/true);
 
     // This is a pay-to-script-hash scriptPubKey;
     // get the last item that the scriptSig
     // pushes onto the stack:
-    const_iterator pc = scriptSig.begin();
-    std::vector<unsigned char> vData;
-    while (pc < scriptSig.end())
+    std::span<const unsigned char> data;
+    while (script_sig.size() > 0)
     {
-        opcodetype opcode;
-        if (!scriptSig.GetOp(pc, opcode, vData))
+        const auto op = GetScriptOp(script_sig);
+        if (!op)
             return 0;
-        if (opcode > OP_16)
+        if (op->first > OP_16)
             return 0;
+        data = op->second;
     }
 
     /// ... and return its opcount:
-    CScript subscript(vData.begin(), vData.end());
-    return subscript.GetSigOpCount(true);
+    return GetSigOpCount(data, /*fAccurate=*/true);
+}
+
+unsigned int CScript::GetSigOpCount(const CScript& scriptSig) const
+{
+    return ::GetSigOpCount(*this, scriptSig);
 }
 
 bool CScript::IsPayToAnchor() const

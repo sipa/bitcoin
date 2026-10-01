@@ -411,6 +411,11 @@ std::optional<std::pair<int, std::span<const unsigned char>>> GetWitnessProgram(
 /** Check whether script consists of only push operations (where OP_RESERVED counts as a push).
  *  Consensus critical, as used by P2SH and BIP62 validation. */
 bool IsPushOnly(std::span<const unsigned char> script);
+/** Count the sigops in script. See CScript::GetSigOpCount(bool) for the meaning of fAccurate. Consensus critical. */
+unsigned int GetSigOpCount(std::span<const unsigned char> script, bool fAccurate);
+/** Count the sigops in script_pub_key, including those in the P2SH redeemScript if it is P2SH.
+ *  See CScript::GetSigOpCount(const CScript&). Consensus critical. */
+unsigned int GetSigOpCount(std::span<const unsigned char> script_pub_key, std::span<const unsigned char> script_sig);
 bool GetScriptOp(CScriptBase::const_iterator& pc, CScriptBase::const_iterator end, opcodetype& opcodeRet, std::vector<unsigned char>* pvchRet);
 
 /** Serialized script, used inside transaction inputs and outputs */

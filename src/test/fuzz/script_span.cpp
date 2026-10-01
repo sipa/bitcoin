@@ -239,3 +239,80 @@ FUZZ_TARGET(script_span_checks)
     const size_t offset{provider.ConsumeIntegralInRange<size_t>(0, script.size())};
     assert(script.IsPushOnly(script.begin() + offset) == OldIsPushOnly(script, script.begin() + offset));
 }
+
+namespace {
+
+/** Original CScript::GetSigOpCount(bool). */
+unsigned int OldGetSigOpCount(const CScript& script, bool fAccurate)
+{
+    unsigned int n = 0;
+    CScript::const_iterator pc = script.begin();
+    opcodetype lastOpcode = OP_INVALIDOPCODE;
+    while (pc < script.end())
+    {
+        opcodetype opcode;
+        if (!OldGetScriptOp(pc, script.end(), opcode, nullptr))
+            break;
+        if (opcode == OP_CHECKSIG || opcode == OP_CHECKSIGVERIFY)
+            n++;
+        else if (opcode == OP_CHECKMULTISIG || opcode == OP_CHECKMULTISIGVERIFY)
+        {
+            if (fAccurate && lastOpcode >= OP_1 && lastOpcode <= OP_16)
+                n += CScript::DecodeOP_N(lastOpcode);
+            else
+                n += MAX_PUBKEYS_PER_MULTISIG;
+        }
+        lastOpcode = opcode;
+    }
+    return n;
+}
+
+/** Original CScript::GetSigOpCount(const CScript&). */
+unsigned int OldGetSigOpCount(const CScript& script, const CScript& scriptSig)
+{
+    if (!OldIsPayToScriptHash(script))
+        return OldGetSigOpCount(script, true);
+
+    // This is a pay-to-script-hash scriptPubKey;
+    // get the last item that the scriptSig
+    // pushes onto the stack:
+    CScript::const_iterator pc = scriptSig.begin();
+    std::vector<unsigned char> vData;
+    while (pc < scriptSig.end())
+    {
+        opcodetype opcode;
+        if (!OldGetScriptOp(pc, scriptSig.end(), opcode, &vData))
+            return 0;
+        if (opcode > OP_16)
+            return 0;
+    }
+
+    /// ... and return its opcount:
+    CScript subscript(vData.begin(), vData.end());
+    return OldGetSigOpCount(subscript, true);
+}
+
+} // namespace
+
+FUZZ_TARGET(script_span_sigopcount)
+{
+    FuzzedDataProvider provider(buffer.data(), buffer.size());
+    const CScript script{ConsumeShapedScript(provider)};
+    CScript script_sig;
+    if (provider.ConsumeBool()) {
+        // A scriptSig whose last push is a (redeem) script.
+        script_sig = ConsumeShapedScript(provider);
+        script_sig << std::span<const unsigned char>{ConsumeShapedScript(provider)};
+    } else {
+        script_sig = ConsumeShapedScript(provider);
+    }
+
+    for (const bool accurate : {false, true}) {
+        const unsigned int old_count{OldGetSigOpCount(script, accurate)};
+        assert(GetSigOpCount(script, accurate) == old_count);
+        assert(script.GetSigOpCount(accurate) == old_count);
+    }
+    const unsigned int old_p2sh_count{OldGetSigOpCount(script, script_sig)};
+    assert(GetSigOpCount(script, script_sig) == old_p2sh_count);
+    assert(script.GetSigOpCount(script_sig) == old_p2sh_count);
+}
