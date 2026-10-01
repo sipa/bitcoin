@@ -404,6 +404,13 @@ using CScriptBase = prevector<36, uint8_t>;
  *  and the pushed data (a subspan of the input, empty for non-push opcodes), or std::nullopt on failure. On
  *  failure, script is still advanced past the bytes consumed before the failure was detected. */
 std::optional<std::pair<opcodetype, std::span<const unsigned char>>> GetScriptOp(std::span<const unsigned char>& script);
+/** Check whether script is a pay-to-script-hash output script. Consensus critical. */
+bool IsPayToScriptHash(std::span<const unsigned char> script);
+/** If script is a witness program, return its version and program (a subspan of script). Consensus critical. */
+std::optional<std::pair<int, std::span<const unsigned char>>> GetWitnessProgram(std::span<const unsigned char> script);
+/** Check whether script consists of only push operations (where OP_RESERVED counts as a push).
+ *  Consensus critical, as used by P2SH and BIP62 validation. */
+bool IsPushOnly(std::span<const unsigned char> script);
 bool GetScriptOp(CScriptBase::const_iterator& pc, CScriptBase::const_iterator end, opcodetype& opcodeRet, std::vector<unsigned char>* pvchRet);
 
 /** Serialized script, used inside transaction inputs and outputs */
@@ -554,7 +561,6 @@ public:
 
     bool IsPayToTaproot() const;
 
-    /** Called by IsStandardTx and P2SH/BIP62 VerifyScript (which makes it consensus-critical). */
     bool IsPushOnly(const_iterator pc) const;
     bool IsPushOnly() const;
 

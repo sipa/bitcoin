@@ -159,3 +159,83 @@ FUZZ_TARGET(script_span_getscriptop)
         if (!ret) break;
     }
 }
+
+namespace {
+
+/** Original CScript::IsPayToScriptHash. */
+bool OldIsPayToScriptHash(const CScript& script)
+{
+    // Extra-fast test for pay-to-script-hash CScripts:
+    return (script.size() == 23 &&
+            script[0] == OP_HASH160 &&
+            script[1] == 0x14 &&
+            script[22] == OP_EQUAL);
+}
+
+/** Original CScript::IsWitnessProgram. */
+bool OldIsWitnessProgram(const CScript& script, int& version, std::vector<unsigned char>& program)
+{
+    if (script.size() < 4 || script.size() > 42) {
+        return false;
+    }
+    if (script[0] != OP_0 && (script[0] < OP_1 || script[0] > OP_16)) {
+        return false;
+    }
+    if ((size_t)(script[1] + 2) == script.size()) {
+        version = CScript::DecodeOP_N((opcodetype)script[0]);
+        program = std::vector<unsigned char>(script.begin() + 2, script.end());
+        return true;
+    }
+    return false;
+}
+
+/** Original CScript::IsPushOnly. */
+bool OldIsPushOnly(const CScript& script, CScript::const_iterator pc)
+{
+    while (pc < script.end())
+    {
+        opcodetype opcode;
+        if (!OldGetScriptOp(pc, script.end(), opcode, nullptr))
+            return false;
+        // Note that IsPushOnly() *does* consider OP_RESERVED to be a
+        // push-type opcode, however execution of OP_RESERVED fails, so
+        // it's not relevant to P2SH/BIP62 as the scriptSig would fail prior to
+        // the P2SH special validation code being executed.
+        if (opcode > OP_16)
+            return false;
+    }
+    return true;
+}
+
+} // namespace
+
+FUZZ_TARGET(script_span_checks)
+{
+    FuzzedDataProvider provider(buffer.data(), buffer.size());
+    const CScript script{ConsumeShapedScript(provider)};
+
+    const bool old_p2sh{OldIsPayToScriptHash(script)};
+    assert(IsPayToScriptHash(script) == old_p2sh);
+    assert(script.IsPayToScriptHash() == old_p2sh);
+
+    int old_version{-1};
+    std::vector<unsigned char> old_program;
+    const bool old_witness{OldIsWitnessProgram(script, old_version, old_program)};
+    const auto witness_program{GetWitnessProgram(script)};
+    assert(witness_program.has_value() == old_witness);
+    if (old_witness) {
+        assert(witness_program->first == old_version);
+        assert(std::ranges::equal(witness_program->second, old_program));
+    }
+    int version{-1};
+    std::vector<unsigned char> program;
+    assert(script.IsWitnessProgram(version, program) == old_witness);
+    assert(version == old_version);
+    assert(program == old_program);
+
+    const bool old_push_only{OldIsPushOnly(script, script.begin())};
+    assert(IsPushOnly(script) == old_push_only);
+    assert(script.IsPushOnly() == old_push_only);
+    const size_t offset{provider.ConsumeIntegralInRange<size_t>(0, script.size())};
+    assert(script.IsPushOnly(script.begin() + offset) == OldIsPushOnly(script, script.begin() + offset));
+}
