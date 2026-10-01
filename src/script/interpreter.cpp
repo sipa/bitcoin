@@ -2147,7 +2147,7 @@ size_t static WitnessSigOps(int witversion, std::span<const unsigned char> witpr
     return 0;
 }
 
-size_t CountWitnessSigOps(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness& witness, script_verify_flags flags)
+size_t CountWitnessSigOps(std::span<const unsigned char> scriptSig, std::span<const unsigned char> scriptPubKey, const CScriptWitness& witness, script_verify_flags flags)
 {
     if ((flags & SCRIPT_VERIFY_WITNESS) == 0) {
         return 0;
@@ -2159,13 +2159,12 @@ size_t CountWitnessSigOps(const CScript& scriptSig, const CScript& scriptPubKey,
     }
 
     if (IsPayToScriptHash(scriptPubKey) && IsPushOnly(scriptSig)) {
-        CScript::const_iterator pc = scriptSig.begin();
-        std::vector<unsigned char> data;
-        while (pc < scriptSig.end()) {
-            opcodetype opcode;
-            scriptSig.GetOp(pc, opcode, data);
+        std::span<const unsigned char> pc = scriptSig;
+        std::span<const unsigned char> subscript;
+        while (pc.size()) {
+            const auto op = GetScriptOp(pc);
+            subscript = op ? op->second : std::span<const unsigned char>{};
         }
-        CScript subscript(data.begin(), data.end());
         if (const auto witness_program = GetWitnessProgram(subscript)) {
             return WitnessSigOps(witness_program->first, witness_program->second, witness);
         }
