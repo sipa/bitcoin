@@ -111,7 +111,7 @@ private:
 public:
     SignatureWeightChecker(SignatureWeights& weights, const BaseSignatureChecker& checker) : DeferringSignatureChecker(checker), m_weights(weights) {}
 
-    bool CheckECDSASignature(const std::vector<unsigned char>& sig, const std::vector<unsigned char>& pubkey, const CScript& script, SigVersion sigversion) const override
+    bool CheckECDSASignature(const std::vector<unsigned char>& sig, const std::vector<unsigned char>& pubkey, std::span<const unsigned char> script, SigVersion sigversion) const override
     {
         if (m_checker.CheckECDSASignature(sig, pubkey, script, sigversion)) {
             m_weights.AddSigWeight(sig.size(), sigversion);
