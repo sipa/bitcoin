@@ -553,7 +553,7 @@ public:
     bool IsPayToAnchor() const;
     /** Checks if output of IsWitnessProgram comes from a P2A output script
      */
-    static bool IsPayToAnchor(int version, const std::vector<unsigned char>& program);
+    static bool IsPayToAnchor(int version, std::span<const unsigned char> program);
 
     bool IsPayToScriptHash() const;
     bool IsPayToWitnessScriptHash() const;

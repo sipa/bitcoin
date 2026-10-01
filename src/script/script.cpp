@@ -214,7 +214,7 @@ bool CScript::IsPayToAnchor() const
         (*this)[3] == 0x73);
 }
 
-bool CScript::IsPayToAnchor(int version, const std::vector<unsigned char>& program)
+bool CScript::IsPayToAnchor(int version, std::span<const unsigned char> program)
 {
     return version == 1 &&
         program.size() == 2 &&
