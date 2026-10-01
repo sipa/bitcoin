@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <iterator>
 #include <limits>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -399,6 +400,10 @@ private:
  */
 using CScriptBase = prevector<36, uint8_t>;
 
+/** Parse a single script operation from the front of script, and advance script past it. Returns the opcode
+ *  and the pushed data (a subspan of the input, empty for non-push opcodes), or std::nullopt on failure. On
+ *  failure, script is still advanced past the bytes consumed before the failure was detected. */
+std::optional<std::pair<opcodetype, std::span<const unsigned char>>> GetScriptOp(std::span<const unsigned char>& script);
 bool GetScriptOp(CScriptBase::const_iterator& pc, CScriptBase::const_iterator end, opcodetype& opcodeRet, std::vector<unsigned char>* pvchRet);
 
 /** Serialized script, used inside transaction inputs and outputs */
