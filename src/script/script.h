@@ -615,7 +615,7 @@ public:
 /** Test for OP_SUCCESSx opcodes as defined by BIP342. */
 bool IsOpSuccess(const opcodetype& opcode);
 
-bool CheckMinimalPush(const std::vector<unsigned char>& data, opcodetype opcode);
+bool CheckMinimalPush(std::span<const unsigned char> data, opcodetype opcode);
 
 /** Build a script by concatenating other scripts, or any argument accepted by CScript::operator<<. */
 template<typename... Ts>

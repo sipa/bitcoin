@@ -328,12 +328,12 @@ public:
 };
 }
 
-static bool EvalChecksigPreTapscript(const valtype& vchSig, const valtype& vchPubKey, CScript::const_iterator pbegincodehash, CScript::const_iterator pend, script_verify_flags flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* serror, bool& fSuccess)
+static bool EvalChecksigPreTapscript(const valtype& vchSig, const valtype& vchPubKey, std::span<const unsigned char> codehash, script_verify_flags flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* serror, bool& fSuccess)
 {
     assert(sigversion == SigVersion::BASE || sigversion == SigVersion::WITNESS_V0);
 
     // Subset of script starting at the most recent codeseparator
-    CScript scriptCode(pbegincodehash, pend);
+    CScript scriptCode(codehash.begin(), codehash.end());
 
     // Drop the signature in pre-segwit scripts but not segwit scripts
     if (sigversion == SigVersion::BASE) {
@@ -399,12 +399,12 @@ static bool EvalChecksigTapscript(const valtype& sig, const valtype& pubkey, Scr
  * A return value of false means the script fails entirely. When true is returned, the
  * success variable indicates whether the signature check itself succeeded.
  */
-static bool EvalChecksig(const valtype& sig, const valtype& pubkey, CScript::const_iterator pbegincodehash, CScript::const_iterator pend, ScriptExecutionData& execdata, script_verify_flags flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* serror, bool& success)
+static bool EvalChecksig(const valtype& sig, const valtype& pubkey, std::span<const unsigned char> codehash, ScriptExecutionData& execdata, script_verify_flags flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* serror, bool& success)
 {
     switch (sigversion) {
     case SigVersion::BASE:
     case SigVersion::WITNESS_V0:
-        return EvalChecksigPreTapscript(sig, pubkey, pbegincodehash, pend, flags, checker, sigversion, serror, success);
+        return EvalChecksigPreTapscript(sig, pubkey, codehash, flags, checker, sigversion, serror, success);
     case SigVersion::TAPSCRIPT:
         return EvalChecksigTapscript(sig, pubkey, execdata, flags, checker, sigversion, serror, success);
     case SigVersion::TAPROOT:
@@ -414,7 +414,7 @@ static bool EvalChecksig(const valtype& sig, const valtype& pubkey, CScript::con
     assert(false);
 }
 
-bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& script, script_verify_flags flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptExecutionData& execdata, ScriptError* serror)
+bool EvalScript(std::vector<std::vector<unsigned char>>& stack, std::span<const unsigned char> script, script_verify_flags flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptExecutionData& execdata, ScriptError* serror)
 {
     static const CScriptNum bnZero(0);
     static const CScriptNum bnOne(1);
@@ -427,11 +427,9 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
     // sigversion cannot be TAPROOT here, as it admits no script execution.
     assert(sigversion == SigVersion::BASE || sigversion == SigVersion::WITNESS_V0 || sigversion == SigVersion::TAPSCRIPT);
 
-    CScript::const_iterator pc = script.begin();
-    CScript::const_iterator pend = script.end();
-    CScript::const_iterator pbegincodehash = script.begin();
+    std::span<const unsigned char> pc = script;
+    std::span<const unsigned char> codehash = script;
     opcodetype opcode;
-    valtype vchPushValue;
     ConditionStack vfExec;
     std::vector<valtype> altstack;
     set_error(serror, SCRIPT_ERR_UNKNOWN_ERROR);
@@ -446,15 +444,19 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
 
     try
     {
-        for (; pc < pend; ++opcode_pos) {
+        for (; pc.size() > 0; ++opcode_pos) {
             bool fExec = vfExec.all_true();
 
             //
             // Read instruction
             //
-            if (!script.GetOp(pc, opcode, vchPushValue))
+            const auto op = GetScriptOp(pc);
+            if (!op) {
                 return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
-            if (vchPushValue.size() > MAX_SCRIPT_ELEMENT_SIZE)
+            }
+            opcode = op->first;
+            const std::span<const unsigned char> push_value = op->second;
+            if (push_value.size() > MAX_SCRIPT_ELEMENT_SIZE)
                 return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
 
             if (sigversion == SigVersion::BASE || sigversion == SigVersion::WITNESS_V0) {
@@ -486,10 +488,10 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                 return set_error(serror, SCRIPT_ERR_OP_CODESEPARATOR);
 
             if (fExec && 0 <= opcode && opcode <= OP_PUSHDATA4) {
-                if (fRequireMinimal && !CheckMinimalPush(vchPushValue, opcode)) {
+                if (fRequireMinimal && !CheckMinimalPush(push_value, opcode)) {
                     return set_error(serror, SCRIPT_ERR_MINIMALDATA);
                 }
-                stack.push_back(vchPushValue);
+                stack.emplace_back(push_value.begin(), push_value.end());
             } else if (fExec || (OP_IF <= opcode && opcode <= OP_ENDIF))
             switch (opcode)
             {
@@ -1061,7 +1063,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                     // script, even in an unexecuted branch (this is checked above the opcode case statement).
 
                     // Hash starts after the code separator
-                    pbegincodehash = pc;
+                    codehash = pc;
                     execdata.m_codeseparator_pos = opcode_pos;
                 }
                 break;
@@ -1077,7 +1079,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                     valtype& vchPubKey = stacktop(-1);
 
                     bool fSuccess = true;
-                    if (!EvalChecksig(vchSig, vchPubKey, pbegincodehash, pend, execdata, flags, checker, sigversion, serror, fSuccess)) return false;
+                    if (!EvalChecksig(vchSig, vchPubKey, codehash, execdata, flags, checker, sigversion, serror, fSuccess)) return false;
                     popstack(stack);
                     popstack(stack);
                     stack.push_back(fSuccess ? vchTrue : vchFalse);
@@ -1104,7 +1106,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                     const valtype& pubkey = stacktop(-1);
 
                     bool success = true;
-                    if (!EvalChecksig(sig, pubkey, pbegincodehash, pend, execdata, flags, checker, sigversion, serror, success)) return false;
+                    if (!EvalChecksig(sig, pubkey, codehash, execdata, flags, checker, sigversion, serror, success)) return false;
                     popstack(stack);
                     popstack(stack);
                     popstack(stack);
@@ -1146,7 +1148,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                         return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
 
                     // Subset of script starting at the most recent codeseparator
-                    CScript scriptCode(pbegincodehash, pend);
+                    CScript scriptCode(codehash.begin(), codehash.end());
 
                     // Drop the signature in pre-segwit scripts but not segwit scripts
                     for (int k = 0; k < nSigsCount; k++)
@@ -1248,7 +1250,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
     return set_success(serror);
 }
 
-bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& script, script_verify_flags flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* serror)
+bool EvalScript(std::vector<std::vector<unsigned char>>& stack, std::span<const unsigned char> script, script_verify_flags flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* serror)
 {
     ScriptExecutionData execdata;
     return EvalScript(stack, script, flags, checker, sigversion, execdata, serror);
