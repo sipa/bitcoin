@@ -7,14 +7,21 @@
 //! as the latter is now itself implemented using the span-based functions.
 
 #include <crypto/common.h>
+#include <hash.h>
+#include <primitives/transaction.h>
+#include <script/interpreter.h>
 #include <script/script.h>
+#include <serialize.h>
 #include <test/fuzz/FuzzedDataProvider.h>
 #include <test/fuzz/fuzz.h>
 #include <test/fuzz/util.h>
+#include <uint256.h>
 
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
+#include <cstdint>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -315,4 +322,224 @@ FUZZ_TARGET(script_span_sigopcount)
     const unsigned int old_p2sh_count{OldGetSigOpCount(script, script_sig)};
     assert(GetSigOpCount(script, script_sig) == old_p2sh_count);
     assert(script.GetSigOpCount(script_sig) == old_p2sh_count);
+}
+
+namespace {
+
+/** Original CTransactionSignatureSerializer. */
+template <class T>
+class OldCTransactionSignatureSerializer
+{
+private:
+    const T& txTo;             //!< reference to the spending transaction (the one being serialized)
+    const CScript& scriptCode; //!< output script being consumed
+    const unsigned int nIn;    //!< input index of txTo being signed
+    const bool fAnyoneCanPay;  //!< whether the hashtype has the SIGHASH_ANYONECANPAY flag set
+    const bool fHashSingle;    //!< whether the hashtype is SIGHASH_SINGLE
+    const bool fHashNone;      //!< whether the hashtype is SIGHASH_NONE
+
+public:
+    OldCTransactionSignatureSerializer(const T& txToIn, const CScript& scriptCodeIn, unsigned int nInIn, int nHashTypeIn) :
+        txTo(txToIn), scriptCode(scriptCodeIn), nIn(nInIn),
+        fAnyoneCanPay(!!(nHashTypeIn & SIGHASH_ANYONECANPAY)),
+        fHashSingle((nHashTypeIn & 0x1f) == SIGHASH_SINGLE),
+        fHashNone((nHashTypeIn & 0x1f) == SIGHASH_NONE) {}
+
+    /** Serialize the passed scriptCode, skipping OP_CODESEPARATORs */
+    template<typename S>
+    void SerializeScriptCode(S &s) const {
+        CScript::const_iterator it = scriptCode.begin();
+        CScript::const_iterator itBegin = it;
+        opcodetype opcode;
+        unsigned int nCodeSeparators = 0;
+        while (OldGetScriptOp(it, scriptCode.end(), opcode, nullptr)) {
+            if (opcode == OP_CODESEPARATOR)
+                nCodeSeparators++;
+        }
+        ::WriteCompactSize(s, scriptCode.size() - nCodeSeparators);
+        it = itBegin;
+        while (OldGetScriptOp(it, scriptCode.end(), opcode, nullptr)) {
+            if (opcode == OP_CODESEPARATOR) {
+                s.write(std::as_bytes(std::span{&itBegin[0], size_t(it - itBegin - 1)}));
+                itBegin = it;
+            }
+        }
+        if (itBegin != scriptCode.end())
+            s.write(std::as_bytes(std::span{&itBegin[0], size_t(it - itBegin)}));
+    }
+
+    /** Serialize an input of txTo */
+    template<typename S>
+    void SerializeInput(S &s, unsigned int nInput) const {
+        // In case of SIGHASH_ANYONECANPAY, only the input being signed is serialized
+        if (fAnyoneCanPay)
+            nInput = nIn;
+        // Serialize the prevout
+        ::Serialize(s, txTo.vin[nInput].prevout);
+        // Serialize the script
+        if (nInput != nIn)
+            // Blank out other inputs' signatures
+            ::Serialize(s, CScript());
+        else
+            SerializeScriptCode(s);
+        // Serialize the nSequence
+        if (nInput != nIn && (fHashSingle || fHashNone))
+            // let the others update at will
+            ::Serialize(s, int32_t{0});
+        else
+            ::Serialize(s, txTo.vin[nInput].nSequence);
+    }
+
+    /** Serialize an output of txTo */
+    template<typename S>
+    void SerializeOutput(S &s, unsigned int nOutput) const {
+        if (fHashSingle && nOutput != nIn)
+            // Do not lock-in the txout payee at other indices as txin
+            ::Serialize(s, CTxOut());
+        else
+            ::Serialize(s, txTo.vout[nOutput]);
+    }
+
+    /** Serialize txTo */
+    template<typename S>
+    void Serialize(S &s) const {
+        // Serialize version
+        ::Serialize(s, txTo.version);
+        // Serialize vin
+        unsigned int nInputs = fAnyoneCanPay ? 1 : txTo.vin.size();
+        ::WriteCompactSize(s, nInputs);
+        for (unsigned int nInput = 0; nInput < nInputs; nInput++)
+             SerializeInput(s, nInput);
+        // Serialize vout
+        unsigned int nOutputs = fHashNone ? 0 : (fHashSingle ? nIn+1 : txTo.vout.size());
+        ::WriteCompactSize(s, nOutputs);
+        for (unsigned int nOutput = 0; nOutput < nOutputs; nOutput++)
+             SerializeOutput(s, nOutput);
+        // Serialize nLockTime
+        ::Serialize(s, txTo.nLockTime);
+    }
+};
+
+/** Original GetPrevoutsSHA256. */
+template <class T>
+uint256 OldGetPrevoutsSHA256(const T& txTo)
+{
+    HashWriter ss{};
+    for (const auto& txin : txTo.vin) {
+        ss << txin.prevout;
+    }
+    return ss.GetSHA256();
+}
+
+/** Original GetSequencesSHA256. */
+template <class T>
+uint256 OldGetSequencesSHA256(const T& txTo)
+{
+    HashWriter ss{};
+    for (const auto& txin : txTo.vin) {
+        ss << txin.nSequence;
+    }
+    return ss.GetSHA256();
+}
+
+/** Original GetOutputsSHA256. */
+template <class T>
+uint256 OldGetOutputsSHA256(const T& txTo)
+{
+    HashWriter ss{};
+    for (const auto& txout : txTo.vout) {
+        ss << txout;
+    }
+    return ss.GetSHA256();
+}
+
+/** Original SignatureHash, without the (optional) precomputed data and midstate cache. */
+template <class T>
+uint256 OldSignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn, int32_t nHashType, const CAmount& amount, SigVersion sigversion)
+{
+    assert(nIn < txTo.vin.size());
+
+    if (sigversion != SigVersion::WITNESS_V0) {
+        // Check for invalid use of SIGHASH_SINGLE
+        if ((nHashType & 0x1f) == SIGHASH_SINGLE) {
+            if (nIn >= txTo.vout.size()) {
+                //  nOut out of range
+                return uint256::ONE;
+            }
+        }
+    }
+
+    HashWriter ss{};
+
+    if (sigversion == SigVersion::WITNESS_V0) {
+        uint256 hashPrevouts;
+        uint256 hashSequence;
+        uint256 hashOutputs;
+
+        if (!(nHashType & SIGHASH_ANYONECANPAY)) {
+            hashPrevouts = SHA256Uint256(OldGetPrevoutsSHA256(txTo));
+        }
+
+        if (!(nHashType & SIGHASH_ANYONECANPAY) && (nHashType & 0x1f) != SIGHASH_SINGLE && (nHashType & 0x1f) != SIGHASH_NONE) {
+            hashSequence = SHA256Uint256(OldGetSequencesSHA256(txTo));
+        }
+
+        if ((nHashType & 0x1f) != SIGHASH_SINGLE && (nHashType & 0x1f) != SIGHASH_NONE) {
+            hashOutputs = SHA256Uint256(OldGetOutputsSHA256(txTo));
+        } else if ((nHashType & 0x1f) == SIGHASH_SINGLE && nIn < txTo.vout.size()) {
+            HashWriter inner_ss{};
+            inner_ss << txTo.vout[nIn];
+            hashOutputs = inner_ss.GetHash();
+        }
+
+        // Version
+        ss << txTo.version;
+        // Input prevouts/nSequence (none/all, depending on flags)
+        ss << hashPrevouts;
+        ss << hashSequence;
+        // The input being signed (replacing the scriptSig with scriptCode + amount)
+        // The prevout may already be contained in hashPrevout, and the nSequence
+        // may already be contain in hashSequence.
+        ss << txTo.vin[nIn].prevout;
+        ss << scriptCode;
+        ss << amount;
+        ss << txTo.vin[nIn].nSequence;
+        // Outputs (none/one/all, depending on flags)
+        ss << hashOutputs;
+        // Locktime
+        ss << txTo.nLockTime;
+    } else {
+        // Wrapper to serialize only the necessary parts of the transaction being signed
+        OldCTransactionSignatureSerializer<T> txTmp(txTo, scriptCode, nIn, nHashType);
+
+        // Serialize
+        ss << txTmp;
+    }
+
+    // Add sighash type and hash.
+    ss << nHashType;
+    return ss.GetHash();
+}
+
+} // namespace
+
+FUZZ_TARGET(script_span_sighash)
+{
+    FuzzedDataProvider provider(buffer.data(), buffer.size());
+    const CScript script_code{ConsumeShapedScript(provider)};
+    const CMutableTransaction tx{ConsumeTransaction(provider, std::nullopt)};
+    if (tx.vin.empty()) return;
+    const auto in_index{provider.ConsumeIntegralInRange<uint32_t>(0, tx.vin.size() - 1)};
+    const auto amount{ConsumeMoney(provider)};
+    const auto sigversion{provider.PickValueInArray({SigVersion::BASE, SigVersion::WITNESS_V0})};
+    const std::optional<PrecomputedTransactionData> txdata{provider.ConsumeBool() ? std::optional<PrecomputedTransactionData>{tx} : std::nullopt};
+
+    SigHashCache sighash_cache;
+    for (int i = 0; i < 10 && provider.remaining_bytes(); ++i) {
+        const int32_t hash_type{provider.ConsumeBool() ? provider.ConsumeIntegral<int8_t>() : provider.ConsumeIntegral<int32_t>()};
+        const uint256 old_hash{OldSignatureHash(script_code, tx, in_index, hash_type, amount, sigversion)};
+        const PrecomputedTransactionData* cache{txdata ? &*txdata : nullptr};
+        assert(SignatureHash(script_code, tx, in_index, hash_type, amount, sigversion, cache) == old_hash);
+        assert(SignatureHash(script_code, tx, in_index, hash_type, amount, sigversion, cache, &sighash_cache) == old_hash);
+    }
 }

@@ -1267,14 +1267,14 @@ class CTransactionSignatureSerializer
 {
 private:
     const T& txTo;             //!< reference to the spending transaction (the one being serialized)
-    const CScript& scriptCode; //!< output script being consumed
+    const std::span<const unsigned char> scriptCode; //!< output script being consumed
     const unsigned int nIn;    //!< input index of txTo being signed
     const bool fAnyoneCanPay;  //!< whether the hashtype has the SIGHASH_ANYONECANPAY flag set
     const bool fHashSingle;    //!< whether the hashtype is SIGHASH_SINGLE
     const bool fHashNone;      //!< whether the hashtype is SIGHASH_NONE
 
 public:
-    CTransactionSignatureSerializer(const T& txToIn, const CScript& scriptCodeIn, unsigned int nInIn, int nHashTypeIn) :
+    CTransactionSignatureSerializer(const T& txToIn, std::span<const unsigned char> scriptCodeIn, unsigned int nInIn, int nHashTypeIn) :
         txTo(txToIn), scriptCode(scriptCodeIn), nIn(nInIn),
         fAnyoneCanPay(!!(nHashTypeIn & SIGHASH_ANYONECANPAY)),
         fHashSingle((nHashTypeIn & 0x1f) == SIGHASH_SINGLE),
@@ -1283,24 +1283,25 @@ public:
     /** Serialize the passed scriptCode, skipping OP_CODESEPARATORs */
     template<typename S>
     void SerializeScriptCode(S &s) const {
-        CScript::const_iterator it = scriptCode.begin();
-        CScript::const_iterator itBegin = it;
-        opcodetype opcode;
+        std::span<const unsigned char> it = scriptCode; //!< Remainder of scriptCode after the last parsed opcode
         unsigned int nCodeSeparators = 0;
-        while (scriptCode.GetOp(it, opcode)) {
-            if (opcode == OP_CODESEPARATOR)
+        while (const auto op = GetScriptOp(it)) {
+            if (op->first == OP_CODESEPARATOR)
                 nCodeSeparators++;
         }
         ::WriteCompactSize(s, scriptCode.size() - nCodeSeparators);
-        it = itBegin;
-        while (scriptCode.GetOp(it, opcode)) {
-            if (opcode == OP_CODESEPARATOR) {
-                s.write(std::as_bytes(std::span{&itBegin[0], size_t(it - itBegin - 1)}));
+        it = scriptCode;
+        std::span<const unsigned char> itBegin = scriptCode; //!< Remainder of scriptCode after the last OP_CODESEPARATOR
+        while (const auto op = GetScriptOp(it)) {
+            if (op->first == OP_CODESEPARATOR) {
+                // Write everything between the previous and this OP_CODESEPARATOR.
+                s.write(std::as_bytes(itBegin.first(itBegin.size() - it.size() - 1)));
                 itBegin = it;
             }
         }
-        if (itBegin != scriptCode.end())
-            s.write(std::as_bytes(std::span{&itBegin[0], size_t(it - itBegin)}));
+        // Write everything after the last OP_CODESEPARATOR, up to where parsing stopped.
+        if (itBegin.size() != 0)
+            s.write(std::as_bytes(itBegin.first(itBegin.size() - it.size())));
     }
 
     /** Serialize an input of txTo */
@@ -1313,8 +1314,8 @@ public:
         ::Serialize(s, txTo.vin[nInput].prevout);
         // Serialize the script
         if (nInput != nIn)
-            // Blank out other inputs' signatures
-            ::Serialize(s, CScript());
+            // Blank out other inputs' signatures (serialize an empty script)
+            ::WriteCompactSize(s, 0);
         else
             SerializeScriptCode(s);
         // Serialize the nSequence
@@ -1590,11 +1591,11 @@ int SigHashCache::CacheIndex(int32_t hash_type) const noexcept
            1 * ((hash_type & 0x1f) == SIGHASH_NONE);
 }
 
-bool SigHashCache::Load(int32_t hash_type, const CScript& script_code, HashWriter& writer) const noexcept
+bool SigHashCache::Load(int32_t hash_type, std::span<const unsigned char> script_code, HashWriter& writer) const noexcept
 {
     auto& entry = m_cache_entries[CacheIndex(hash_type)];
     if (entry.has_value()) {
-        if (script_code == entry->first) {
+        if (std::ranges::equal(script_code, entry->first)) {
             writer = HashWriter(entry->second);
             return true;
         }
@@ -1602,14 +1603,14 @@ bool SigHashCache::Load(int32_t hash_type, const CScript& script_code, HashWrite
     return false;
 }
 
-void SigHashCache::Store(int32_t hash_type, const CScript& script_code, const HashWriter& writer) noexcept
+void SigHashCache::Store(int32_t hash_type, std::span<const unsigned char> script_code, const HashWriter& writer) noexcept
 {
     auto& entry = m_cache_entries[CacheIndex(hash_type)];
-    entry.emplace(script_code, writer);
+    entry.emplace(std::vector<unsigned char>(script_code.begin(), script_code.end()), writer);
 }
 
 template <class T>
-uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn, int32_t nHashType, const CAmount& amount, SigVersion sigversion, const PrecomputedTransactionData* cache, SigHashCache* sighash_cache)
+uint256 SignatureHash(std::span<const unsigned char> scriptCode, const T& txTo, unsigned int nIn, int32_t nHashType, const CAmount& amount, SigVersion sigversion, const PrecomputedTransactionData* cache, SigHashCache* sighash_cache)
 {
     assert(nIn < txTo.vin.size());
 
@@ -1663,7 +1664,7 @@ uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn
         // The prevout may already be contained in hashPrevout, and the nSequence
         // may already be contain in hashSequence.
         ss << txTo.vin[nIn].prevout;
-        ss << scriptCode;
+        ss << CompactSizeWriter(scriptCode.size()) << scriptCode;
         ss << amount;
         ss << txTo.vin[nIn].nSequence;
         // Outputs (none/one/all, depending on flags)

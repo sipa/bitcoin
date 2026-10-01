@@ -257,20 +257,20 @@ class SigHashCache
     /** For each sighash mode (ALL, SINGLE, NONE, ALL|ANYONE, SINGLE|ANYONE, NONE|ANYONE),
      *  optionally store a scriptCode which the hash is for, plus a midstate for the SHA256
      *  computation just before adding the hash_type itself. */
-    std::optional<std::pair<CScript, HashWriter>> m_cache_entries[6];
+    std::optional<std::pair<std::vector<unsigned char>, HashWriter>> m_cache_entries[6];
 
     /** Given a hash_type, find which of the 6 cache entries is to be used. */
     int CacheIndex(int32_t hash_type) const noexcept;
 
 public:
     /** Load into writer the SHA256 midstate if found in this cache. */
-    [[nodiscard]] bool Load(int32_t hash_type, const CScript& script_code, HashWriter& writer) const noexcept;
+    [[nodiscard]] bool Load(int32_t hash_type, std::span<const unsigned char> script_code, HashWriter& writer) const noexcept;
     /** Store into this cache object the provided SHA256 midstate. */
-    void Store(int32_t hash_type, const CScript& script_code, const HashWriter& writer) noexcept;
+    void Store(int32_t hash_type, std::span<const unsigned char> script_code, const HashWriter& writer) noexcept;
 };
 
 template <class T>
-uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn, int32_t nHashType, const CAmount& amount, SigVersion sigversion, const PrecomputedTransactionData* cache = nullptr, SigHashCache* sighash_cache = nullptr);
+uint256 SignatureHash(std::span<const unsigned char> scriptCode, const T& txTo, unsigned int nIn, int32_t nHashType, const CAmount& amount, SigVersion sigversion, const PrecomputedTransactionData* cache = nullptr, SigHashCache* sighash_cache = nullptr);
 
 class BaseSignatureChecker
 {
