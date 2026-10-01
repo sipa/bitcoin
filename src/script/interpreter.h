@@ -380,6 +380,10 @@ bool VerifyScript(std::span<const unsigned char> scriptSig, std::span<const unsi
 
 size_t CountWitnessSigOps(std::span<const unsigned char> scriptSig, std::span<const unsigned char> scriptPubKey, const CScriptWitness& witness, script_verify_flags flags);
 
+/** Remove all occurrences of b (at opcode boundaries) from script. Returns the resulting script and the number
+ *  of occurrences removed. Consensus critical. */
+std::pair<std::vector<unsigned char>, int> FindAndDelete(std::span<const unsigned char> script, std::span<const unsigned char> b);
+/** CScript version of FindAndDelete, implemented in terms of the one above. */
 int FindAndDelete(CScript& script, const CScript& b);
 
 const std::map<std::string, script_verify_flag_name>& ScriptFlagNamesToEnum();

@@ -236,32 +236,46 @@ bool static CheckPubKeyEncoding(const valtype &vchPubKey, script_verify_flags fl
     return true;
 }
 
-int FindAndDelete(CScript& script, const CScript& b)
+std::pair<std::vector<unsigned char>, int> FindAndDelete(std::span<const unsigned char> script, std::span<const unsigned char> b)
 {
+    if (b.empty()) return {std::vector<unsigned char>(script.begin(), script.end()), 0};
     int nFound = 0;
-    if (b.empty())
-        return nFound;
-    CScript result;
-    CScript::const_iterator pc = script.begin(), pc2 = script.begin(), end = script.end();
-    opcodetype opcode;
+    std::vector<unsigned char> result;
+    std::span<const unsigned char> pc{script}; //!< Remainder of script after the current position
+    size_t pos2 = 0; //!< Offset in script up to which bytes have been copied or deleted
     do
     {
-        result.insert(result.end(), pc2, pc);
-        while (static_cast<size_t>(end - pc) >= b.size() && std::equal(b.begin(), b.end(), pc))
+        const size_t pos = script.size() - pc.size();
+        result.insert(result.end(), script.begin() + pos2, script.begin() + pos);
+        while (pc.size() >= b.size() && std::ranges::equal(pc.first(b.size()), b))
         {
-            pc = pc + b.size();
+            pc = pc.subspan(b.size());
             ++nFound;
         }
-        pc2 = pc;
+        pos2 = script.size() - pc.size();
     }
-    while (script.GetOp(pc, opcode));
+    while (GetScriptOp(pc));
 
-    if (nFound > 0) {
-        result.insert(result.end(), pc2, end);
-        script = std::move(result);
-    }
+    result.insert(result.end(), script.begin() + pos2, script.end());
+    return {std::move(result), nFound};
+}
 
-    return nFound;
+int FindAndDelete(CScript& script, const CScript& b)
+{
+    auto [result, found] = FindAndDelete(std::span<const unsigned char>{script}, b);
+    if (found > 0) script = CScript(result.begin(), result.end());
+    return found;
+}
+
+/** Construct the script consisting of a single push of data (the equivalent of CScript() << data). */
+static valtype PushDataScript(std::span<const unsigned char> data)
+{
+    const auto [header, header_size] = GetPushHeader(data.size());
+    valtype ret;
+    ret.reserve(header_size + data.size());
+    ret.insert(ret.end(), header.begin(), header.begin() + header_size);
+    ret.insert(ret.end(), data.begin(), data.end());
+    return ret;
 }
 
 namespace {
@@ -333,13 +347,16 @@ static bool EvalChecksigPreTapscript(const valtype& vchSig, const valtype& vchPu
     assert(sigversion == SigVersion::BASE || sigversion == SigVersion::WITNESS_V0);
 
     // Subset of script starting at the most recent codeseparator
-    CScript scriptCode(codehash.begin(), codehash.end());
+    std::span<const unsigned char> scriptCode = codehash;
 
     // Drop the signature in pre-segwit scripts but not segwit scripts
+    valtype scriptCodeStorage;
     if (sigversion == SigVersion::BASE) {
-        int found = FindAndDelete(scriptCode, CScript() << vchSig);
+        auto [stripped, found] = FindAndDelete(codehash, PushDataScript(vchSig));
         if (found > 0 && (flags & SCRIPT_VERIFY_CONST_SCRIPTCODE))
             return set_error(serror, SCRIPT_ERR_SIG_FINDANDDELETE);
+        scriptCodeStorage = std::move(stripped);
+        scriptCode = scriptCodeStorage;
     }
 
     if (!CheckSignatureEncoding(vchSig, flags, serror) || !CheckPubKeyEncoding(vchPubKey, flags, sigversion, serror)) {
@@ -1148,17 +1165,21 @@ bool EvalScript(std::vector<std::vector<unsigned char>>& stack, std::span<const 
                         return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
 
                     // Subset of script starting at the most recent codeseparator
-                    CScript scriptCode(codehash.begin(), codehash.end());
+                    std::span<const unsigned char> scriptCode = codehash;
 
                     // Drop the signature in pre-segwit scripts but not segwit scripts
-                    for (int k = 0; k < nSigsCount; k++)
-                    {
-                        valtype& vchSig = stacktop(-isig-k);
-                        if (sigversion == SigVersion::BASE) {
-                            int found = FindAndDelete(scriptCode, CScript() << vchSig);
+                    valtype scriptCodeStorage;
+                    if (sigversion == SigVersion::BASE) {
+                        scriptCodeStorage.assign(codehash.begin(), codehash.end());
+                        for (int k = 0; k < nSigsCount; k++)
+                        {
+                            valtype& vchSig = stacktop(-isig-k);
+                            auto [stripped, found] = FindAndDelete(scriptCodeStorage, PushDataScript(vchSig));
                             if (found > 0 && (flags & SCRIPT_VERIFY_CONST_SCRIPTCODE))
                                 return set_error(serror, SCRIPT_ERR_SIG_FINDANDDELETE);
+                            scriptCodeStorage = std::move(stripped);
                         }
+                        scriptCode = scriptCodeStorage;
                     }
 
                     bool fSuccess = true;

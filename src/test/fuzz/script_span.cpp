@@ -543,3 +543,102 @@ FUZZ_TARGET(script_span_sighash)
         assert(SignatureHash(script_code, tx, in_index, hash_type, amount, sigversion, cache, &sighash_cache) == old_hash);
     }
 }
+
+namespace {
+
+/** Original FindAndDelete. */
+int OldFindAndDelete(CScript& script, const CScript& b)
+{
+    int nFound = 0;
+    if (b.empty())
+        return nFound;
+    CScript result;
+    CScript::const_iterator pc = script.begin(), pc2 = script.begin(), end = script.end();
+    opcodetype opcode;
+    do
+    {
+        result.insert(result.end(), pc2, pc);
+        while (static_cast<size_t>(end - pc) >= b.size() && std::equal(b.begin(), b.end(), pc))
+        {
+            pc = pc + b.size();
+            ++nFound;
+        }
+        pc2 = pc;
+    }
+    while (OldGetScriptOp(pc, script.end(), opcode, nullptr));
+
+    if (nFound > 0) {
+        result.insert(result.end(), pc2, end);
+        script = std::move(result);
+    }
+
+    return nFound;
+}
+
+/** Original CScript::AppendDataSize followed by CScript::AppendData, i.e. CScript::operator<< for data. */
+void OldPushData(CScript& script, std::span<const unsigned char> data)
+{
+    const uint32_t size = data.size();
+    if (size < OP_PUSHDATA1) {
+        script.insert(script.end(), static_cast<unsigned char>(size));
+    } else if (size <= 0xff) {
+        script.insert(script.end(), OP_PUSHDATA1);
+        script.insert(script.end(), static_cast<unsigned char>(size));
+    } else if (size <= 0xffff) {
+        script.insert(script.end(), OP_PUSHDATA2);
+        unsigned char tmp[2];
+        WriteLE16(tmp, size);
+        script.insert(script.end(), std::cbegin(tmp), std::cend(tmp));
+    } else {
+        script.insert(script.end(), OP_PUSHDATA4);
+        unsigned char tmp[4];
+        WriteLE32(tmp, size);
+        script.insert(script.end(), std::cbegin(tmp), std::cend(tmp));
+    }
+    script.insert(script.end(), data.begin(), data.end());
+}
+
+} // namespace
+
+FUZZ_TARGET(script_span_findanddelete)
+{
+    FuzzedDataProvider provider(buffer.data(), buffer.size());
+
+    // Compare the push encoding (GetPushHeader, also used by CScript::operator<<) with the original.
+    size_t data_size{provider.ConsumeIntegralInRange<size_t>(0, 300)};
+    if (provider.ConsumeBool()) data_size = provider.ConsumeIntegralInRange<size_t>(0, 70000);
+    std::vector<unsigned char> data{provider.ConsumeBytes<unsigned char>(data_size)};
+    data.resize(data_size);
+    CScript old_push;
+    OldPushData(old_push, data);
+    const CScript new_push{CScript() << data};
+    assert(old_push == new_push);
+    const auto [header, header_size] = GetPushHeader(data.size());
+    assert(header_size <= header.size());
+    assert(std::ranges::equal(std::span{header}.first(header_size), std::span{old_push}.first(old_push.size() - data.size())));
+
+    // Compare FindAndDelete. Construct a script that may contain the pattern (a push of data, or a random
+    // script) at various places, including inside other pushes.
+    if (data.size() > 1000) data.resize(provider.ConsumeIntegralInRange<size_t>(0, 80));
+    CScript pattern{provider.ConsumeBool() ? CScript() << data : ConsumeShapedScript(provider)};
+    if (provider.ConsumeBool() && !pattern.empty()) pattern.resize(provider.ConsumeIntegralInRange<size_t>(0, pattern.size()));
+    CScript script;
+    const int parts{provider.ConsumeIntegralInRange(0, 8)};
+    for (int i = 0; i < parts && provider.remaining_bytes(); ++i) {
+        if (provider.ConsumeBool()) {
+            script.insert(script.end(), pattern.begin(), pattern.end());
+        } else {
+            const CScript other{ConsumeShapedScript(provider)};
+            script.insert(script.end(), other.begin(), other.end());
+        }
+    }
+
+    CScript old_script{script};
+    const int old_found{OldFindAndDelete(old_script, pattern)};
+    const auto [result, found] = FindAndDelete(std::span<const unsigned char>{script}, pattern);
+    assert(found == old_found);
+    assert(std::ranges::equal(result, old_script));
+    CScript new_script{script};
+    assert(FindAndDelete(new_script, pattern) == old_found);
+    assert(new_script == old_script);
+}

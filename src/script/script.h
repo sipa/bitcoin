@@ -13,6 +13,7 @@
 #include <uint256.h>
 #include <util/hash_type.h>
 
+#include <array>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -418,28 +419,37 @@ unsigned int GetSigOpCount(std::span<const unsigned char> script, bool fAccurate
 unsigned int GetSigOpCount(std::span<const unsigned char> script_pub_key, std::span<const unsigned char> script_sig);
 bool GetScriptOp(CScriptBase::const_iterator& pc, CScriptBase::const_iterator end, opcodetype& opcodeRet, std::vector<unsigned char>* pvchRet);
 
+/** Return the push opcode and length prefix that CScript::operator<< uses to precede the push of size bytes of
+ *  data, as an array plus the number of its bytes that are used (1, 2, 3, or 5). */
+inline std::pair<std::array<unsigned char, 5>, size_t> GetPushHeader(uint32_t size)
+{
+    std::array<unsigned char, 5> header{};
+    if (size < OP_PUSHDATA1) {
+        header[0] = static_cast<unsigned char>(size);
+        return {header, 1};
+    } else if (size <= 0xff) {
+        header[0] = OP_PUSHDATA1;
+        header[1] = static_cast<unsigned char>(size);
+        return {header, 2};
+    } else if (size <= 0xffff) {
+        header[0] = OP_PUSHDATA2;
+        WriteLE16(header.data() + 1, size);
+        return {header, 3};
+    } else {
+        header[0] = OP_PUSHDATA4;
+        WriteLE32(header.data() + 1, size);
+        return {header, 5};
+    }
+}
+
 /** Serialized script, used inside transaction inputs and outputs */
 class CScript : public CScriptBase
 {
 private:
     inline void AppendDataSize(const uint32_t size)
     {
-        if (size < OP_PUSHDATA1) {
-            insert(end(), static_cast<value_type>(size));
-        } else if (size <= 0xff) {
-            insert(end(), OP_PUSHDATA1);
-            insert(end(), static_cast<value_type>(size));
-        } else if (size <= 0xffff) {
-            insert(end(), OP_PUSHDATA2);
-            value_type data[2];
-            WriteLE16(data, size);
-            insert(end(), std::cbegin(data), std::cend(data));
-        } else {
-            insert(end(), OP_PUSHDATA4);
-            value_type data[4];
-            WriteLE32(data, size);
-            insert(end(), std::cbegin(data), std::cend(data));
-        }
+        const auto [header, header_size] = GetPushHeader(size);
+        insert(end(), header.begin(), header.begin() + header_size);
     }
 
     void AppendData(std::span<const value_type> data)
