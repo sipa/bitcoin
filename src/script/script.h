@@ -442,6 +442,16 @@ inline std::pair<std::array<unsigned char, 5>, size_t> GetPushHeader(uint32_t si
     }
 }
 
+/**
+ * Returns whether the script is guaranteed to fail at execution,
+ * regardless of the initial stack. This allows outputs to be pruned
+ * instantly when entering the UTXO set.
+ */
+inline bool IsUnspendable(std::span<const unsigned char> script)
+{
+    return (script.size() > 0 && script[0] == OP_RETURN) || (script.size() > MAX_SCRIPT_SIZE);
+}
+
 /** Serialized script, used inside transaction inputs and outputs */
 class CScript : public CScriptBase
 {
@@ -589,7 +599,7 @@ public:
      */
     bool IsUnspendable() const
     {
-        return (size() > 0 && *begin() == OP_RETURN) || (size() > MAX_SCRIPT_SIZE);
+        return ::IsUnspendable(*this);
     }
 
     void clear()
