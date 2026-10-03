@@ -26,6 +26,7 @@
 #include <boost/multi_index/hashed_index.hpp>
 #include <boost/multi_index/identity.hpp>
 #include <boost/multi_index/indexed_by.hpp>
+#include <boost/multi_index/member.hpp>
 #include <boost/multi_index/ordered_index.hpp>
 #include <boost/multi_index/sequenced_index.hpp>
 #include <boost/multi_index/tag.hpp>
@@ -292,9 +293,22 @@ private:
     void removeConflicts(const Transaction& tx) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
 public:
-    //! Map from outpoints to the in-mempool transactions spending them. The outpoints are stored by value (rather
-    //! than pointing into the spending transactions), as transactions do not necessarily hold COutPoint objects.
-    std::map<COutPoint, txiter> mapNextTx GUARDED_BY(cs);
+    //! An outpoint spent by an in-mempool transaction, and that transaction. The outpoint is a view of the spending
+    //! transaction's input, so the entry must be removed before that transaction is.
+    struct NextTxEntry
+    {
+        OutPointView outpoint;
+        txiter spender;
+
+        NextTxEntry(OutPointView outpoint_in, txiter spender_in) noexcept : outpoint{outpoint_in}, spender{spender_in} {}
+    };
+    //! The outpoints spent by in-mempool transactions, ordered as COutPoint (std::less<> allows lookups and range
+    //! queries by COutPoint).
+    using NextTxSet = boost::multi_index_container<
+        NextTxEntry,
+        boost::multi_index::indexed_by<
+            boost::multi_index::ordered_unique<boost::multi_index::member<NextTxEntry, OutPointView, &NextTxEntry::outpoint>, std::less<>>>>;
+    NextTxSet mapNextTx GUARDED_BY(cs);
     std::map<Txid, CAmount> mapDeltas GUARDED_BY(cs);
 
     using Options = kernel::MemPoolOptions;

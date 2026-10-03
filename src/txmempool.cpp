@@ -61,8 +61,8 @@ std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> CTxMemPool::GetChildren(const C
     {
         LOCK(cs);
         auto iter = mapNextTx.lower_bound(COutPoint(hash, 0));
-        for (; iter != mapNextTx.end() && iter->first.hash == hash; ++iter) {
-            ret.emplace_back(*(iter->second));
+        for (; iter != mapNextTx.end() && iter->outpoint.HasHash(hash); ++iter) {
+            ret.emplace_back(*(iter->spender));
         }
     }
     std::ranges::sort(ret, CompareIteratorByHash{});
@@ -102,8 +102,8 @@ void CTxMemPool::UpdateTransactionsFromBlock(const std::vector<Txid>& vHashesToU
         }
         auto iter = mapNextTx.lower_bound(COutPoint(hash, 0));
         {
-            for (; iter != mapNextTx.end() && iter->first.hash == hash; ++iter) {
-                txiter childIter = iter->second;
+            for (; iter != mapNextTx.end() && iter->outpoint.HasHash(hash); ++iter) {
+                txiter childIter = iter->spender;
                 assert(childIter != mapTx.end());
                 // Add dependencies that are discovered between transactions in the
                 // block and transactions that were in the mempool to txgraph.
@@ -237,7 +237,7 @@ void CTxMemPool::addNewTransaction(CTxMemPool::txiter newit)
 
     const Transaction& tx = newit->GetTx();
     for (unsigned int i = 0; i < tx.GetNumInputs(); i++) {
-        mapNextTx.emplace(tx.GetInputPrevout(i), newit);
+        mapNextTx.emplace(tx.GetInputPrevoutView(i), newit);
     }
     // Don't bother worrying about child transactions of this one.
     // Normal case of a new transaction arriving is that there can't be any
@@ -281,8 +281,9 @@ void CTxMemPool::removeUnchecked(txiter it, MemPoolRemovalReason reason)
         std::chrono::duration_cast<std::chrono::duration<std::uint64_t>>(it->GetTime()).count()
     );
 
-    for (const CTxInView txin : it->GetTx().Inputs())
-        mapNextTx.erase(txin.GetPrevout());
+    for (uint32_t i = 0; i < it->GetTx().GetNumInputs(); ++i) {
+        mapNextTx.erase(it->GetTx().GetInputPrevoutView(i));
+    }
 
     RemoveUnbroadcastTx(it->GetTx().GetHash(), true /* add logging because unchecked */);
 
@@ -345,8 +346,8 @@ void CTxMemPool::removeRecursive(const Transaction &origTx, MemPoolRemovalReason
         // the mempool for any reason.
         auto iter = mapNextTx.lower_bound(COutPoint(origTx.GetHash(), 0));
         std::vector<const TxGraph::Ref*> to_remove;
-        while (iter != mapNextTx.end() && iter->first.hash == origTx.GetHash()) {
-            to_remove.emplace_back(&*(iter->second));
+        while (iter != mapNextTx.end() && iter->outpoint.HasHash(origTx.GetHash())) {
+            to_remove.emplace_back(&*(iter->spender));
             ++iter;
         }
         auto all_removes = m_txgraph->GetDescendantsUnion(to_remove, TxGraph::Level::MAIN);
@@ -392,11 +393,11 @@ void CTxMemPool::removeConflicts(const Transaction &tx)
     for (const CTxInView txin : tx.Inputs()) {
         auto it = mapNextTx.find(txin.GetPrevout());
         if (it != mapNextTx.end()) {
-            const Transaction &txConflict = it->second->GetTx();
+            const Transaction &txConflict = it->spender->GetTx();
             if (Assume(txConflict.GetHash() != tx.GetHash()))
             {
                 ClearPrioritisation(txConflict.GetHash());
-                removeRecursive(it->second, MemPoolRemovalReason::CONFLICT);
+                removeRecursive(it->spender, MemPoolRemovalReason::CONFLICT);
             }
         }
     }
@@ -501,8 +502,8 @@ void CTxMemPool::check(const CCoinsViewCache& active_coins_tip, int64_t spendhei
             // Check whether its inputs are marked in mapNextTx.
             auto it3 = mapNextTx.find(txin.GetPrevout());
             assert(it3 != mapNextTx.end());
-            assert(it3->first == txin.GetPrevout());
-            assert(&it3->second->GetTx() == &tx);
+            assert(it3->outpoint == txin.GetPrevout());
+            assert(&it3->spender->GetTx() == &tx);
         }
         auto comp = [](const CTxMemPoolEntry& a, const CTxMemPoolEntry& b) -> bool {
             return a.GetTx().GetHash() == b.GetTx().GetHash();
@@ -517,8 +518,8 @@ void CTxMemPool::check(const CCoinsViewCache& active_coins_tip, int64_t spendhei
         std::set<CTxMemPoolEntry::CTxMemPoolEntryRef, CompareIteratorByHash> setChildrenCheck;
         std::set<CTxMemPoolEntry::CTxMemPoolEntryRef, CompareIteratorByHash> setChildrenStored;
         auto iter = mapNextTx.lower_bound(COutPoint(it->GetTx().GetHash(), 0));
-        for (; iter != mapNextTx.end() && iter->first.hash == it->GetTx().GetHash(); ++iter) {
-            txiter childit = iter->second;
+        for (; iter != mapNextTx.end() && iter->outpoint.HasHash(it->GetTx().GetHash()); ++iter) {
+            txiter childit = iter->spender;
             assert(childit != mapTx.end()); // mapNextTx points to in-mempool transactions
             setChildrenCheck.insert(*childit);
         }
@@ -536,7 +537,7 @@ void CTxMemPool::check(const CCoinsViewCache& active_coins_tip, int64_t spendhei
         AddCoins(mempoolDuplicate, tx, std::numeric_limits<int>::max());
     }
     for (auto it = mapNextTx.cbegin(); it != mapNextTx.cend(); it++) {
-        indexed_transaction_set::const_iterator it2 = it->second;
+        indexed_transaction_set::const_iterator it2 = it->spender;
         assert(it2 != mapTx.end());
     }
 
@@ -737,7 +738,7 @@ std::vector<CTxMemPool::delta_info> CTxMemPool::GetPrioritisedTransactions() con
 const Transaction* CTxMemPool::GetConflictTx(const COutPoint& prevout) const
 {
     const auto it = mapNextTx.find(prevout);
-    return it == mapNextTx.end() ? nullptr : &(it->second->GetTx());
+    return it == mapNextTx.end() ? nullptr : &(it->spender->GetTx());
 }
 
 std::optional<CTxMemPool::txiter> CTxMemPool::GetIter(const Txid& txid) const
@@ -825,8 +826,10 @@ void CCoinsViewMemPool::Reset()
 
 size_t CTxMemPool::DynamicMemoryUsage() const {
     LOCK(cs);
-    // Estimate the overhead of mapTx to be 9 pointers (3 pointers per index) + an allocation, as no exact formula for boost::multi_index_contained is implemented.
-    return memusage::MallocUsage(sizeof(CTxMemPoolEntry) + 9 * sizeof(void*)) * mapTx.size() + memusage::DynamicUsage(mapNextTx) + memusage::DynamicUsage(mapDeltas) + memusage::DynamicUsage(txns_randomized) + memusage::DynamicUsage(m_unbroadcast_txids) + m_txgraph->GetMainMemoryUsage() + cachedInnerUsage;
+    // Estimate the overhead of mapTx to be 9 pointers (3 pointers per index) + an allocation, and that of mapNextTx
+    // to be 3 pointers + an allocation, as no exact formula for boost::multi_index_contained is implemented.
+    return memusage::MallocUsage(sizeof(CTxMemPoolEntry) + 9 * sizeof(void*)) * mapTx.size() +
+           memusage::MallocUsage(sizeof(NextTxEntry) + 3 * sizeof(void*)) * mapNextTx.size() + memusage::DynamicUsage(mapDeltas) + memusage::DynamicUsage(txns_randomized) + memusage::DynamicUsage(m_unbroadcast_txids) + m_txgraph->GetMainMemoryUsage() + cachedInnerUsage;
 }
 
 void CTxMemPool::RemoveUnbroadcastTx(const Txid& txid, const bool unchecked) {

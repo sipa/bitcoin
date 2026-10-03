@@ -185,4 +185,42 @@ BOOST_AUTO_TEST_CASE(transaction_view_edge_cases)
     BOOST_CHECK(tx.GetWitnessHash().ToUint256() != tx.GetHash().ToUint256());
 }
 
+BOOST_AUTO_TEST_CASE(outpoint_view)
+{
+    FastRandomContext rng{/*fDeterministic=*/true};
+    // Outpoints with few distinct txids (differing only in their first or last byte) and output indices (whose
+    // little-endian serializations order differently than their values), so that many pairs compare equal in
+    // some part.
+    std::vector<COutPoint> outpoints;
+    for (int i = 0; i < 40; ++i) {
+        uint256 hash{};
+        if (rng.randbool()) *hash.begin() = rng.randrange(3);
+        if (rng.randbool()) *(hash.end() - 1) = rng.randrange(3);
+        static constexpr uint32_t INDICES[]{0, 1, 2, 0xff, 0x100, 0x101, 0x10000, COutPoint::NULL_INDEX};
+        outpoints.emplace_back(Txid::FromUint256(hash), INDICES[rng.randrange(std::size(INDICES))]);
+    }
+    std::vector<std::vector<uint8_t>> serialized;
+    for (const COutPoint& outpoint : outpoints) {
+        serialized.emplace_back();
+        VectorWriter{serialized.back(), 0, outpoint};
+        BOOST_REQUIRE_EQUAL(serialized.back().size(), OutPointView::SIZE);
+    }
+    const auto view{[&](size_t i) { return OutPointView{std::span{serialized[i]}.first<OutPointView::SIZE>()}; }};
+    for (size_t i = 0; i < outpoints.size(); ++i) {
+        BOOST_CHECK(view(i).ToOutPoint() == outpoints[i]);
+        BOOST_CHECK(view(i).GetHash() == outpoints[i].hash);
+        BOOST_CHECK_EQUAL(view(i).GetN(), outpoints[i].n);
+        for (size_t j = 0; j < outpoints.size(); ++j) {
+            const COutPoint& a{outpoints[i]};
+            const COutPoint& b{outpoints[j]};
+            BOOST_CHECK_EQUAL(view(i) == view(j), a == b);
+            BOOST_CHECK_EQUAL(view(i) < view(j), a < b);
+            BOOST_CHECK_EQUAL(view(i) == b, a == b);
+            BOOST_CHECK_EQUAL(view(i) < b, a < b);
+            BOOST_CHECK_EQUAL(a < view(j), a < b);
+            BOOST_CHECK_EQUAL(view(i).HasHash(b.hash), a.hash == b.hash);
+        }
+    }
+}
+
 BOOST_AUTO_TEST_SUITE_END()

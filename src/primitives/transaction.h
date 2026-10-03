@@ -17,6 +17,7 @@
 #include <compare>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <ios>
 #include <iterator>
 #include <limits>
@@ -56,6 +57,42 @@ public:
     }
 
     std::string ToString() const;
+};
+
+/** A view of a serialized outpoint (its 32-byte txid followed by its 4-byte little-endian output index), such as
+ *  the prevout of an input of a Transaction. It only holds a pointer to that data, and compares (with other
+ *  OutPointViews, and with COutPoints) in the same order as COutPoint. */
+class OutPointView
+{
+    const uint8_t* m_data;
+
+    std::strong_ordering Compare(const uint8_t* hash, uint32_t n) const noexcept
+    {
+        if (const int cmp{std::memcmp(m_data, hash, 32)}; cmp != 0) return cmp <=> 0;
+        return GetN() <=> n;
+    }
+
+public:
+    static constexpr size_t SIZE{32 + 4};
+
+    explicit OutPointView(std::span<const uint8_t, SIZE> data LIFETIMEBOUND) noexcept : m_data{data.data()} {}
+
+    Txid GetHash() const noexcept { return Txid::FromUint256(uint256{std::span{m_data, 32}}); }
+    /** Whether the txid equals hash (without constructing a Txid). */
+    bool HasHash(const Txid& hash) const noexcept { return std::memcmp(m_data, hash.data(), 32) == 0; }
+    uint32_t GetN() const noexcept { return ReadLE32(m_data + 32); }
+    COutPoint ToOutPoint() const noexcept { return COutPoint{GetHash(), GetN()}; }
+
+    friend bool operator==(const OutPointView& a, const OutPointView& b) noexcept { return a.Compare(b.m_data, b.GetN()) == 0; }
+    friend std::strong_ordering operator<=>(const OutPointView& a, const OutPointView& b) noexcept { return a.Compare(b.m_data, b.GetN()); }
+    friend bool operator==(const OutPointView& a, const COutPoint& b) noexcept
+    {
+        return a.Compare(reinterpret_cast<const uint8_t*>(b.hash.data()), b.n) == 0;
+    }
+    friend std::strong_ordering operator<=>(const OutPointView& a, const COutPoint& b) noexcept
+    {
+        return a.Compare(reinterpret_cast<const uint8_t*>(b.hash.data()), b.n);
+    }
 };
 
 /** An input of a transaction.  It contains the location of the previous
@@ -699,6 +736,11 @@ public:
     std::span<const uint8_t> GetInputPrevoutSerialization(uint32_t input_idx) const noexcept LIFETIMEBOUND
     {
         return Data().subspan(InputOffset(input_idx), 36);
+    }
+    /** A view of an input's prevout, pointing into this transaction's data. */
+    OutPointView GetInputPrevoutView(uint32_t input_idx) const noexcept LIFETIMEBOUND
+    {
+        return OutPointView{GetInputPrevoutSerialization(input_idx).first<OutPointView::SIZE>()};
     }
     std::span<const unsigned char> GetInputScriptSig(uint32_t input_idx) const noexcept LIFETIMEBOUND
     {

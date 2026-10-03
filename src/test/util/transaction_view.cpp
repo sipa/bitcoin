@@ -100,6 +100,10 @@ std::string CompareTransaction(const Transaction& tx, const CMutableTransaction&
     for (uint32_t i = 0; i < mtx.vin.size(); ++i) {
         const CTxIn& txin{mtx.vin[i]};
         if (tx.GetInputPrevout(i) != txin.prevout) return strprintf("input %u prevout", i);
+        if (tx.GetInputPrevoutView(i) != txin.prevout || tx.GetInputPrevoutView(i).ToOutPoint() != txin.prevout ||
+            !tx.GetInputPrevoutView(i).HasHash(txin.prevout.hash)) {
+            return strprintf("input %u prevout view", i);
+        }
         if (!std::ranges::equal(tx.GetInputScriptSig(i), txin.scriptSig)) return strprintf("input %u scriptSig", i);
         if (tx.GetInputSequence(i) != txin.nSequence) return strprintf("input %u sequence", i);
         const auto& stack{txin.scriptWitness.stack};
