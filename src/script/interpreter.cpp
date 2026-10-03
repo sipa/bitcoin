@@ -1493,10 +1493,8 @@ PrecomputedTransactionData::PrecomputedTransactionData(const T& txTo)
 
 // explicit instantiation
 template void PrecomputedTransactionData::Init(const Transaction& txTo, std::vector<CTxOut>&& spent_outputs, bool force);
-template void PrecomputedTransactionData::Init(const CTransaction& txTo, std::vector<CTxOut>&& spent_outputs, bool force); // TODO: remove with CTransaction
 template void PrecomputedTransactionData::Init(const CMutableTransaction& txTo, std::vector<CTxOut>&& spent_outputs, bool force);
 template PrecomputedTransactionData::PrecomputedTransactionData(const Transaction& txTo);
-template PrecomputedTransactionData::PrecomputedTransactionData(const CTransaction& txTo); // TODO: remove with CTransaction
 template PrecomputedTransactionData::PrecomputedTransactionData(const CMutableTransaction& txTo);
 
 const HashWriter HASHER_TAPSIGHASH{TaggedHash("TapSighash")};
@@ -1868,10 +1866,8 @@ template class GenericTransactionSignatureChecker<CMutableTransaction>;
 // Explicit instantiations of the signature hash functions (also used outside the checkers).
 template uint256 SignatureHash(std::span<const unsigned char> scriptCode, const Transaction& txTo, unsigned int nIn, int32_t nHashType, const CAmount& amount, SigVersion sigversion, const PrecomputedTransactionData* cache, SigHashCache* sighash_cache);
 template uint256 SignatureHash(std::span<const unsigned char> scriptCode, const CMutableTransaction& txTo, unsigned int nIn, int32_t nHashType, const CAmount& amount, SigVersion sigversion, const PrecomputedTransactionData* cache, SigHashCache* sighash_cache);
-template uint256 SignatureHash(std::span<const unsigned char> scriptCode, const CTransaction& txTo, unsigned int nIn, int32_t nHashType, const CAmount& amount, SigVersion sigversion, const PrecomputedTransactionData* cache, SigHashCache* sighash_cache); // TODO: remove with CTransaction
 template bool SignatureHashSchnorr(uint256& hash_out, ScriptExecutionData& execdata, const Transaction& tx_to, uint32_t in_pos, uint8_t hash_type, SigVersion sigversion, const PrecomputedTransactionData& cache, MissingDataBehavior mdb);
 template bool SignatureHashSchnorr(uint256& hash_out, ScriptExecutionData& execdata, const CMutableTransaction& tx_to, uint32_t in_pos, uint8_t hash_type, SigVersion sigversion, const PrecomputedTransactionData& cache, MissingDataBehavior mdb);
-template bool SignatureHashSchnorr(uint256& hash_out, ScriptExecutionData& execdata, const CTransaction& tx_to, uint32_t in_pos, uint8_t hash_type, SigVersion sigversion, const PrecomputedTransactionData& cache, MissingDataBehavior mdb); // TODO: remove with CTransaction
 
 static bool ExecuteWitnessScript(std::vector<valtype> stack, std::span<const unsigned char> exec_script, script_verify_flags flags, SigVersion sigversion, const BaseSignatureChecker& checker, ScriptExecutionData& execdata, ScriptError* serror)
 {
