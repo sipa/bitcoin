@@ -946,10 +946,10 @@ static RPCMethod getblocktemplate()
         entry.pushKV("hash", tx.GetWitnessHash().GetHex());
 
         UniValue deps(UniValue::VARR);
-        for (const CTxIn &in : tx.vin)
+        for (const CTxInView in : tx.Inputs())
         {
-            if (setTxIndex.contains(in.prevout.hash))
-                deps.push_back(setTxIndex[in.prevout.hash]);
+            if (setTxIndex.contains(in.GetPrevout().hash))
+                deps.push_back(setTxIndex[in.GetPrevout().hash]);
         }
         entry.pushKV("depends", std::move(deps));
 
