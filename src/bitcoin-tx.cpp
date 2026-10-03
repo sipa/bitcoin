@@ -742,7 +742,7 @@ static void MutateTx(CMutableTransaction& tx, const std::string& command,
         throw std::runtime_error("unknown command");
 }
 
-static void OutputTxJSON(const CTransaction& tx)
+static void OutputTxJSON(const Transaction& tx)
 {
     UniValue entry(UniValue::VOBJ);
     TxToUniv(tx, /*block_hash=*/uint256(), entry);
@@ -751,21 +751,21 @@ static void OutputTxJSON(const CTransaction& tx)
     tfm::format(std::cout, "%s\n", jsonOutput);
 }
 
-static void OutputTxHash(const CTransaction& tx)
+static void OutputTxHash(const Transaction& tx)
 {
     std::string strHexHash = tx.GetHash().GetHex(); // the hex-encoded transaction hash (aka the transaction id)
 
     tfm::format(std::cout, "%s\n", strHexHash);
 }
 
-static void OutputTxHex(const CTransaction& tx)
+static void OutputTxHex(const Transaction& tx)
 {
     std::string strHex = EncodeHexTx(tx);
 
     tfm::format(std::cout, "%s\n", strHex);
 }
 
-static void OutputTx(const CTransaction& tx)
+static void OutputTx(const Transaction& tx)
 {
     if (gArgs.GetBoolArg("-json", false))
         OutputTxJSON(tx);
@@ -839,7 +839,7 @@ static int CommandLineRawTx(int argc, char* argv[])
             MutateTx(tx, key, value);
         }
 
-        OutputTx(CTransaction(tx));
+        OutputTx(Transaction(tx));
     }
     catch (const std::exception& e) {
         strPrint = std::string("error: ") + e.what();
