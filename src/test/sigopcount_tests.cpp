@@ -73,7 +73,7 @@ static ScriptError VerifyWithFlag(const CTransaction& output, const CMutableTran
 {
     ScriptError error;
     CTransaction inputi(input);
-    bool ret = VerifyScript(inputi.vin[0].scriptSig, output.vout[0].scriptPubKey, &inputi.vin[0].scriptWitness, flags, TransactionSignatureChecker(&inputi, 0, output.vout[0].nValue, MissingDataBehavior::ASSERT_FAIL), &error);
+    bool ret = VerifyScript(inputi.vin[0].scriptSig, output.vout[0].scriptPubKey, &inputi.vin[0].scriptWitness, flags, TransactionSignatureChecker(&inputi, 0, output.GetOutputValue(0), MissingDataBehavior::ASSERT_FAIL), &error);
     BOOST_CHECK((ret == true) == (error == SCRIPT_ERR_OK));
 
     return error;
@@ -88,7 +88,7 @@ static void BuildTxs(CMutableTransaction& spendingTx, CCoinsViewCache& coins, CM
 {
     creationTx.version = 1;
     creationTx.vin.resize(1);
-    creationTx.vin[0].prevout.SetNull();
+    creationTx.GetInputPrevout(0).SetNull();
     creationTx.vin[0].scriptSig = CScript();
     creationTx.vout.resize(1);
     creationTx.vout[0].nValue = 1;
@@ -96,8 +96,8 @@ static void BuildTxs(CMutableTransaction& spendingTx, CCoinsViewCache& coins, CM
 
     spendingTx.version = 1;
     spendingTx.vin.resize(1);
-    spendingTx.vin[0].prevout.hash = creationTx.GetHash();
-    spendingTx.vin[0].prevout.n = 0;
+    spendingTx.GetInputPrevout(0).hash = creationTx.GetHash();
+    spendingTx.GetInputPrevout(0).n = 0;
     spendingTx.vin[0].scriptSig = scriptSig;
     spendingTx.vin[0].scriptWitness = witness;
     spendingTx.vout.resize(1);
@@ -179,7 +179,7 @@ BOOST_AUTO_TEST_CASE(GetTxSigOpCost)
         BuildTxs(spendingTx, coins, creationTx, scriptPubKey, scriptSig, scriptWitness);
 
         // The witness of a coinbase transaction is not taken into account.
-        spendingTx.vin[0].prevout.SetNull();
+        spendingTx.GetInputPrevout(0).SetNull();
         assert(GetTransactionSigOpCost(CTransaction(spendingTx), coins, flags) == 0);
     }
 

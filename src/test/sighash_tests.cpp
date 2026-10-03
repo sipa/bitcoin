@@ -26,7 +26,7 @@
 // Old script.cpp SignatureHash function
 uint256 static SignatureHashOld(CScript scriptCode, const CTransaction& txTo, unsigned int nIn, int nHashType)
 {
-    if (nIn >= txTo.vin.size())
+    if (nIn >= txTo.GetNumInputs())
     {
         return uint256::ONE;
     }
@@ -37,7 +37,7 @@ uint256 static SignatureHashOld(CScript scriptCode, const CTransaction& txTo, un
     FindAndDelete(scriptCode, CScript(OP_CODESEPARATOR));
 
     // Blank out other inputs' signatures
-    for (unsigned int i = 0; i < txTmp.vin.size(); i++)
+    for (unsigned int i = 0; i < txTmp.GetNumInputs(); i++)
         txTmp.vin[i].scriptSig = CScript();
     txTmp.vin[nIn].scriptSig = scriptCode;
 
@@ -48,7 +48,7 @@ uint256 static SignatureHashOld(CScript scriptCode, const CTransaction& txTo, un
         txTmp.vout.clear();
 
         // Let the others update at will
-        for (unsigned int i = 0; i < txTmp.vin.size(); i++)
+        for (unsigned int i = 0; i < txTmp.GetNumInputs(); i++)
             if (i != nIn)
                 txTmp.vin[i].nSequence = 0;
     }
@@ -56,7 +56,7 @@ uint256 static SignatureHashOld(CScript scriptCode, const CTransaction& txTo, un
     {
         // Only lock-in the txout payee at same index as txin
         unsigned int nOut = nIn;
-        if (nOut >= txTmp.vout.size())
+        if (nOut >= txTmp.GetNumOutputs())
         {
             return uint256::ONE;
         }
@@ -65,7 +65,7 @@ uint256 static SignatureHashOld(CScript scriptCode, const CTransaction& txTo, un
             txTmp.vout[i].SetNull();
 
         // Let the others update at will
-        for (unsigned int i = 0; i < txTmp.vin.size(); i++)
+        for (unsigned int i = 0; i < txTmp.GetNumInputs(); i++)
             if (i != nIn)
                 txTmp.vin[i].nSequence = 0;
     }
@@ -134,7 +134,7 @@ BOOST_AUTO_TEST_CASE(sighash_test)
         RandomTransaction(txTo, (nHashType & 0x1f) == SIGHASH_SINGLE);
         CScript scriptCode;
         RandomScript(scriptCode);
-        int nIn = m_rng.randrange(txTo.vin.size());
+        int nIn = m_rng.randrange(txTo.GetNumInputs());
 
         uint256 sh, sho;
         sho = SignatureHashOld(scriptCode, CTransaction(txTo), nIn, nHashType);
@@ -217,7 +217,7 @@ BOOST_AUTO_TEST_CASE(sighash_caching)
     diff_scriptcode << OP_1;
     CMutableTransaction tx;
     RandomTransaction(tx, /*fSingle=*/false);
-    const auto in_index{static_cast<uint32_t>(m_rng.randrange(tx.vin.size()))};
+    const auto in_index{static_cast<uint32_t>(m_rng.randrange(tx.GetNumInputs()))};
     const auto amount{m_rng.rand<CAmount>()};
 
     // Exercise the sighash function under both legacy and segwit v0.
@@ -234,7 +234,7 @@ BOOST_AUTO_TEST_CASE(sighash_caching)
         // be confused for another (instantiating the cache within the loop instead would prevent testing this).
         SigHashCache cache;
         for (const auto hash_type: hash_types) {
-            const bool expect_one{sigversion == SigVersion::BASE && ((hash_type & 0x1f) == SIGHASH_SINGLE) && in_index >= tx.vout.size()};
+            const bool expect_one{sigversion == SigVersion::BASE && ((hash_type & 0x1f) == SIGHASH_SINGLE) && in_index >= tx.GetNumOutputs()};
 
             // The result of computing the sighash should be the same with or without cache.
             const auto sighash_with_cache{SignatureHash(scriptcode, tx, in_index, hash_type, amount, sigversion, nullptr, &cache)};

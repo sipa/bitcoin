@@ -35,8 +35,8 @@ bool IsFinalTx(const CTransaction &tx, int nBlockHeight, int64_t nBlockTime)
     // also check that the spending input's nSequence != SEQUENCE_FINAL,
     // ensuring that an unsatisfied nLockTime value will actually cause
     // IsFinalTx() to return false here:
-    for (const auto& txin : tx.vin) {
-        if (!(txin.nSequence == CTxIn::SEQUENCE_FINAL))
+    for (const CTxInView txin : tx.Inputs()) {
+        if (!(txin.GetSequence() == CTxIn::SEQUENCE_FINAL))
             return false;
     }
     return true;
@@ -44,7 +44,7 @@ bool IsFinalTx(const CTransaction &tx, int nBlockHeight, int64_t nBlockTime)
 
 std::pair<int, int64_t> CalculateSequenceLocks(const CTransaction &tx, int flags, std::vector<int>& prevHeights, const CBlockIndex& block)
 {
-    assert(prevHeights.size() == tx.vin.size());
+    assert(prevHeights.size() == tx.GetNumInputs());
 
     // Will be set to the equivalent height- and time-based nLockTime
     // values that would be necessary to satisfy all relative lock-
@@ -62,7 +62,7 @@ std::pair<int, int64_t> CalculateSequenceLocks(const CTransaction &tx, int flags
         return std::make_pair(nMinHeight, nMinTime);
     }
 
-    for (size_t txinIndex = 0; txinIndex < tx.vin.size(); txinIndex++) {
+    for (size_t txinIndex = 0; txinIndex < tx.GetNumInputs(); txinIndex++) {
         const CTxIn& txin = tx.vin[txinIndex];
 
         // Sequence numbers with the most significant bit set are not
@@ -135,9 +135,9 @@ unsigned int GetP2SHSigOpCount(const CTransaction& tx, const CCoinsViewCache& in
         return 0;
 
     unsigned int nSigOps = 0;
-    for (unsigned int i = 0; i < tx.vin.size(); i++)
+    for (unsigned int i = 0; i < tx.GetNumInputs(); i++)
     {
-        const Coin& coin = inputs.AccessCoin(tx.vin[i].prevout);
+        const Coin& coin = inputs.AccessCoin(tx.GetInputPrevout(i));
         assert(!coin.IsSpent());
         const CTxOut &prevout = coin.out;
         if (prevout.scriptPubKey.IsPayToScriptHash())
@@ -157,9 +157,9 @@ int64_t GetTransactionSigOpCost(const CTransaction& tx, const CCoinsViewCache& i
         nSigOps += GetP2SHSigOpCount(tx, inputs) * WITNESS_SCALE_FACTOR;
     }
 
-    for (unsigned int i = 0; i < tx.vin.size(); i++)
+    for (unsigned int i = 0; i < tx.GetNumInputs(); i++)
     {
-        const Coin& coin = inputs.AccessCoin(tx.vin[i].prevout);
+        const Coin& coin = inputs.AccessCoin(tx.GetInputPrevout(i));
         assert(!coin.IsSpent());
         const CTxOut &prevout = coin.out;
         nSigOps += CountWitnessSigOps(tx.vin[i].scriptSig, prevout.scriptPubKey, tx.vin[i].scriptWitness, flags);
@@ -176,8 +176,8 @@ bool Consensus::CheckTxInputs(const CTransaction& tx, TxValidationState& state, 
     }
 
     CAmount nValueIn = 0;
-    for (unsigned int i = 0; i < tx.vin.size(); ++i) {
-        const COutPoint &prevout = tx.vin[i].prevout;
+    for (unsigned int i = 0; i < tx.GetNumInputs(); ++i) {
+        const COutPoint &prevout = tx.GetInputPrevout(i);
         const Coin& coin = inputs.AccessCoin(prevout);
         assert(!coin.IsSpent());
 
