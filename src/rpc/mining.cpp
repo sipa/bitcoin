@@ -1029,7 +1029,7 @@ static RPCMethod getblocktemplate()
     result.pushKV("previousblockhash", block_header.hashPrevBlock.GetHex());
     result.pushKV("transactions", std::move(transactions));
     result.pushKV("coinbaseaux", std::move(aux));
-    result.pushKV("coinbasevalue", block_template->block.vtx[0]->vout[0].nValue);
+    result.pushKV("coinbasevalue", block_template->block.vtx[0]->GetOutputValue(0));
     result.pushKV("longpollid", tip.GetHex() + ToString(nTransactionsUpdatedLast));
     result.pushKV("target", hashTarget.GetHex());
     result.pushKV("mintime", GetMinimumTime(pindexPrev, consensusParams.DifficultyAdjustmentInterval()));

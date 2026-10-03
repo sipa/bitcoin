@@ -600,10 +600,10 @@ static void entryToJSON(const CTxMemPool& pool, UniValue& info, const CTxMemPool
 
     const CTransaction& tx = e.GetTx();
     std::set<std::string> setDepends;
-    for (const CTxIn& txin : tx.vin)
+    for (const CTxInView txin : tx.Inputs())
     {
-        if (pool.exists(txin.prevout.hash))
-            setDepends.insert(txin.prevout.hash.ToString());
+        if (pool.exists(txin.GetPrevout().hash))
+            setDepends.insert(txin.GetPrevout().hash.ToString());
     }
 
     UniValue depends(UniValue::VARR);
