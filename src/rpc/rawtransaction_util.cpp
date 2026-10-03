@@ -177,7 +177,7 @@ CMutableTransaction ConstructTransaction(const UniValue& inputs_in, const UniVal
     AddInputs(rawTx, inputs_in, rbf);
     AddOutputs(rawTx, outputs_in);
 
-    if (rbf.has_value() && rbf.value() && rawTx.vin.size() > 0 && !SignalsOptInRBF(CTransaction(rawTx))) {
+    if (rbf.has_value() && rbf.value() && rawTx.vin.size() > 0 && !SignalsOptInRBF(Transaction(rawTx))) {
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter combination: Sequence number(s) contradict replaceable option");
     }
 
@@ -348,7 +348,7 @@ void SignTransactionResultToJSON(CMutableTransaction& mtx, bool complete, const 
         TxInErrorToJSON(mtx.vin.at(err_pair.first), vErrors, err_pair.second.original);
     }
 
-    result.pushKV("hex", EncodeHexTx(CTransaction(mtx)));
+    result.pushKV("hex", EncodeHexTx(Transaction(mtx)));
     result.pushKV("complete", complete);
     if (!vErrors.empty()) {
         if (result.exists("errors")) {
