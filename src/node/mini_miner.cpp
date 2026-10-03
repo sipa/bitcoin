@@ -408,7 +408,7 @@ std::optional<CAmount> MiniMiner::CalculateTotalBumpFees(const CFeeRate& target_
     std::set<Txid> has_been_processed;
     while (!to_process.empty()) {
         auto iter = to_process.begin();
-        const CTransaction& tx = (*iter)->second.GetTx();
+        const Transaction& tx = (*iter)->second.GetTx();
         for (const CTxInView input : tx.Inputs()) {
             if (auto parent_it{m_entries_by_txid.find(input.GetPrevout().hash)}; parent_it != m_entries_by_txid.end()) {
                 if (!has_been_processed.contains(input.GetPrevout().hash)) {
