@@ -80,7 +80,7 @@ static void VerifyScriptBench(benchmark::Bench& bench, ScriptType script_type)
     PrecomputedTransactionData txdata;
     {
         const std::map<COutPoint, Coin> coins{
-            {txSpend.vin[0].prevout, Coin(txCredit.vout[0], /*nHeightIn=*/100, /*fCoinBaseIn=*/false)}
+            {txSpend.GetInputPrevout(0), Coin(txCredit.vout[0], /*nHeightIn=*/100, /*fCoinBaseIn=*/false)}
         };
         std::map<int, bilingual_str> input_errors;
         bool complete = SignTransaction(txSpend, &keystore, coins, {.sighash_type = SIGHASH_ALL}, input_errors);
@@ -98,7 +98,7 @@ static void VerifyScriptBench(benchmark::Bench& bench, ScriptType script_type)
             txCredit.vout[0].scriptPubKey,
             &txSpend.vin[0].scriptWitness,
             STANDARD_SCRIPT_VERIFY_FLAGS,
-            MutableTransactionSignatureChecker(&txSpend, 0, txCredit.vout[0].nValue, txdata, MissingDataBehavior::ASSERT_FAIL),
+            MutableTransactionSignatureChecker(&txSpend, 0, txCredit.GetOutputValue(0), txdata, MissingDataBehavior::ASSERT_FAIL),
             &err);
         assert(err == SCRIPT_ERR_OK);
         assert(success);

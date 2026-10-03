@@ -59,11 +59,11 @@ void PopulateView(const CBlock& block, CCoinsView& view, bool spent = false)
     std::unordered_set<Txid, SaltedCoinsCacheHasher> txids{};
     txids.reserve(block.vtx.size() - 1);
     for (const auto& tx : block.vtx | std::views::drop(1)) {
-        for (const auto& in : tx->vin) {
-            if (txids.contains(in.prevout.hash)) continue;
+        for (const CTxInView in : tx->Inputs()) {
+            if (txids.contains(in.GetPrevout().hash)) continue;
             Coin coin{};
             if (!spent) coin.out.nValue = 1;
-            cache.EmplaceCoinInternalDANGER(in.prevout, std::move(coin));
+            cache.EmplaceCoinInternalDANGER(in.GetPrevout(), std::move(coin));
         }
         txids.emplace(tx->GetHash());
     }
@@ -79,10 +79,10 @@ void CheckCache(const CBlock& block, const CCoinsViewCache& cache)
 
     for (const auto& tx : block.vtx) {
         if (tx->IsCoinBase()) {
-            BOOST_CHECK(!cache.HaveCoinInCache(tx->vin[0].prevout));
+            BOOST_CHECK(!cache.HaveCoinInCache(tx->GetInputPrevout(0)));
         } else {
-            for (const auto& in : tx->vin) {
-                const auto& outpoint{in.prevout};
+            for (const CTxInView in : tx->Inputs()) {
+                const auto& outpoint{in.GetPrevout()};
                 const auto& first{cache.AccessCoin(outpoint)};
                 const auto& second{cache.AccessCoin(outpoint)};
                 BOOST_CHECK_EQUAL(&first, &second);
@@ -108,7 +108,7 @@ BOOST_AUTO_TEST_CASE(fetch_inputs_from_db)
     CCoinsViewCache main_cache{&db};
     CoinsViewOverlay view{&main_cache, MakeStartedThreadPool()};
     const auto reset_guard{view.StartFetching(block)};
-    const auto& outpoint{block.vtx[1]->vin[0].prevout};
+    const auto& outpoint{block.vtx[1]->GetInputPrevout(0)};
 
     BOOST_CHECK(view.HaveCoin(outpoint));
     BOOST_CHECK(view.GetCoin(outpoint).has_value());
@@ -117,8 +117,8 @@ BOOST_AUTO_TEST_CASE(fetch_inputs_from_db)
     CheckCache(block, view);
     // Check that no coins have been moved up to main cache from db
     for (const auto& tx : block.vtx) {
-        for (const auto& in : tx->vin) {
-            BOOST_CHECK(!main_cache.HaveCoinInCache(in.prevout));
+        for (const CTxInView in : tx->Inputs()) {
+            BOOST_CHECK(!main_cache.HaveCoinInCache(in.GetPrevout()));
         }
     }
 
@@ -138,7 +138,7 @@ BOOST_AUTO_TEST_CASE(fetch_inputs_from_cache)
     const auto reset_guard{view.StartFetching(block)};
     CheckCache(block, view);
 
-    const auto& outpoint{block.vtx[1]->vin[0].prevout};
+    const auto& outpoint{block.vtx[1]->GetInputPrevout(0)};
     view.SetBestBlock(uint256::ONE);
     BOOST_CHECK(view.SpendCoin(outpoint));
     view.Flush();
@@ -158,11 +158,11 @@ BOOST_AUTO_TEST_CASE(fetch_no_double_spend)
     CoinsViewOverlay view{&main_cache, MakeStartedThreadPool()};
     const auto reset_guard{view.StartFetching(block)};
     for (const auto& tx : block.vtx) {
-        for (const auto& in : tx->vin) {
-            const auto& c{view.AccessCoin(in.prevout)};
+        for (const CTxInView in : tx->Inputs()) {
+            const auto& c{view.AccessCoin(in.GetPrevout())};
             BOOST_CHECK(c.IsSpent());
-            BOOST_CHECK(!view.HaveCoin(in.prevout));
-            BOOST_CHECK(!view.GetCoin(in.prevout));
+            BOOST_CHECK(!view.HaveCoin(in.GetPrevout()));
+            BOOST_CHECK(!view.GetCoin(in.GetPrevout()));
         }
     }
     // Coins are not added to the view, even though they exist unspent in the parent db
@@ -177,11 +177,11 @@ BOOST_AUTO_TEST_CASE(fetch_no_inputs)
     CoinsViewOverlay view{&main_cache, MakeStartedThreadPool()};
     const auto reset_guard{view.StartFetching(block)};
     for (const auto& tx : block.vtx) {
-        for (const auto& in : tx->vin) {
-            const auto& c{view.AccessCoin(in.prevout)};
+        for (const CTxInView in : tx->Inputs()) {
+            const auto& c{view.AccessCoin(in.GetPrevout())};
             BOOST_CHECK(c.IsSpent());
-            BOOST_CHECK(!view.HaveCoin(in.prevout));
-            BOOST_CHECK(!view.GetCoin(in.prevout));
+            BOOST_CHECK(!view.HaveCoin(in.GetPrevout()));
+            BOOST_CHECK(!view.GetCoin(in.GetPrevout()));
         }
     }
     BOOST_CHECK_EQUAL(view.GetCacheSize(), 0);
@@ -229,8 +229,8 @@ BOOST_AUTO_TEST_CASE(fetch_out_of_order_input_uses_normal_lookup)
     std::unordered_set<Txid, SaltedCoinsCacheHasher> txids;
     txids.reserve(block.vtx.size() - 1);
     for (const auto& tx : block.vtx | std::views::drop(1)) {
-        for (const auto& input : tx->vin) {
-            if (!txids.contains(input.prevout.hash)) fetched_inputs.push_back(input.prevout);
+        for (const CTxInView input : tx->Inputs()) {
+            if (!txids.contains(input.GetPrevout().hash)) fetched_inputs.push_back(input.GetPrevout());
         }
         txids.emplace(tx->GetHash());
     }
