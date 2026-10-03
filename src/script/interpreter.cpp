@@ -1332,7 +1332,7 @@ public:
         if (fAnyoneCanPay)
             nInput = nIn;
         // Serialize the prevout
-        ::Serialize(s, txTo.vin[nInput].prevout);
+        ::Serialize(s, txTo.GetInputPrevout(nInput));
         // Serialize the script
         if (nInput != nIn)
             // Blank out other inputs' signatures (serialize an empty script)
@@ -1344,7 +1344,7 @@ public:
             // let the others update at will
             ::Serialize(s, int32_t{0});
         else
-            ::Serialize(s, txTo.vin[nInput].nSequence);
+            ::Serialize(s, txTo.GetInputSequence(nInput));
     }
 
     /** Serialize an output of txTo */
@@ -1363,12 +1363,12 @@ public:
         // Serialize version
         ::Serialize(s, txTo.version);
         // Serialize vin
-        unsigned int nInputs = fAnyoneCanPay ? 1 : txTo.vin.size();
+        unsigned int nInputs = fAnyoneCanPay ? 1 : txTo.GetNumInputs();
         ::WriteCompactSize(s, nInputs);
         for (unsigned int nInput = 0; nInput < nInputs; nInput++)
              SerializeInput(s, nInput);
         // Serialize vout
-        unsigned int nOutputs = fHashNone ? 0 : (fHashSingle ? nIn+1 : txTo.vout.size());
+        unsigned int nOutputs = fHashNone ? 0 : (fHashSingle ? nIn+1 : txTo.GetNumOutputs());
         ::WriteCompactSize(s, nOutputs);
         for (unsigned int nOutput = 0; nOutput < nOutputs; nOutput++)
              SerializeOutput(s, nOutput);
@@ -1440,14 +1440,14 @@ void PrecomputedTransactionData::Init(const T& txTo, std::vector<CTxOut>&& spent
 
     m_spent_outputs = std::move(spent_outputs);
     if (!m_spent_outputs.empty()) {
-        assert(m_spent_outputs.size() == txTo.vin.size());
+        assert(m_spent_outputs.size() == txTo.GetNumInputs());
         m_spent_outputs_ready = true;
     }
 
     // Determine which precomputation-impacting features this transaction uses.
     bool uses_bip143_segwit = force;
     bool uses_bip341_taproot = force;
-    for (size_t inpos = 0; inpos < txTo.vin.size() && !(uses_bip143_segwit && uses_bip341_taproot); ++inpos) {
+    for (size_t inpos = 0; inpos < txTo.GetNumInputs() && !(uses_bip143_segwit && uses_bip341_taproot); ++inpos) {
         if (!txTo.vin[inpos].scriptWitness.IsNull()) {
             if (m_spent_outputs_ready && m_spent_outputs[inpos].scriptPubKey.size() == 2 + WITNESS_V1_TAPROOT_SIZE &&
                 m_spent_outputs[inpos].scriptPubKey[0] == OP_1) {
@@ -1533,7 +1533,7 @@ bool SignatureHashSchnorr(uint256& hash_out, ScriptExecutionData& execdata, cons
     default:
         assert(false);
     }
-    assert(in_pos < tx_to.vin.size());
+    assert(in_pos < tx_to.GetNumInputs());
     if (!(cache.m_bip341_taproot_ready && cache.m_spent_outputs_ready)) {
         return HandleMissingData(mdb);
     }
@@ -1569,9 +1569,9 @@ bool SignatureHashSchnorr(uint256& hash_out, ScriptExecutionData& execdata, cons
     const uint8_t spend_type = (ext_flag << 1) + (have_annex ? 1 : 0); // The low bit indicates whether an annex is present.
     ss << spend_type;
     if (input_type == SIGHASH_ANYONECANPAY) {
-        ss << tx_to.vin[in_pos].prevout;
+        ss << tx_to.GetInputPrevout(in_pos);
         ss << cache.m_spent_outputs[in_pos];
-        ss << tx_to.vin[in_pos].nSequence;
+        ss << tx_to.GetInputSequence(in_pos);
     } else {
         ss << in_pos;
     }
@@ -1581,7 +1581,7 @@ bool SignatureHashSchnorr(uint256& hash_out, ScriptExecutionData& execdata, cons
 
     // Data about the output (if only one).
     if (output_type == SIGHASH_SINGLE) {
-        if (in_pos >= tx_to.vout.size()) return false;
+        if (in_pos >= tx_to.GetNumOutputs()) return false;
         if (!execdata.m_output_hash) {
             HashWriter sha_single_output{};
             sha_single_output << tx_to.vout[in_pos];
@@ -1633,12 +1633,12 @@ void SigHashCache::Store(int32_t hash_type, std::span<const unsigned char> scrip
 template <class T>
 uint256 SignatureHash(std::span<const unsigned char> scriptCode, const T& txTo, unsigned int nIn, int32_t nHashType, const CAmount& amount, SigVersion sigversion, const PrecomputedTransactionData* cache, SigHashCache* sighash_cache)
 {
-    assert(nIn < txTo.vin.size());
+    assert(nIn < txTo.GetNumInputs());
 
     if (sigversion != SigVersion::WITNESS_V0) {
         // Check for invalid use of SIGHASH_SINGLE
         if ((nHashType & 0x1f) == SIGHASH_SINGLE) {
-            if (nIn >= txTo.vout.size()) {
+            if (nIn >= txTo.GetNumOutputs()) {
                 //  nOut out of range
                 return uint256::ONE;
             }
@@ -1670,7 +1670,7 @@ uint256 SignatureHash(std::span<const unsigned char> scriptCode, const T& txTo, 
 
         if ((nHashType & 0x1f) != SIGHASH_SINGLE && (nHashType & 0x1f) != SIGHASH_NONE) {
             hashOutputs = cacheready ? cache->hashOutputs : SHA256Uint256(GetOutputsSHA256(txTo));
-        } else if ((nHashType & 0x1f) == SIGHASH_SINGLE && nIn < txTo.vout.size()) {
+        } else if ((nHashType & 0x1f) == SIGHASH_SINGLE && nIn < txTo.GetNumOutputs()) {
             HashWriter inner_ss{};
             inner_ss << txTo.vout[nIn];
             hashOutputs = inner_ss.GetHash();
@@ -1684,10 +1684,10 @@ uint256 SignatureHash(std::span<const unsigned char> scriptCode, const T& txTo, 
         // The input being signed (replacing the scriptSig with scriptCode + amount)
         // The prevout may already be contained in hashPrevout, and the nSequence
         // may already be contain in hashSequence.
-        ss << txTo.vin[nIn].prevout;
+        ss << txTo.GetInputPrevout(nIn);
         ss << CompactSizeWriter(scriptCode.size()) << scriptCode;
         ss << amount;
-        ss << txTo.vin[nIn].nSequence;
+        ss << txTo.GetInputSequence(nIn);
         // Outputs (none/one/all, depending on flags)
         ss << hashOutputs;
         // Locktime
@@ -1786,14 +1786,14 @@ bool GenericTransactionSignatureChecker<T>::CheckLockTime(const CScriptNum& nLoc
     // unless the type of nLockTime being tested is the same as
     // the nLockTime in the transaction.
     if (!(
-        (txTo->nLockTime <  LOCKTIME_THRESHOLD && nLockTime <  LOCKTIME_THRESHOLD) ||
-        (txTo->nLockTime >= LOCKTIME_THRESHOLD && nLockTime >= LOCKTIME_THRESHOLD)
+        (txTo->GetLockTime() <  LOCKTIME_THRESHOLD && nLockTime <  LOCKTIME_THRESHOLD) ||
+        (txTo->GetLockTime() >= LOCKTIME_THRESHOLD && nLockTime >= LOCKTIME_THRESHOLD)
     ))
         return false;
 
     // Now that we know we're comparing apples-to-apples, the
     // comparison is a simple numeric one.
-    if (nLockTime > (int64_t)txTo->nLockTime)
+    if (nLockTime > (int64_t)txTo->GetLockTime())
         return false;
 
     // Finally the nLockTime feature can be disabled in IsFinalTx()
@@ -1806,7 +1806,7 @@ bool GenericTransactionSignatureChecker<T>::CheckLockTime(const CScriptNum& nLoc
     // prevent this condition. Alternatively we could test all
     // inputs, but testing just this input minimizes the data
     // required to prove correct CHECKLOCKTIMEVERIFY execution.
-    if (CTxIn::SEQUENCE_FINAL == txTo->vin[nIn].nSequence)
+    if (CTxIn::SEQUENCE_FINAL == txTo->GetInputSequence(nIn))
         return false;
 
     return true;
@@ -1817,11 +1817,11 @@ bool GenericTransactionSignatureChecker<T>::CheckSequence(const CScriptNum& nSeq
 {
     // Relative lock times are supported by comparing the passed
     // in operand to the sequence number of the input.
-    const int64_t txToSequence = (int64_t)txTo->vin[nIn].nSequence;
+    const int64_t txToSequence = (int64_t)txTo->GetInputSequence(nIn);
 
     // Fail if the transaction's version number is not set high
     // enough to trigger BIP 68 rules.
-    if (txTo->version < 2)
+    if (txTo->GetVersion() < 2)
         return false;
 
     // Sequence numbers with their most significant bit set are not
