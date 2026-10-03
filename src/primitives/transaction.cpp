@@ -17,8 +17,12 @@
 
 #include <algorithm>
 #include <cassert>
+#include <ios>
+#include <limits>
+#include <memory>
 #include <span>
 #include <stdexcept>
+#include <vector>
 
 std::string COutPoint::ToString() const
 {
@@ -106,7 +110,8 @@ CTxOut CTxOutView::ToTxOut() const
 
 size_t Transaction::DynamicMemoryUsage() const
 {
-    return memusage::DynamicUsage(m_data) + memusage::DynamicUsage(m_witness_data) + memusage::DynamicUsage(m_offsets);
+    return memusage::MallocUsage(m_data_size) + memusage::MallocUsage(m_witness_data_size) +
+           memusage::MallocUsage(NumOffsets() * sizeof(uint32_t));
 }
 
 Txid CMutableTransaction::GetHash() const
@@ -115,45 +120,76 @@ Txid CMutableTransaction::GetHash() const
 }
 
 namespace {
-/** Replace vec by an exactly-sized copy, and hand its old buffer to scratch (unless it is very large). */
+/** Clear a scratch buffer, releasing its memory if it is very large. */
 template <typename T>
-void ReleaseScratch(std::vector<T>& vec, std::vector<T>& scratch)
+void ClearScratch(std::vector<T>& vec)
 {
-    std::vector<T> copy(vec.begin(), vec.end());
-    vec.swap(copy);
-    if (copy.capacity() * sizeof(T) <= (1 << 20)) scratch.swap(copy);
+    if (vec.capacity() * sizeof(T) > (1 << 20)) {
+        vec = {};
+    } else {
+        vec.clear();
+    }
+}
+
+/** Copy size elements starting at data into a new array (nullptr if size is 0). */
+template <typename T>
+std::unique_ptr<T[]> CopyArray(const T* data, size_t size)
+{
+    if (size == 0) return nullptr;
+    auto ret{std::make_unique_for_overwrite<T[]>(size)};
+    std::copy(data, data + size, ret.get());
+    return ret;
+}
+
+/** Copy the contents of a scratch buffer into an exactly-sized array (nullptr if empty), and clear it. */
+template <typename T>
+std::unique_ptr<T[]> CopyScratch(std::vector<T>& vec)
+{
+    auto ret{CopyArray(vec.data(), vec.size())};
+    ClearScratch(vec);
+    return ret;
 }
 } // namespace
 
 Transaction::Scratch& Transaction::GetScratch()
 {
     static thread_local Scratch scratch;
+    // Clear the buffers, as a previous construction may have been interrupted by an exception.
+    ClearScratch(scratch.data);
+    ClearScratch(scratch.offsets);
     return scratch;
 }
 
-void Transaction::UseScratchBuffers()
+Transaction::Transaction(const Transaction& other)
+    : m_version{other.m_version}, m_lock_time{other.m_lock_time}, m_num_inputs{other.m_num_inputs},
+      m_num_outputs{other.m_num_outputs}, m_txid{other.m_txid}, m_wtxid{other.m_wtxid},
+      m_data_size{other.m_data_size}, m_witness_data_size{other.m_witness_data_size},
+      m_data{CopyArray(other.m_data.get(), other.m_data_size)},
+      m_witness_data{CopyArray(other.m_witness_data.get(), other.m_witness_data_size)},
+      m_offsets{CopyArray(other.m_offsets.get(), other.NumOffsets())}
 {
-    Scratch& scratch{GetScratch()};
-    m_data.swap(scratch.data);
-    m_data.clear();
-    m_offsets.swap(scratch.offsets);
-    m_offsets.clear();
 }
 
-void Transaction::FinishData()
+void Transaction::SetData(std::vector<uint8_t>& data)
 {
-    Scratch& scratch{GetScratch()};
-    ReleaseScratch(m_data, scratch.data);
-    m_witness_data.swap(scratch.data);
-    m_witness_data.clear();
+    if (data.size() > std::numeric_limits<uint32_t>::max() - 8) throw std::ios_base::failure("Transaction too large");
+    m_data_size = data.size();
+    m_data = CopyScratch(data);
 }
 
-void Transaction::Finalize()
+void Transaction::SetWitnessData(std::vector<uint8_t>& data)
 {
-    Scratch& scratch{GetScratch()};
-    ReleaseScratch(m_witness_data, scratch.data);
-    ReleaseScratch(m_offsets, scratch.offsets);
-    assert(m_offsets.size() == 2 * size_t{m_num_inputs} + m_num_outputs);
+    if (data.size() > std::numeric_limits<uint32_t>::max() - 10 - m_data_size) {
+        throw std::ios_base::failure("Transaction too large");
+    }
+    m_witness_data_size = data.size();
+    m_witness_data = CopyScratch(data);
+}
+
+void Transaction::Finalize(std::vector<uint32_t>& offsets)
+{
+    assert(offsets.size() == NumOffsets());
+    m_offsets = CopyScratch(offsets);
 
     HashWriter txid_hasher{};
     SerializeImpl(txid_hasher, /*with_witness=*/false);
@@ -170,28 +206,30 @@ void Transaction::Finalize()
 Transaction::Transaction(const CMutableTransaction& tx)
     : m_version{tx.version}, m_lock_time{tx.nLockTime}, m_num_inputs(tx.vin.size()), m_num_outputs(tx.vout.size())
 {
-    UseScratchBuffers();
-    VectorWriter writer{m_data, 0};
+    Scratch& scratch{GetScratch()};
+    std::vector<uint8_t>& data{scratch.data};
+    std::vector<uint32_t>& offsets{scratch.offsets};
+    VectorWriter writer{data, 0};
     writer << COMPACTSIZE(tx.vin.size());
     for (const CTxIn& txin : tx.vin) {
-        m_offsets.push_back(CurrentOffset(m_data));
-        m_offsets.push_back(0);
+        offsets.push_back(CurrentOffset(data));
         writer << txin.prevout << txin.scriptSig << txin.nSequence;
     }
     writer << COMPACTSIZE(tx.vout.size());
     for (const CTxOut& txout : tx.vout) {
-        m_offsets.push_back(CurrentOffset(m_data));
+        offsets.push_back(CurrentOffset(data));
         writer << txout.nValue << txout.scriptPubKey;
     }
-    FinishData();
+    SetData(data);
     if (tx.HasWitness()) {
-        VectorWriter witness_writer{m_witness_data, 0};
-        for (size_t i = 0; i < tx.vin.size(); ++i) {
-            m_offsets[2 * i + 1] = CurrentOffset(m_witness_data);
-            witness_writer << tx.vin[i].scriptWitness.stack;
+        VectorWriter witness_writer{data, 0};
+        for (const CTxIn& txin : tx.vin) {
+            offsets.push_back(CurrentOffset(data));
+            witness_writer << txin.scriptWitness.stack;
         }
+        SetWitnessData(data);
     }
-    Finalize();
+    Finalize(offsets);
 }
 
 CAmount Transaction::GetValueOut() const

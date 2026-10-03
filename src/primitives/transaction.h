@@ -529,19 +529,19 @@ public:
  * blocks.  A transaction can contain multiple inputs and outputs.
  *
  * Transactions are immutable, and have a compact memory representation. Apart from the version and lock time,
- * all their data is stored in three vectors:
+ * all their data is stored in three exactly-sized arrays:
  * - m_data: the serialization of the inputs and outputs (input count, inputs, output count, outputs), as in the
  *   transaction's serialization.
  * - m_witness_data: only if the transaction has witness data: the serialization of the witness stack of each
  *   input, as in the transaction's (extended format) serialization.
- * - m_offsets: for each input, the offset of its prevout in m_data, and (only meaningful if the transaction has
- *   witness data) the offset of its witness stack in m_witness_data, followed by, for each output, the offset of
- *   its value in m_data.
+ * - m_offsets: for each input, the offset of its prevout in m_data, followed by, for each output, the offset of
+ *   its value in m_data, followed by (only if the transaction has witness data), for each input, the offset of its
+ *   witness stack in m_witness_data.
  *
  * Together with the cached txid and wtxid, this makes accessing any input or output field O(1), while witness
  * stack elements are found by scanning the (serialized) witness stack of their input. There is no
- * per-element memory overhead: the memory usage is the serialized size plus 8 bytes per input and 4 bytes per
- * output.
+ * per-element memory overhead: the memory usage is the serialized size plus 4 bytes per input (8 if the
+ * transaction has witness data) and 4 bytes per output.
  *
  * Its contents are only accessible through accessor functions and views.
  */
@@ -558,25 +558,28 @@ private:
     uint32_t m_num_outputs{0};
     Txid m_txid;
     Wtxid m_wtxid;
-    std::vector<uint8_t> m_data;
-    std::vector<uint8_t> m_witness_data;
-    std::vector<uint32_t> m_offsets;
+    uint32_t m_data_size{0};
+    uint32_t m_witness_data_size{0};
+    std::unique_ptr<uint8_t[]> m_data;
+    std::unique_ptr<uint8_t[]> m_witness_data;
+    std::unique_ptr<uint32_t[]> m_offsets;
 
-    /** Per-thread scratch buffers, to construct Transactions without repeated reallocations. */
+    /** Per-thread scratch buffers, in which Transactions are constructed before being copied into exactly-sized
+     *  arrays. This avoids repeatedly growing (and reallocating) vectors for every transaction. */
     struct Scratch
     {
         std::vector<uint8_t> data;
         std::vector<uint32_t> offsets;
     };
+    /** Get the (cleared) per-thread scratch buffers. */
     static Scratch& GetScratch();
-    /** Start constructing this object: let m_data and m_offsets use the (cleared) per-thread scratch buffers. */
-    void UseScratchBuffers();
-    /** After m_data has been filled in: copy it into an exactly-sized vector, and let m_witness_data use the
-     *  (cleared) data scratch buffer instead. */
-    void FinishData();
-    /** Finish constructing this object, after m_witness_data and m_offsets have been filled in: copy them into
-     *  exactly-sized vectors (handing the scratch buffers back), and compute the hashes. */
-    void Finalize();
+    /** Set m_data to a copy of data (which must contain the inputs and outputs), and clear data. */
+    void SetData(std::vector<uint8_t>& data);
+    /** Set m_witness_data to a copy of data (which must contain the witness stacks, if any), and clear data. */
+    void SetWitnessData(std::vector<uint8_t>& data);
+    /** Finish constructing this object, after SetData and SetWitnessData: set m_offsets to a copy of offsets
+     *  (and clear it), and compute the hashes. */
+    void Finalize(std::vector<uint32_t>& offsets);
 
     /** Read n bytes from s, appending them to data (allocating in chunks, as vector deserialization does). */
     template <typename Stream>
@@ -608,10 +611,13 @@ private:
         return data.size();
     }
 
-    std::span<const uint8_t> Data() const noexcept LIFETIMEBOUND { return m_data; }
-    uint32_t InputOffset(uint32_t idx) const noexcept { return m_offsets[2 * size_t{idx}]; }
-    uint32_t WitnessOffset(uint32_t idx) const noexcept { return m_offsets[2 * size_t{idx} + 1]; }
-    uint32_t OutputOffset(uint32_t idx) const noexcept { return m_offsets[2 * size_t{m_num_inputs} + idx]; }
+    std::span<const uint8_t> Data() const noexcept LIFETIMEBOUND { return {m_data.get(), m_data_size}; }
+    std::span<const uint8_t> WitnessData() const noexcept LIFETIMEBOUND { return {m_witness_data.get(), m_witness_data_size}; }
+    /** The number of entries in m_offsets. */
+    size_t NumOffsets() const noexcept { return size_t{m_num_inputs} + m_num_outputs + (HasWitness() ? m_num_inputs : 0); }
+    uint32_t InputOffset(uint32_t idx) const noexcept { return m_offsets[idx]; }
+    uint32_t OutputOffset(uint32_t idx) const noexcept { return m_offsets[size_t{m_num_inputs} + idx]; }
+    uint32_t WitnessOffset(uint32_t idx) const noexcept { return m_offsets[size_t{m_num_inputs} + m_num_outputs + idx]; }
     /** Offset of the CompactSize-prefixed scriptSig of input idx. */
     uint32_t ScriptSigOffset(uint32_t idx) const noexcept { return InputOffset(idx) + 36; }
 
@@ -621,8 +627,8 @@ private:
     {
         s << m_version;
         if (with_witness) s << uint8_t{0} << uint8_t{1}; // Extended format marker and flags.
-        s.write(std::as_bytes(std::span{m_data}));
-        if (with_witness) s.write(std::as_bytes(std::span{m_witness_data}));
+        s.write(std::as_bytes(Data()));
+        if (with_witness) s.write(std::as_bytes(WitnessData()));
         s << m_lock_time;
     }
 
@@ -632,6 +638,15 @@ public:
 
     /** Convert a CMutableTransaction into a Transaction. */
     explicit Transaction(const CMutableTransaction& tx);
+
+    Transaction(const Transaction& other);
+    Transaction& operator=(const Transaction& other)
+    {
+        if (this != &other) *this = Transaction{other};
+        return *this;
+    }
+    Transaction(Transaction&&) noexcept = default;
+    Transaction& operator=(Transaction&&) noexcept = default;
 
     template <typename Stream>
     void Serialize(Stream& s) const
@@ -668,7 +683,7 @@ public:
     std::string ToString() const;
 
     /** Whether the transaction has witness data (i.e., some input has a non-empty witness stack). */
-    bool HasWitness() const noexcept { return !m_witness_data.empty(); }
+    bool HasWitness() const noexcept { return m_witness_data_size != 0; }
 
     uint32_t GetNumInputs() const noexcept { return m_num_inputs; }
     uint32_t GetNumOutputs() const noexcept { return m_num_outputs; }
@@ -677,7 +692,7 @@ public:
 
     COutPoint GetInputPrevout(uint32_t input_idx) const noexcept
     {
-        const uint8_t* ptr{m_data.data() + InputOffset(input_idx)};
+        const uint8_t* ptr{m_data.get() + InputOffset(input_idx)};
         return COutPoint{Txid::FromUint256(uint256{std::span{ptr, 32}}), ReadLE32(ptr + 32)};
     }
     /** The serialization of an input's prevout (32-byte txid and 4-byte output index). */
@@ -702,18 +717,18 @@ public:
         static constexpr uint8_t EMPTY_STACK[1] = {0};
         if (!HasWitness()) return WitnessView{EMPTY_STACK};
         const uint32_t start{WitnessOffset(input_idx)};
-        const uint32_t end{input_idx + 1 < m_num_inputs ? WitnessOffset(input_idx + 1) : uint32_t(m_witness_data.size())};
-        return WitnessView{std::span{m_witness_data}.subspan(start, end - start)};
+        const uint32_t end{input_idx + 1 < m_num_inputs ? WitnessOffset(input_idx + 1) : m_witness_data_size};
+        return WitnessView{WitnessData().subspan(start, end - start)};
     }
     CAmount GetOutputValue(uint32_t output_idx) const noexcept
     {
-        return static_cast<int64_t>(ReadLE64(m_data.data() + OutputOffset(output_idx)));
+        return static_cast<int64_t>(ReadLE64(m_data.get() + OutputOffset(output_idx)));
     }
     /** The serialization of an output (value and CompactSize-prefixed scriptPubKey). */
     std::span<const uint8_t> GetOutputSerialization(uint32_t output_idx) const noexcept LIFETIMEBOUND
     {
         const uint32_t start{OutputOffset(output_idx)};
-        const uint32_t end{output_idx + 1 < m_num_outputs ? OutputOffset(output_idx + 1) : uint32_t(m_data.size())};
+        const uint32_t end{output_idx + 1 < m_num_outputs ? OutputOffset(output_idx + 1) : m_data_size};
         return Data().subspan(start, end - start);
     }
     std::span<const unsigned char> GetOutputScriptPubKey(uint32_t output_idx) const noexcept LIFETIMEBOUND
@@ -728,9 +743,9 @@ public:
     OutputRange Outputs() const noexcept LIFETIMEBOUND { return {*this, GetNumOutputs()}; }
 
     /** Serialized size without witness data. */
-    uint32_t GetStrippedSize() const noexcept { return 4 + m_data.size() + 4; }
+    uint32_t GetStrippedSize() const noexcept { return 4 + m_data_size + 4; }
     /** Serialized size including witness data ("total size" in BIP141). */
-    uint32_t GetTotalSize() const noexcept { return GetStrippedSize() + (HasWitness() ? 2 + m_witness_data.size() : 0); }
+    uint32_t GetTotalSize() const noexcept { return GetStrippedSize() + (HasWitness() ? 2 + m_witness_data_size : 0); }
 
     /** Heap memory used by this object (see RecursiveDynamicUsage). */
     size_t DynamicMemoryUsage() const;
@@ -748,23 +763,24 @@ void CTxOutView::Serialize(Stream& s) const { s.write(std::as_bytes(m_tx->GetOut
 template <typename Stream>
 Transaction::Transaction(deserialize_type, const TransactionSerParams& params, Stream& s)
 {
-    UseScratchBuffers();
-    // This mirrors UnserializeTransaction, but appends the inputs and outputs to m_data, and the witness stacks to
-    // m_witness_data, and records offsets in m_offsets.
+    // This mirrors UnserializeTransaction, but appends the inputs and outputs, and then the witness stacks, to
+    // the data scratch buffer, and records offsets in the offsets scratch buffer.
+    Scratch& scratch{GetScratch()};
+    std::vector<uint8_t>& data{scratch.data};
+    std::vector<uint32_t>& offsets{scratch.offsets};
     const auto read_inputs = [&](uint64_t count) {
         for (uint64_t i = 0; i < count; ++i) {
-            m_offsets.push_back(CurrentOffset(m_data)); // prevout
-            m_offsets.push_back(0);                     // witness stack (filled in below, if present)
-            ReadBytes(s, m_data, 36);                   // prevout
-            ReadBytesInto(s, m_data);                   // scriptSig
-            ReadBytes(s, m_data, 4);                    // nSequence
+            offsets.push_back(CurrentOffset(data));
+            ReadBytes(s, data, 36); // prevout
+            ReadBytesInto(s, data); // scriptSig
+            ReadBytes(s, data, 4);  // nSequence
         }
     };
     const auto read_outputs = [&](uint64_t count) {
         for (uint64_t i = 0; i < count; ++i) {
-            m_offsets.push_back(CurrentOffset(m_data));
-            ReadBytes(s, m_data, 8);  // nValue
-            ReadBytesInto(s, m_data); // scriptPubKey
+            offsets.push_back(CurrentOffset(data));
+            ReadBytes(s, data, 8);  // nValue
+            ReadBytesInto(s, data); // scriptPubKey
         }
     };
 
@@ -776,47 +792,45 @@ Transaction::Transaction(deserialize_type, const TransactionSerParams& params, S
         // We read a dummy or an empty input vector.
         s >> flags;
         if (flags != 0) {
-            num_inputs = ReadCompactSizeInto(s, m_data);
+            num_inputs = ReadCompactSizeInto(s, data);
             read_inputs(num_inputs);
-            read_outputs(ReadCompactSizeInto(s, m_data));
+            read_outputs(ReadCompactSizeInto(s, data));
         } else {
             // There are no inputs and no outputs (and flags was the empty output count).
-            transaction_detail::AppendCompactSize(m_data, 0);
-            transaction_detail::AppendCompactSize(m_data, 0);
+            transaction_detail::AppendCompactSize(data, 0);
+            transaction_detail::AppendCompactSize(data, 0);
         }
     } else {
         // We read a non-empty input vector. Assume a normal output vector follows.
-        transaction_detail::AppendCompactSize(m_data, num_inputs);
+        transaction_detail::AppendCompactSize(data, num_inputs);
         read_inputs(num_inputs);
-        read_outputs(ReadCompactSizeInto(s, m_data));
+        read_outputs(ReadCompactSizeInto(s, data));
     }
     m_num_inputs = num_inputs;
-    m_num_outputs = m_offsets.size() - 2 * num_inputs;
-    FinishData();
+    m_num_outputs = offsets.size() - num_inputs;
+    SetData(data);
     if ((flags & 1) && params.allow_witness) {
         // The witness flag is present, and we support witnesses.
         flags ^= 1;
         bool any_witness{false};
         for (uint64_t i = 0; i < num_inputs; ++i) {
-            m_offsets[2 * i + 1] = CurrentOffset(m_witness_data);
-            const uint64_t num_elements{ReadCompactSizeInto(s, m_witness_data)};
+            offsets.push_back(CurrentOffset(data));
+            const uint64_t num_elements{ReadCompactSizeInto(s, data)};
             any_witness |= num_elements != 0;
-            for (uint64_t j = 0; j < num_elements; ++j) ReadBytesInto(s, m_witness_data);
+            for (uint64_t j = 0; j < num_elements; ++j) ReadBytesInto(s, data);
         }
         if (!any_witness) {
             // It's illegal to encode witnesses when all witness stacks are empty.
             throw std::ios_base::failure("Superfluous witness record");
         }
+        SetWitnessData(data);
     }
     if (flags) {
         // Unknown flag in the serialization.
         throw std::ios_base::failure("Unknown transaction optional data");
     }
     s >> m_lock_time;
-    if (m_data.size() + m_witness_data.size() > std::numeric_limits<uint32_t>::max() - 10) {
-        throw std::ios_base::failure("Transaction too large");
-    }
-    Finalize();
+    Finalize(offsets);
 }
 
 /** A mutable version of Transaction. */
