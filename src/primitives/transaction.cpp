@@ -5,14 +5,14 @@
 
 #include <primitives/transaction.h>
 
-#include <core_memusage.h>
-
 #include <consensus/amount.h>
 #include <crypto/hex_base.h>
 #include <hash.h>
+#include <memusage.h>
 #include <primitives/transaction_identifier.h>
 #include <script/script.h>
 #include <serialize.h>
+#include <streams.h>
 #include <tinyformat.h>
 
 #include <algorithm>
@@ -74,9 +74,20 @@ CMutableTransaction::CMutableTransaction(const Transaction& tx) : version{tx.Get
     for (const CTxOutView txout : tx.Outputs()) vout.push_back(txout.ToTxOut());
 }
 
-size_t WitnessView::GetSerializeSize() const noexcept
+std::vector<std::span<const unsigned char>> WitnessView::ToSpans() const
 {
-    return ::GetSerializeSize(*m_stack);
+    std::vector<std::span<const unsigned char>> ret;
+    ret.reserve(size());
+    for (const auto element : *this) ret.push_back(element);
+    return ret;
+}
+
+std::vector<std::vector<unsigned char>> WitnessView::ToStack() const
+{
+    std::vector<std::vector<unsigned char>> ret;
+    ret.reserve(size());
+    for (const auto element : *this) ret.emplace_back(element.begin(), element.end());
+    return ret;
 }
 
 CTxIn CTxInView::ToTxIn() const
@@ -95,15 +106,7 @@ CTxOut CTxOutView::ToTxOut() const
 
 size_t Transaction::DynamicMemoryUsage() const
 {
-    size_t mem = memusage::DynamicUsage(vin) + memusage::DynamicUsage(vout);
-    for (const CTxIn& txin : vin) mem += RecursiveDynamicUsage(txin);
-    for (const CTxOut& txout : vout) mem += RecursiveDynamicUsage(txout);
-    return mem;
-}
-
-uint32_t Transaction::GetStrippedSize() const
-{
-    return ::GetSerializeSize(TX_NO_WITNESS(*this));
+    return memusage::DynamicUsage(m_data) + memusage::DynamicUsage(m_offsets);
 }
 
 Txid CMutableTransaction::GetHash() const
@@ -111,45 +114,83 @@ Txid CMutableTransaction::GetHash() const
     return Txid::FromUint256((HashWriter{} << TX_NO_WITNESS(*this)).GetHash());
 }
 
-bool Transaction::ComputeHasWitness() const
+void Transaction::Finalize()
 {
-    return std::any_of(vin.begin(), vin.end(), [](const auto& input) {
-        return !input.scriptWitness.IsNull();
-    });
-}
+    m_data.shrink_to_fit();
+    m_offsets.shrink_to_fit();
+    assert(m_offsets.size() == 2 * size_t{m_num_inputs} + m_num_outputs);
 
-Txid Transaction::ComputeHash() const
-{
-    return Txid::FromUint256((HashWriter{} << TX_NO_WITNESS(*this)).GetHash());
-}
-
-Wtxid Transaction::ComputeWitnessHash() const
-{
-    if (!HasWitness()) {
-        return Wtxid::FromUint256(hash.ToUint256());
+    HashWriter txid_hasher{};
+    SerializeWithoutWitness(txid_hasher);
+    m_txid = Txid::FromUint256(txid_hasher.GetHash());
+    if (HasWitness()) {
+        HashWriter wtxid_hasher{};
+        wtxid_hasher.write(std::as_bytes(GetSerialization()));
+        m_wtxid = Wtxid::FromUint256(wtxid_hasher.GetHash());
+    } else {
+        m_wtxid = Wtxid::FromUint256(m_txid.ToUint256());
     }
-
-    return Wtxid::FromUint256((HashWriter{} << TX_WITH_WITNESS(*this)).GetHash());
 }
 
-Transaction::Transaction(const CMutableTransaction& tx) : vin(tx.vin), vout(tx.vout), version{tx.version}, nLockTime{tx.nLockTime}, m_has_witness{ComputeHasWitness()}, hash{ComputeHash()}, m_witness_hash{ComputeWitnessHash()} {}
-Transaction::Transaction(CMutableTransaction&& tx) : vin(std::move(tx.vin)), vout(std::move(tx.vout)), version{tx.version}, nLockTime{tx.nLockTime}, m_has_witness{ComputeHasWitness()}, hash{ComputeHash()}, m_witness_hash{ComputeWitnessHash()} {}
+Transaction::Transaction(const CMutableTransaction& tx)
+{
+    m_data.reserve(::GetSerializeSize(TX_WITH_WITNESS(tx)));
+    m_offsets.reserve(2 * tx.vin.size() + tx.vout.size());
+    VectorWriter writer{m_data, 0};
+    const bool witness{tx.HasWitness()};
+    writer << tx.version;
+    if (witness) writer << uint8_t{0} << uint8_t{1}; // Extended format marker and flags.
+    writer << COMPACTSIZE(tx.vin.size());
+    for (const CTxIn& txin : tx.vin) {
+        m_offsets.push_back(CurrentOffset());
+        m_offsets.push_back(0);
+        writer << txin.prevout << txin.scriptSig << txin.nSequence;
+    }
+    writer << COMPACTSIZE(tx.vout.size());
+    for (const CTxOut& txout : tx.vout) {
+        m_offsets.push_back(CurrentOffset());
+        writer << txout.nValue << txout.scriptPubKey;
+    }
+    if (witness) {
+        for (size_t i = 0; i < tx.vin.size(); ++i) {
+            m_offsets[2 * i + 1] = CurrentOffset();
+            writer << tx.vin[i].scriptWitness.stack;
+        }
+    }
+    writer << tx.nLockTime;
+    CurrentOffset();
+    m_num_inputs = tx.vin.size();
+    m_num_outputs = tx.vout.size();
+    Finalize();
+}
 
 CAmount Transaction::GetValueOut() const
 {
     CAmount nValueOut = 0;
-    for (const auto& tx_out : vout) {
-        if (!MoneyRange(tx_out.nValue) || !MoneyRange(nValueOut + tx_out.nValue))
+    for (const CTxOutView tx_out : Outputs()) {
+        const CAmount value{tx_out.GetValue()};
+        if (!MoneyRange(value) || !MoneyRange(nValueOut + value))
             throw std::runtime_error(std::string(__func__) + ": value out of range");
-        nValueOut += tx_out.nValue;
+        nValueOut += value;
     }
     assert(MoneyRange(nValueOut));
     return nValueOut;
 }
 
-unsigned int Transaction::ComputeTotalSize() const
+bool Transaction::Equals(const Transaction& other, const EqualsOptions opts) const
 {
-    return ::GetSerializeSize(TX_WITH_WITNESS(*this));
+    if (GetLockTime() != other.GetLockTime() || GetVersion() != other.GetVersion()) return false;
+    if (GetNumInputs() != other.GetNumInputs() || GetNumOutputs() != other.GetNumOutputs()) return false;
+    for (uint32_t i = 0; i < GetNumOutputs(); ++i) {
+        if (!std::ranges::equal(GetOutputSerialization(i), other.GetOutputSerialization(i))) return false;
+    }
+    for (uint32_t i = 0; i < GetNumInputs(); ++i) {
+        if (!std::ranges::equal(GetInputPrevoutSerialization(i), other.GetInputPrevoutSerialization(i))) return false;
+        if (GetInputSequence(i) != other.GetInputSequence(i)) return false;
+        if (opts.include_script_sig && !std::ranges::equal(GetInputScriptSig(i), other.GetInputScriptSig(i))) return false;
+        if (opts.include_witness_data && !std::ranges::equal(GetInputWitness(i).Serialized(), other.GetInputWitness(i).Serialized())) return false;
+    }
+    return true;
 }
 
 std::string Transaction::ToString() const
@@ -157,15 +198,15 @@ std::string Transaction::ToString() const
     std::string str;
     str += strprintf("CTransaction(hash=%s, ver=%u, vin.size=%u, vout.size=%u, nLockTime=%u)\n",
         GetHash().ToString().substr(0,10),
-        version,
-        vin.size(),
-        vout.size(),
-        nLockTime);
-    for (const auto& tx_in : vin)
-        str += "    " + tx_in.ToString() + "\n";
-    for (const auto& tx_in : vin)
-        str += "    " + tx_in.scriptWitness.ToString() + "\n";
-    for (const auto& tx_out : vout)
-        str += "    " + tx_out.ToString() + "\n";
+        GetVersion(),
+        GetNumInputs(),
+        GetNumOutputs(),
+        GetLockTime());
+    for (const CTxInView tx_in : Inputs())
+        str += "    " + tx_in.ToTxIn().ToString() + "\n";
+    for (const CTxInView tx_in : Inputs())
+        str += "    " + tx_in.ToTxIn().scriptWitness.ToString() + "\n";
+    for (const CTxOutView tx_out : Outputs())
+        str += "    " + tx_out.ToTxOut().ToString() + "\n";
     return str;
 }
