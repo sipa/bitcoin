@@ -8,7 +8,6 @@
 
 #include <coins.h>
 #include <consensus/amount.h>
-#include <indirectmap.h>
 #include <kernel/cs_main.h>
 #include <kernel/mempool_entry.h>          // IWYU pragma: export
 #include <kernel/mempool_limits.h>         // IWYU pragma: export
@@ -293,7 +292,9 @@ private:
     void removeConflicts(const CTransaction& tx) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
 public:
-    indirectmap<COutPoint, txiter> mapNextTx GUARDED_BY(cs);
+    //! Map from outpoints to the in-mempool transactions spending them. The outpoints are stored by value (rather
+    //! than pointing into the spending transactions), as transactions do not necessarily hold COutPoint objects.
+    std::map<COutPoint, txiter> mapNextTx GUARDED_BY(cs);
     std::map<Txid, CAmount> mapDeltas GUARDED_BY(cs);
 
     using Options = kernel::MemPoolOptions;

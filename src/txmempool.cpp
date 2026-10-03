@@ -61,7 +61,7 @@ std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> CTxMemPool::GetChildren(const C
     {
         LOCK(cs);
         auto iter = mapNextTx.lower_bound(COutPoint(hash, 0));
-        for (; iter != mapNextTx.end() && iter->first->hash == hash; ++iter) {
+        for (; iter != mapNextTx.end() && iter->first.hash == hash; ++iter) {
             ret.emplace_back(*(iter->second));
         }
     }
@@ -102,7 +102,7 @@ void CTxMemPool::UpdateTransactionsFromBlock(const std::vector<Txid>& vHashesToU
         }
         auto iter = mapNextTx.lower_bound(COutPoint(hash, 0));
         {
-            for (; iter != mapNextTx.end() && iter->first->hash == hash; ++iter) {
+            for (; iter != mapNextTx.end() && iter->first.hash == hash; ++iter) {
                 txiter childIter = iter->second;
                 assert(childIter != mapTx.end());
                 // Add dependencies that are discovered between transactions in the
@@ -237,7 +237,7 @@ void CTxMemPool::addNewTransaction(CTxMemPool::txiter newit)
 
     const CTransaction& tx = newit->GetTx();
     for (unsigned int i = 0; i < tx.GetNumInputs(); i++) {
-        mapNextTx.insert(std::make_pair(&tx.vin[i].prevout, newit));
+        mapNextTx.emplace(tx.GetInputPrevout(i), newit);
     }
     // Don't bother worrying about child transactions of this one.
     // Normal case of a new transaction arriving is that there can't be any
@@ -345,7 +345,7 @@ void CTxMemPool::removeRecursive(const CTransaction &origTx, MemPoolRemovalReaso
         // the mempool for any reason.
         auto iter = mapNextTx.lower_bound(COutPoint(origTx.GetHash(), 0));
         std::vector<const TxGraph::Ref*> to_remove;
-        while (iter != mapNextTx.end() && iter->first->hash == origTx.GetHash()) {
+        while (iter != mapNextTx.end() && iter->first.hash == origTx.GetHash()) {
             to_remove.emplace_back(&*(iter->second));
             ++iter;
         }
@@ -389,8 +389,8 @@ void CTxMemPool::removeConflicts(const CTransaction &tx)
 {
     // Remove transactions which depend on inputs of tx, recursively
     AssertLockHeld(cs);
-    for (const CTxIn &txin : tx.vin) {
-        auto it = mapNextTx.find(txin.prevout);
+    for (const CTxInView txin : tx.Inputs()) {
+        auto it = mapNextTx.find(txin.GetPrevout());
         if (it != mapNextTx.end()) {
             const CTransaction &txConflict = it->second->GetTx();
             if (Assume(txConflict.GetHash() != tx.GetHash()))
@@ -485,23 +485,23 @@ void CTxMemPool::check(const CCoinsViewCache& active_coins_tip, int64_t spendhei
 
         std::set<CTxMemPoolEntry::CTxMemPoolEntryRef, CompareIteratorByHash> setParentCheck;
         std::set<CTxMemPoolEntry::CTxMemPoolEntryRef, CompareIteratorByHash> setParentsStored;
-        for (const CTxIn &txin : tx.vin) {
+        for (const CTxInView txin : tx.Inputs()) {
             // Check that every mempool transaction's inputs refer to available coins, or other mempool tx's.
-            indexed_transaction_set::const_iterator it2 = mapTx.find(txin.prevout.hash);
+            indexed_transaction_set::const_iterator it2 = mapTx.find(txin.GetPrevout().hash);
             if (it2 != mapTx.end()) {
                 const CTransaction& tx2 = it2->GetTx();
-                assert(tx2.GetNumOutputs() > txin.prevout.n && !tx2.vout[txin.prevout.n].IsNull());
+                assert(tx2.GetNumOutputs() > txin.GetPrevout().n && !tx2.GetOutput(txin.GetPrevout().n).ToTxOut().IsNull());
                 setParentCheck.insert(*it2);
             }
             // We are iterating through the mempool entries sorted
             // topologically and by mining score. All parents must have been
             // checked before their children and their coins added to the
             // mempoolDuplicate coins cache.
-            assert(mempoolDuplicate.HaveCoin(txin.prevout));
+            assert(mempoolDuplicate.HaveCoin(txin.GetPrevout()));
             // Check whether its inputs are marked in mapNextTx.
-            auto it3 = mapNextTx.find(txin.prevout);
+            auto it3 = mapNextTx.find(txin.GetPrevout());
             assert(it3 != mapNextTx.end());
-            assert(it3->first == &txin.prevout);
+            assert(it3->first == txin.GetPrevout());
             assert(&it3->second->GetTx() == &tx);
         }
         auto comp = [](const CTxMemPoolEntry& a, const CTxMemPoolEntry& b) -> bool {
@@ -517,7 +517,7 @@ void CTxMemPool::check(const CCoinsViewCache& active_coins_tip, int64_t spendhei
         std::set<CTxMemPoolEntry::CTxMemPoolEntryRef, CompareIteratorByHash> setChildrenCheck;
         std::set<CTxMemPoolEntry::CTxMemPoolEntryRef, CompareIteratorByHash> setChildrenStored;
         auto iter = mapNextTx.lower_bound(COutPoint(it->GetTx().GetHash(), 0));
-        for (; iter != mapNextTx.end() && iter->first->hash == it->GetTx().GetHash(); ++iter) {
+        for (; iter != mapNextTx.end() && iter->first.hash == it->GetTx().GetHash(); ++iter) {
             txiter childit = iter->second;
             assert(childit != mapTx.end()); // mapNextTx points to in-mempool transactions
             setChildrenCheck.insert(*childit);
@@ -532,7 +532,7 @@ void CTxMemPool::check(const CCoinsViewCache& active_coins_tip, int64_t spendhei
         CAmount txfee = 0;
         assert(!tx.IsCoinBase());
         assert(Consensus::CheckTxInputs(tx, dummy_state, mempoolDuplicate, spendheight, txfee));
-        for (const auto& input: tx.vin) mempoolDuplicate.SpendCoin(input.prevout);
+        for (const CTxInView input : tx.Inputs()) mempoolDuplicate.SpendCoin(input.GetPrevout());
         AddCoins(mempoolDuplicate, tx, std::numeric_limits<int>::max());
     }
     for (auto it = mapNextTx.cbegin(); it != mapNextTx.cend(); it++) {
@@ -801,7 +801,7 @@ std::optional<Coin> CCoinsViewMemPool::GetCoin(const COutPoint& outpoint) const
     CTransactionRef ptx = mempool.get(outpoint.hash);
     if (ptx) {
         if (outpoint.n < ptx->GetNumOutputs()) {
-            Coin coin(ptx->vout[outpoint.n], MEMPOOL_HEIGHT, false);
+            Coin coin(ptx->GetOutput(outpoint.n).ToTxOut(), MEMPOOL_HEIGHT, false);
             m_non_base_coins.emplace(outpoint);
             return coin;
         }
@@ -813,7 +813,7 @@ std::optional<Coin> CCoinsViewMemPool::GetCoin(const COutPoint& outpoint) const
 void CCoinsViewMemPool::PackageAddTransaction(const CTransactionRef& tx)
 {
     for (unsigned int n = 0; n < tx->GetNumOutputs(); ++n) {
-        m_temp_added.emplace(COutPoint(tx->GetHash(), n), Coin(tx->vout[n], MEMPOOL_HEIGHT, false));
+        m_temp_added.emplace(COutPoint(tx->GetHash(), n), Coin(tx->GetOutput(n).ToTxOut(), MEMPOOL_HEIGHT, false));
         m_non_base_coins.emplace(tx->GetHash(), n);
     }
 }
@@ -1100,10 +1100,10 @@ void CTxMemPool::ChangeSet::ProcessDependencies()
     LOCK(m_pool->cs);
     Assume(!m_dependencies_processed); // should only call this once.
     for (const auto& entryptr : m_entry_vec) {
-        for (const auto &txin : entryptr->GetSharedTx()->vin) {
-            std::optional<txiter> piter = m_pool->GetIter(txin.prevout.hash);
+        for (const CTxInView txin : entryptr->GetSharedTx()->Inputs()) {
+            std::optional<txiter> piter = m_pool->GetIter(txin.GetPrevout().hash);
             if (!piter) {
-                auto it = m_to_add.find(txin.prevout.hash);
+                auto it = m_to_add.find(txin.GetPrevout().hash);
                 if (it != m_to_add.end()) {
                     piter = std::make_optional(it);
                 }
