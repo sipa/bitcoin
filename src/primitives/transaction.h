@@ -562,8 +562,20 @@ private:
     std::vector<uint8_t> m_witness_data;
     std::vector<uint32_t> m_offsets;
 
-    /** Finish constructing this object, after m_data, m_witness_data and m_offsets have been filled in: release
-     *  their unused capacity, and compute the hashes. */
+    /** Per-thread scratch buffers, to construct Transactions without repeated reallocations. */
+    struct Scratch
+    {
+        std::vector<uint8_t> data;
+        std::vector<uint32_t> offsets;
+    };
+    static Scratch& GetScratch();
+    /** Start constructing this object: let m_data and m_offsets use the (cleared) per-thread scratch buffers. */
+    void UseScratchBuffers();
+    /** After m_data has been filled in: copy it into an exactly-sized vector, and let m_witness_data use the
+     *  (cleared) data scratch buffer instead. */
+    void FinishData();
+    /** Finish constructing this object, after m_witness_data and m_offsets have been filled in: copy them into
+     *  exactly-sized vectors (handing the scratch buffers back), and compute the hashes. */
     void Finalize();
 
     /** Read n bytes from s, appending them to data (allocating in chunks, as vector deserialization does). */
@@ -736,6 +748,7 @@ void CTxOutView::Serialize(Stream& s) const { s.write(std::as_bytes(m_tx->GetOut
 template <typename Stream>
 Transaction::Transaction(deserialize_type, const TransactionSerParams& params, Stream& s)
 {
+    UseScratchBuffers();
     // This mirrors UnserializeTransaction, but appends the inputs and outputs to m_data, and the witness stacks to
     // m_witness_data, and records offsets in m_offsets.
     const auto read_inputs = [&](uint64_t count) {
@@ -779,6 +792,7 @@ Transaction::Transaction(deserialize_type, const TransactionSerParams& params, S
     }
     m_num_inputs = num_inputs;
     m_num_outputs = m_offsets.size() - 2 * num_inputs;
+    FinishData();
     if ((flags & 1) && params.allow_witness) {
         // The witness flag is present, and we support witnesses.
         flags ^= 1;
