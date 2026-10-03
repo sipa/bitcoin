@@ -118,8 +118,8 @@ static std::vector<std::pair<COutPoint, CDiskTxPos>> BuildSpenderPositions(const
     CDiskTxPos pos({block.file_number, block.data_pos}, GetSizeOfCompactSize(block.data->vtx.size()));
     for (const auto& tx : block.data->vtx) {
         if (!tx->IsCoinBase()) {
-            for (const auto& input : tx->vin) {
-                items.emplace_back(input.prevout, pos);
+            for (const CTxInView input : tx->Inputs()) {
+                items.emplace_back(input.GetPrevout(), pos);
             }
         }
         pos.nTxOffset += ::GetSerializeSize(TX_WITH_WITNESS(*tx));
@@ -170,8 +170,8 @@ util::Expected<std::optional<TxoSpender>, std::string> TxoSpenderIndex::FindSpen
     // and return it if it does spend the provided outpoint
     for (it->Seek(std::pair{DB_TXOSPENDERINDEX, prefix}); it->Valid() && it->GetKey(key) && key.hash == prefix; it->Next()) {
         if (const auto spender{ReadTransaction(key.pos)}) {
-            for (const auto& input : spender->tx->vin) {
-                if (input.prevout == txo) {
+            for (const CTxInView input : spender->tx->Inputs()) {
+                if (input.GetPrevout() == txo) {
                     return std::optional{*spender};
                 }
             }
