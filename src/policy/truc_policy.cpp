@@ -20,8 +20,8 @@ std::vector<size_t> FindInPackageParents(const Package& package, const CTransact
     std::vector<size_t> in_package_parents;
 
     std::set<Txid> possible_parents;
-    for (auto &input : ptx->vin) {
-        possible_parents.insert(input.prevout.hash);
+    for (const CTxInView input : ptx->Inputs()) {
+        possible_parents.insert(input.GetPrevout().hash);
     }
 
     for (size_t i{0}; i < package.size(); ++i) {
@@ -43,12 +43,12 @@ struct ParentInfo {
     /** Wtxid used for debug string */
     const Wtxid& m_wtxid;
     /** version used to check inheritance of TRUC and non-TRUC */
-    decltype(CTransaction::version) m_version;
+    std::remove_const_t<decltype(CTransaction::CURRENT_VERSION)> m_version;
     /** If parent is in mempool, whether it has any descendants in mempool. */
     bool m_has_mempool_descendant;
 
     ParentInfo() = delete;
-    ParentInfo(const Txid& txid, const Wtxid& wtxid, decltype(CTransaction::version) version, bool has_mempool_descendant) :
+    ParentInfo(const Txid& txid, const Wtxid& wtxid, std::remove_const_t<decltype(CTransaction::CURRENT_VERSION)> version, bool has_mempool_descendant) :
         m_txid{txid}, m_wtxid{wtxid}, m_version{version},
         m_has_mempool_descendant{has_mempool_descendant}
     {}
@@ -100,7 +100,7 @@ std::optional<std::string> PackageTRUCChecks(const CTxMemPool& pool, const CTran
                     const auto& mempool_parent = &mempool_parents[0].get();
                     return ParentInfo{mempool_parent->GetTx().GetHash(),
                                       mempool_parent->GetTx().GetWitnessHash(),
-                                      mempool_parent->GetTx().version,
+                                      mempool_parent->GetTx().GetVersion(),
                                       /*has_mempool_descendant=*/pool.GetDescendantCount(*mempool_parent) > 1};
                 } else {
                     auto& parent_index = in_package_parents.front();
@@ -123,18 +123,18 @@ std::optional<std::string> PackageTRUCChecks(const CTxMemPool& pool, const CTran
                 // Skip same tx.
                 if (&(*package_tx) == &(*ptx)) continue;
 
-                for (auto& input : package_tx->vin) {
+                for (const CTxInView input : package_tx->Inputs()) {
                     // Fail if we find another tx with the same parent. We don't check whether the
                     // sibling is to-be-replaced (done in SingleTRUCChecks) because these transactions
                     // are within the same package.
-                    if (input.prevout.hash == parent_info.m_txid) {
+                    if (input.GetPrevout().hash == parent_info.m_txid) {
                         return strprintf("tx %s (wtxid=%s) would exceed descendant count limit",
                                          parent_info.m_txid.ToString(),
                                          parent_info.m_wtxid.ToString());
                     }
 
                     // This tx can't have both a parent and an in-package child.
-                    if (input.prevout.hash == ptx->GetHash()) {
+                    if (input.GetPrevout().hash == ptx->GetHash()) {
                         return strprintf("tx %s (wtxid=%s) would have too many ancestors",
                                          package_tx->GetHash().ToString(), package_tx->GetWitnessHash().ToString());
                     }
@@ -149,7 +149,7 @@ std::optional<std::string> PackageTRUCChecks(const CTxMemPool& pool, const CTran
     } else {
         // Non-TRUC transactions cannot have TRUC parents.
         for (auto it : mempool_parents) {
-            if (it.get().GetTx().version == TRUC_VERSION) {
+            if (it.get().GetTx().GetVersion() == TRUC_VERSION) {
                 return strprintf("non-version=3 tx %s (wtxid=%s) cannot spend from version=3 tx %s (wtxid=%s)",
                                  ptx->GetHash().ToString(), ptx->GetWitnessHash().ToString(),
                                  it.get().GetSharedTx()->GetHash().ToString(), it.get().GetSharedTx()->GetWitnessHash().ToString());
@@ -177,12 +177,12 @@ std::optional<std::pair<std::string, CTransactionRef>> SingleTRUCChecks(const CT
     // Check TRUC and non-TRUC inheritance.
     for (const auto& entry_ref : mempool_parents) {
         const auto& entry = &entry_ref.get();
-        if (ptx->GetVersion() != TRUC_VERSION && entry->GetTx().version == TRUC_VERSION) {
+        if (ptx->GetVersion() != TRUC_VERSION && entry->GetTx().GetVersion() == TRUC_VERSION) {
             return std::make_pair(strprintf("non-version=3 tx %s (wtxid=%s) cannot spend from version=3 tx %s (wtxid=%s)",
                              ptx->GetHash().ToString(), ptx->GetWitnessHash().ToString(),
                              entry->GetSharedTx()->GetHash().ToString(), entry->GetSharedTx()->GetWitnessHash().ToString()),
                 nullptr);
-        } else if (ptx->GetVersion() == TRUC_VERSION && entry->GetTx().version != TRUC_VERSION) {
+        } else if (ptx->GetVersion() == TRUC_VERSION && entry->GetTx().GetVersion() != TRUC_VERSION) {
             return std::make_pair(strprintf("version=3 tx %s (wtxid=%s) cannot spend from non-version=3 tx %s (wtxid=%s)",
                              ptx->GetHash().ToString(), ptx->GetWitnessHash().ToString(),
                              entry->GetSharedTx()->GetHash().ToString(), entry->GetSharedTx()->GetWitnessHash().ToString()),

@@ -292,8 +292,8 @@ void TestCoinsView(FuzzedDataProvider& fuzzed_data_provider, CCoinsViewCache& co
             [&] {
                 const CTransaction transaction{random_mutable_transaction};
                 bool is_spent = false;
-                for (const CTxOut& tx_out : transaction.vout) {
-                    if (Coin{tx_out, 0, transaction.IsCoinBase()}.IsSpent()) {
+                for (const CTxOutView tx_out : transaction.Outputs()) {
+                    if (Coin{tx_out.ToTxOut(), 0, transaction.IsCoinBase()}.IsSpent()) {
                         is_spent = true;
                     }
                 }

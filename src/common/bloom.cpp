@@ -104,18 +104,18 @@ bool CBloomFilter::IsRelevantAndUpdate(const CTransaction& tx)
 
     for (unsigned int i = 0; i < tx.GetNumOutputs(); i++)
     {
-        const CTxOut& txout = tx.vout[i];
+        const CTxOutView txout{tx.GetOutput(i)};
         // Match if the filter contains any arbitrary script data element in any scriptPubKey in tx
         // If this matches, also add the specific output that was matched.
         // This means clients don't have to update the filter themselves when a new relevant tx
         // is discovered in order to find spending transactions, which avoids round-tripping and race conditions.
-        CScript::const_iterator pc = txout.scriptPubKey.begin();
-        std::vector<unsigned char> data;
-        while (pc < txout.scriptPubKey.end())
+        std::span<const unsigned char> pc{txout.GetScriptPubKey()};
+        while (pc.size() > 0)
         {
-            opcodetype opcode;
-            if (!txout.scriptPubKey.GetOp(pc, opcode, data))
+            const auto op{GetScriptOp(pc)};
+            if (!op)
                 break;
+            const std::span<const unsigned char> data{op->second};
             if (data.size() != 0 && contains(data))
             {
                 fFound = true;
@@ -124,7 +124,7 @@ bool CBloomFilter::IsRelevantAndUpdate(const CTransaction& tx)
                 else if ((nFlags & BLOOM_UPDATE_MASK) == BLOOM_UPDATE_P2PUBKEY_ONLY)
                 {
                     std::vector<std::vector<unsigned char> > vSolutions;
-                    TxoutType type = Solver(txout.scriptPubKey, vSolutions);
+                    TxoutType type = Solver(txout.ToTxOut().scriptPubKey, vSolutions);
                     if (type == TxoutType::PUBKEY || type == TxoutType::MULTISIG) {
                         insert(COutPoint(hash, i));
                     }
@@ -137,20 +137,20 @@ bool CBloomFilter::IsRelevantAndUpdate(const CTransaction& tx)
     if (fFound)
         return true;
 
-    for (const CTxIn& txin : tx.vin)
+    for (const CTxInView txin : tx.Inputs())
     {
         // Match if the filter contains an outpoint tx spends
-        if (contains(txin.prevout))
+        if (contains(txin.GetPrevout()))
             return true;
 
         // Match if the filter contains any arbitrary script data element in any scriptSig in tx
-        CScript::const_iterator pc = txin.scriptSig.begin();
-        std::vector<unsigned char> data;
-        while (pc < txin.scriptSig.end())
+        std::span<const unsigned char> pc{txin.GetScriptSig()};
+        while (pc.size() > 0)
         {
-            opcodetype opcode;
-            if (!txin.scriptSig.GetOp(pc, opcode, data))
+            const auto op{GetScriptOp(pc)};
+            if (!op)
                 break;
+            const std::span<const unsigned char> data{op->second};
             if (data.size() != 0 && contains(data))
                 return true;
         }
