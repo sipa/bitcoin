@@ -15,7 +15,7 @@
 
 /** Helper for PackageTRUCChecks: Returns a vector containing the indices of transactions (within
  * package) that are direct parents of ptx. */
-std::vector<size_t> FindInPackageParents(const Package& package, const CTransactionRef& ptx)
+std::vector<size_t> FindInPackageParents(const Package& package, const TransactionRef& ptx)
 {
     std::vector<size_t> in_package_parents;
 
@@ -43,18 +43,18 @@ struct ParentInfo {
     /** Wtxid used for debug string */
     const Wtxid& m_wtxid;
     /** version used to check inheritance of TRUC and non-TRUC */
-    std::remove_const_t<decltype(CTransaction::CURRENT_VERSION)> m_version;
+    std::remove_const_t<decltype(Transaction::CURRENT_VERSION)> m_version;
     /** If parent is in mempool, whether it has any descendants in mempool. */
     bool m_has_mempool_descendant;
 
     ParentInfo() = delete;
-    ParentInfo(const Txid& txid, const Wtxid& wtxid, std::remove_const_t<decltype(CTransaction::CURRENT_VERSION)> version, bool has_mempool_descendant) :
+    ParentInfo(const Txid& txid, const Wtxid& wtxid, std::remove_const_t<decltype(Transaction::CURRENT_VERSION)> version, bool has_mempool_descendant) :
         m_txid{txid}, m_wtxid{wtxid}, m_version{version},
         m_has_mempool_descendant{has_mempool_descendant}
     {}
 };
 
-std::optional<std::string> PackageTRUCChecks(const CTxMemPool& pool, const CTransactionRef& ptx, int64_t vsize,
+std::optional<std::string> PackageTRUCChecks(const CTxMemPool& pool, const TransactionRef& ptx, int64_t vsize,
                                            const Package& package,
                                            const std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef>& mempool_parents)
 {
@@ -168,7 +168,7 @@ std::optional<std::string> PackageTRUCChecks(const CTxMemPool& pool, const CTran
     return std::nullopt;
 }
 
-std::optional<std::pair<std::string, CTransactionRef>> SingleTRUCChecks(const CTxMemPool& pool, const CTransactionRef& ptx,
+std::optional<std::pair<std::string, TransactionRef>> SingleTRUCChecks(const CTxMemPool& pool, const TransactionRef& ptx,
                                           const std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef>& mempool_parents,
                                           const std::set<Txid>& direct_conflicts,
                                           int64_t vsize)

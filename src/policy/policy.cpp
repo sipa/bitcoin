@@ -68,7 +68,7 @@ bool IsDust(const CTxOut& txout, const CFeeRate& dustRelayFeeIn)
     return (txout.nValue < GetDustThreshold(txout, dustRelayFeeIn));
 }
 
-std::vector<uint32_t> GetDust(const CTransaction& tx, CFeeRate dust_relay_rate)
+std::vector<uint32_t> GetDust(const Transaction& tx, CFeeRate dust_relay_rate)
 {
     std::vector<uint32_t> dust_outputs;
     for (uint32_t i{0}; i < tx.GetNumOutputs(); ++i) {
@@ -97,7 +97,7 @@ bool IsStandard(const CScript& scriptPubKey, TxoutType& whichType)
     return true;
 }
 
-bool IsStandardTx(const CTransaction& tx, const std::optional<unsigned>& max_datacarrier_bytes, bool permit_bare_multisig, const CFeeRate& dust_relay_fee, std::string& reason)
+bool IsStandardTx(const Transaction& tx, const std::optional<unsigned>& max_datacarrier_bytes, bool permit_bare_multisig, const CFeeRate& dust_relay_fee, std::string& reason)
 {
     if (tx.GetVersion() > TX_MAX_STANDARD_VERSION || tx.GetVersion() < TX_MIN_STANDARD_VERSION) {
         reason = "version";
@@ -168,7 +168,7 @@ bool IsStandardTx(const CTransaction& tx, const std::optional<unsigned>& max_dat
 /**
  * Check the total number of non-witness sigops across the whole transaction, as per BIP54.
  */
-static bool CheckSigopsBIP54(const CTransaction& tx, const CCoinsViewCache& inputs)
+static bool CheckSigopsBIP54(const Transaction& tx, const CCoinsViewCache& inputs)
 {
     Assert(!tx.IsCoinBase());
 
@@ -212,7 +212,7 @@ static bool CheckSigopsBIP54(const CTransaction& tx, const CCoinsViewCache& inpu
  *
  * We also check the total number of non-witness sigops across the whole transaction, as per BIP54.
  */
-TxValidationState ValidateInputsStandardness(const CTransaction& tx, const CCoinsViewCache& mapInputs)
+TxValidationState ValidateInputsStandardness(const Transaction& tx, const CCoinsViewCache& mapInputs)
 {
     TxValidationState state;
     if (tx.IsCoinBase()) {
@@ -263,7 +263,7 @@ TxValidationState ValidateInputsStandardness(const CTransaction& tx, const CCoin
     return state;
 }
 
-bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
+bool IsWitnessStandard(const Transaction& tx, const CCoinsViewCache& mapInputs)
 {
     if (tx.IsCoinBase())
         return true; // Coinbases are skipped
@@ -353,7 +353,7 @@ bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
     return true;
 }
 
-bool SpendsNonAnchorWitnessProg(const CTransaction& tx, const CCoinsViewCache& prevouts)
+bool SpendsNonAnchorWitnessProg(const Transaction& tx, const CCoinsViewCache& prevouts)
 {
     if (tx.IsCoinBase()) {
         return false;
@@ -399,7 +399,7 @@ int64_t GetVirtualTransactionSize(int64_t nWeight, int64_t nSigOpCost, unsigned 
     return (GetSigOpsAdjustedWeight(nWeight, nSigOpCost, bytes_per_sigop) + WITNESS_SCALE_FACTOR - 1) / WITNESS_SCALE_FACTOR;
 }
 
-int64_t GetVirtualTransactionSize(const CTransaction& tx, int64_t nSigOpCost, unsigned int bytes_per_sigop)
+int64_t GetVirtualTransactionSize(const Transaction& tx, int64_t nSigOpCost, unsigned int bytes_per_sigop)
 {
     return GetVirtualTransactionSize(GetTransactionWeight(tx), nSigOpCost, bytes_per_sigop);
 }

@@ -32,12 +32,12 @@ FUZZ_TARGET(transaction, .init = initialize_transaction)
     SeedRandomStateForTest(SeedRand::ZEROS);
     SpanReader ds{buffer};
     bool valid_tx = true;
-    const CTransaction tx = [&] {
+    const Transaction tx = [&] {
         try {
-            return CTransaction(deserialize, TX_WITH_WITNESS, ds);
+            return Transaction(deserialize, TX_WITH_WITNESS, ds);
         } catch (const std::ios_base::failure&) {
             valid_tx = false;
-            return CTransaction{CMutableTransaction{}};
+            return Transaction{CMutableTransaction{}};
         }
     }();
     bool valid_mutable_tx = true;

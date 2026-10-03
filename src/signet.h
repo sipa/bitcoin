@@ -34,8 +34,8 @@ class SignetTxs {
 public:
     static std::optional<SignetTxs> Create(const CBlock& block, const CScript& challenge);
 
-    const CTransaction m_to_spend;
-    const CTransaction m_to_sign;
+    const Transaction m_to_spend;
+    const Transaction m_to_sign;
 };
 
 #endif // BITCOIN_SIGNET_H

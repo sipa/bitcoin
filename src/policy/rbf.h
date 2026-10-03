@@ -53,8 +53,8 @@ enum class DiagramCheckError {
  *
  * @return     The rbf state
  */
-RBFTransactionState IsRBFOptIn(const CTransaction& tx, const CTxMemPool& pool) EXCLUSIVE_LOCKS_REQUIRED(pool.cs);
-RBFTransactionState IsRBFOptInEmptyMempool(const CTransaction& tx);
+RBFTransactionState IsRBFOptIn(const Transaction& tx, const CTxMemPool& pool) EXCLUSIVE_LOCKS_REQUIRED(pool.cs);
+RBFTransactionState IsRBFOptInEmptyMempool(const Transaction& tx);
 
 /** Get all descendants of iters_conflicting. Checks that there are no more than
  * MAX_REPLACEMENT_CANDIDATES distinct clusters affected.
@@ -66,7 +66,7 @@ RBFTransactionState IsRBFOptInEmptyMempool(const CTransaction& tx);
  *                                  remain in the set.
  * @returns an error message if the number of affected clusters would exceed MAX_REPLACEMENT_CANDIDATES, std::nullopt otherwise
  */
-std::optional<std::string> GetEntriesForConflicts(const CTransaction& tx, CTxMemPool& pool,
+std::optional<std::string> GetEntriesForConflicts(const Transaction& tx, CTxMemPool& pool,
                                                   const CTxMemPool::setEntries& iters_conflicting,
                                                   CTxMemPool::setEntries& all_conflicts)
     EXCLUSIVE_LOCKS_REQUIRED(pool.cs);

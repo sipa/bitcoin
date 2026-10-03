@@ -134,7 +134,7 @@ CScript ParseScript(const std::string& s)
 static bool CheckTxScriptsSanity(const CMutableTransaction& tx)
 {
     // Check input scripts for non-coinbase txs
-    if (!CTransaction(tx).IsCoinBase()) {
+    if (!Transaction(tx).IsCoinBase()) {
         for (unsigned int i = 0; i < tx.GetNumInputs(); i++) {
             if (!tx.vin[i].scriptSig.HasValidOps() || tx.vin[i].scriptSig.size() > MAX_SCRIPT_SIZE) {
                 return false;
@@ -401,7 +401,7 @@ std::string ScriptToAsmStr(const CScript& script, const bool fAttemptSighashDeco
     return str;
 }
 
-std::string EncodeHexTx(const CTransaction& tx)
+std::string EncodeHexTx(const Transaction& tx)
 {
     DataStream ssTx;
     ssTx << TX_WITH_WITNESS(tx);
@@ -429,7 +429,7 @@ void ScriptToUniv(const CScript& script, UniValue& out, bool include_hex, bool i
     out.pushKV("type", GetTxnOutputType(type));
 }
 
-void TxToUniv(const CTransaction& tx, const uint256& block_hash, UniValue& entry, bool include_hex, const CTxUndo* txundo, TxVerbosity verbosity, std::function<bool(const CTxOut&)> is_change_func)
+void TxToUniv(const Transaction& tx, const uint256& block_hash, UniValue& entry, bool include_hex, const CTxUndo* txundo, TxVerbosity verbosity, std::function<bool(const CTxOut&)> is_change_func)
 {
     CHECK_NONFATAL(verbosity >= TxVerbosity::SHOW_DETAILS);
 
