@@ -71,7 +71,7 @@ bool IsDust(const CTxOut& txout, const CFeeRate& dustRelayFeeIn)
 std::vector<uint32_t> GetDust(const CTransaction& tx, CFeeRate dust_relay_rate)
 {
     std::vector<uint32_t> dust_outputs;
-    for (uint32_t i{0}; i < tx.vout.size(); ++i) {
+    for (uint32_t i{0}; i < tx.GetNumOutputs(); ++i) {
         if (IsDust(tx.vout[i], dust_relay_rate)) dust_outputs.push_back(i);
     }
     return dust_outputs;
@@ -223,8 +223,8 @@ TxValidationState ValidateInputsStandardness(const CTransaction& tx, const CCoin
         return state;
     }
 
-    for (unsigned int i = 0; i < tx.vin.size(); i++) {
-        const CTxOut& prev = mapInputs.AccessCoin(tx.vin[i].prevout).out;
+    for (unsigned int i = 0; i < tx.GetNumInputs(); i++) {
+        const CTxOut& prev = mapInputs.AccessCoin(tx.GetInputPrevout(i)).out;
 
         std::vector<std::vector<unsigned char> > vSolutions;
         TxoutType whichType = Solver(prev.scriptPubKey, vSolutions);
@@ -267,14 +267,14 @@ bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
     if (tx.IsCoinBase())
         return true; // Coinbases are skipped
 
-    for (unsigned int i = 0; i < tx.vin.size(); i++)
+    for (unsigned int i = 0; i < tx.GetNumInputs(); i++)
     {
         // We don't care if witness for this input is empty, since it must not be bloated.
         // If the script is invalid without witness, it would be caught sooner or later during validation.
         if (tx.vin[i].scriptWitness.IsNull())
             continue;
 
-        const CTxOut &prev = mapInputs.AccessCoin(tx.vin[i].prevout).out;
+        const CTxOut &prev = mapInputs.AccessCoin(tx.GetInputPrevout(i)).out;
 
         // get the scriptPubKey corresponding to this input:
         CScript prevScript = prev.scriptPubKey;
