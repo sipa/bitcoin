@@ -79,7 +79,7 @@ using node::GetTransaction;
 using node::NodeContext;
 using node::PSBTAnalysis;
 
-static constexpr decltype(CTransaction::version) DEFAULT_RAWTX_VERSION{CTransaction::CURRENT_VERSION};
+static constexpr std::remove_const_t<decltype(CTransaction::CURRENT_VERSION)> DEFAULT_RAWTX_VERSION{CTransaction::CURRENT_VERSION};
 
 static void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry,
                      Chainstate& active_chainstate, const CTxUndo* txundo = nullptr,
@@ -1220,7 +1220,7 @@ static RPCMethod decodepsbt()
             have_a_utxo = true;
         }
         if (input.non_witness_utxo) {
-            txout = input.non_witness_utxo->vout[input.prev_out];
+            txout = input.non_witness_utxo->GetOutput(input.prev_out).ToTxOut();
 
             UniValue non_wit(UniValue::VOBJ);
             TxToUniv(*input.non_witness_utxo, /*block_hash=*/uint256(), /*entry=*/non_wit, /*include_hex=*/false);
