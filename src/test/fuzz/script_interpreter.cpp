@@ -25,7 +25,7 @@ FUZZ_TARGET(script_interpreter)
         if (mtx) {
             const CTransaction tx_to{*mtx};
             const unsigned int in = fuzzed_data_provider.ConsumeIntegral<unsigned int>();
-            if (in < tx_to.vin.size()) {
+            if (in < tx_to.GetNumInputs()) {
                 auto n_hash_type = fuzzed_data_provider.ConsumeIntegral<int>();
                 auto amount = ConsumeMoney(fuzzed_data_provider);
                 auto sigversion = fuzzed_data_provider.PickValueInArray({SigVersion::BASE, SigVersion::WITNESS_V0});
@@ -55,8 +55,8 @@ FUZZ_TARGET(sighash_cache)
     // Get inputs to the sighash function that won't change across types.
     const auto scriptcode{ConsumeScript(provider)};
     const auto tx{ConsumeTransaction(provider, std::nullopt)};
-    if (tx.vin.empty()) return;
-    const auto in_index{provider.ConsumeIntegralInRange<uint32_t>(0, tx.vin.size() - 1)};
+    if (tx.Inputs().empty()) return;
+    const auto in_index{provider.ConsumeIntegralInRange<uint32_t>(0, tx.GetNumInputs() - 1)};
     const auto amount{ConsumeMoney(provider)};
     const auto sigversion{(SigVersion)provider.ConsumeIntegralInRange(0, 1)};
 

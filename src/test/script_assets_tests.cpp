@@ -105,7 +105,7 @@ static void AssetTest(const UniValue& test, SignatureCache& signature_cache)
 
     CMutableTransaction mtx = TxFromHex(test["tx"].get_str());
     const std::vector<CTxOut> prevouts = TxOutsFromJSON(test["prevouts"]);
-    BOOST_CHECK(prevouts.size() == mtx.vin.size());
+    BOOST_CHECK(prevouts.size() == mtx.GetNumInputs());
     size_t idx = test["index"].getInt<int64_t>();
     script_verify_flags test_flags{ParseScriptFlags(test["flags"].get_str())};
     bool fin = test.exists("final") && test["final"].get_bool();

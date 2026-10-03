@@ -42,7 +42,7 @@ FUZZ_TARGET(script_flags)
         ds >> fuzzed_flags;
 
         std::vector<CTxOut> spent_outputs;
-        for (unsigned i = 0; i < tx.vin.size(); ++i) {
+        for (unsigned i = 0; i < tx.GetNumInputs(); ++i) {
             CTxOut prevout;
             ds >> prevout;
             if (!MoneyRange(prevout.nValue)) {
@@ -54,7 +54,7 @@ FUZZ_TARGET(script_flags)
         PrecomputedTransactionData txdata;
         txdata.Init(tx, std::move(spent_outputs));
 
-        for (unsigned i = 0; i < tx.vin.size(); ++i) {
+        for (unsigned i = 0; i < tx.GetNumInputs(); ++i) {
             const CTxOut& prevout = txdata.m_spent_outputs.at(i);
             const TransactionSignatureChecker checker{&tx, i, prevout.nValue, txdata, MissingDataBehavior::ASSERT_FAIL};
 
