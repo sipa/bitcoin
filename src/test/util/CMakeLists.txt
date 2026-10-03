@@ -15,6 +15,7 @@ add_library(test_util STATIC EXCLUDE_FROM_ALL
   setup_common.cpp
   time.cpp
   transaction_utils.cpp
+  transaction_view.cpp
   txmempool.cpp
   validation.cpp
   $<$<BOOL:${ENABLE_WALLET}>:${PROJECT_SOURCE_DIR}/src/wallet/test/util.cpp>
