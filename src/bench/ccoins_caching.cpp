@@ -49,7 +49,7 @@ static void CCoinsCaching(benchmark::Bench& bench)
     t1.vout[0].scriptPubKey << OP_1;
 
     // Benchmark.
-    const CTransaction tx_1(t1);
+    const Transaction tx_1(t1);
     bench.run([&] {
         assert(ValidateInputsStandardness(tx_1, coins).IsValid());
     });

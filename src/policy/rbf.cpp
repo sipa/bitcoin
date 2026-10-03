@@ -21,7 +21,7 @@
 
 #include <compare>
 
-RBFTransactionState IsRBFOptIn(const CTransaction& tx, const CTxMemPool& pool)
+RBFTransactionState IsRBFOptIn(const Transaction& tx, const CTxMemPool& pool)
 {
     AssertLockHeld(pool.cs);
 
@@ -49,13 +49,13 @@ RBFTransactionState IsRBFOptIn(const CTransaction& tx, const CTxMemPool& pool)
     return RBFTransactionState::FINAL;
 }
 
-RBFTransactionState IsRBFOptInEmptyMempool(const CTransaction& tx)
+RBFTransactionState IsRBFOptInEmptyMempool(const Transaction& tx)
 {
     // If we don't have a local mempool we can only check the transaction itself.
     return SignalsOptInRBF(tx) ? RBFTransactionState::REPLACEABLE_BIP125 : RBFTransactionState::UNKNOWN;
 }
 
-std::optional<std::string> GetEntriesForConflicts(const CTransaction& tx,
+std::optional<std::string> GetEntriesForConflicts(const Transaction& tx,
                                                   CTxMemPool& pool,
                                                   const CTxMemPool::setEntries& iters_conflicting,
                                                   CTxMemPool::setEntries& all_conflicts)

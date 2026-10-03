@@ -8,7 +8,7 @@
 
 #include <vector>
 
-bool SignalsOptInRBF(const CTransaction &tx)
+bool SignalsOptInRBF(const Transaction &tx)
 {
     for (const CTxInView txin : tx.Inputs()) {
         if (txin.GetSequence() <= MAX_BIP125_RBF_SEQUENCE) {

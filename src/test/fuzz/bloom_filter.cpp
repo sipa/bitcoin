@@ -62,7 +62,7 @@ FUZZ_TARGET(bloom_filter)
                     good_data = false;
                     return;
                 }
-                const CTransaction tx{*mut_tx};
+                const Transaction tx{*mut_tx};
                 (void)bloom_filter.IsRelevantAndUpdate(tx);
             });
         (void)bloom_filter.IsWithinSizeConstraints();
