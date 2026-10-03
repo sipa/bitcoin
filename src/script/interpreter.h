@@ -376,9 +376,17 @@ uint256 ComputeTaprootMerkleRoot(std::span<const unsigned char> control, const u
 
 bool EvalScript(std::vector<std::vector<unsigned char>>& stack, std::span<const unsigned char> script, script_verify_flags flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptExecutionData& execdata, ScriptError* error = nullptr);
 bool EvalScript(std::vector<std::vector<unsigned char>>& stack, std::span<const unsigned char> script, script_verify_flags flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* error = nullptr);
+/** Verify a script spend. The witness is passed as its (materialized) stack, bottom to top, which is used as the
+ *  initial execution stack (and thus consumed), along with its serialized size (::GetSerializeSize of the stack). */
+bool VerifyScript(std::span<const unsigned char> scriptSig, std::span<const unsigned char> scriptPubKey, std::vector<std::vector<unsigned char>>&& witness, size_t witness_size, script_verify_flags flags, const BaseSignatureChecker& checker, ScriptError* serror = nullptr);
 bool VerifyScript(std::span<const unsigned char> scriptSig, std::span<const unsigned char> scriptPubKey, const CScriptWitness* witness, script_verify_flags flags, const BaseSignatureChecker& checker, ScriptError* serror = nullptr);
+bool VerifyScript(std::span<const unsigned char> scriptSig, std::span<const unsigned char> scriptPubKey, const WitnessView& witness, script_verify_flags flags, const BaseSignatureChecker& checker, ScriptError* serror = nullptr);
 
-size_t CountWitnessSigOps(std::span<const unsigned char> scriptSig, std::span<const unsigned char> scriptPubKey, const CScriptWitness& witness, script_verify_flags flags);
+size_t CountWitnessSigOps(std::span<const unsigned char> scriptSig, std::span<const unsigned char> scriptPubKey, const WitnessView& witness, script_verify_flags flags);
+inline size_t CountWitnessSigOps(std::span<const unsigned char> scriptSig, std::span<const unsigned char> scriptPubKey, const CScriptWitness& witness, script_verify_flags flags)
+{
+    return CountWitnessSigOps(scriptSig, scriptPubKey, WitnessView{witness}, flags);
+}
 
 /** Remove all occurrences of b (at opcode boundaries) from script. Returns the resulting script and the number
  *  of occurrences removed. Consensus critical. */
