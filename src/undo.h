@@ -49,7 +49,7 @@ struct TxInUndoFormatter
     }
 };
 
-/** Undo information for a CTransaction */
+/** Undo information for a Transaction */
 class CTxUndo
 {
 public:

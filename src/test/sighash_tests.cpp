@@ -24,7 +24,7 @@
 #include <univalue.h>
 
 // Old script.cpp SignatureHash function
-uint256 static SignatureHashOld(CScript scriptCode, const CTransaction& txTo, unsigned int nIn, int nHashType)
+uint256 static SignatureHashOld(CScript scriptCode, const Transaction& txTo, unsigned int nIn, int nHashType)
 {
     if (nIn >= txTo.GetNumInputs())
     {
@@ -137,7 +137,7 @@ BOOST_AUTO_TEST_CASE(sighash_test)
         int nIn = m_rng.randrange(txTo.GetNumInputs());
 
         uint256 sh, sho;
-        sho = SignatureHashOld(scriptCode, CTransaction(txTo), nIn, nHashType);
+        sho = SignatureHashOld(scriptCode, Transaction(txTo), nIn, nHashType);
         sh = SignatureHash(scriptCode, txTo, nIn, nHashType, 0, SigVersion::BASE);
         #if defined(PRINT_SIGHASH_JSON)
         DataStream ss;
@@ -179,7 +179,7 @@ BOOST_AUTO_TEST_CASE(sighash_from_data)
         std::string raw_tx, raw_script, sigHashHex;
         int nIn, nHashType;
         uint256 sh;
-        CTransactionRef tx;
+        TransactionRef tx;
         CScript scriptCode = CScript();
 
         try {
@@ -246,7 +246,7 @@ BOOST_AUTO_TEST_CASE(sighash_caching)
 
             // While here we might as well also check that the result for legacy is the same as for the old SignatureHash() function.
             if (sigversion == SigVersion::BASE) {
-                BOOST_CHECK_EQUAL(sighash_with_cache, SignatureHashOld(scriptcode, CTransaction(tx), in_index, hash_type));
+                BOOST_CHECK_EQUAL(sighash_with_cache, SignatureHashOld(scriptcode, Transaction(tx), in_index, hash_type));
             }
 
             // Calling with a different scriptcode (for instance in case a CODESEP is encountered) will not return the cache value but
