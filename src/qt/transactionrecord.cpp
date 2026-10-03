@@ -50,7 +50,7 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const interface
 
         for(unsigned int i = 0; i < wtx.tx->GetNumOutputs(); i++)
         {
-            const CTxOut& txout = wtx.tx->vout[i];
+            const CTxOutView txout{wtx.tx->GetOutput(i)};
 
             if (all_from_me) {
                 // Change is only really possible if we're the sender
@@ -79,7 +79,7 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const interface
                     sub.address = wtx.comment_to.value_or("");
                 }
 
-                CAmount nValue = txout.nValue;
+                CAmount nValue = txout.GetValue();
                 /* Add fee to first output */
                 if (nTxFee > 0)
                 {
@@ -100,7 +100,7 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const interface
 
                 TransactionRecord sub(hash, nTime);
                 sub.idx = i; // vout index
-                sub.credit = txout.nValue;
+                sub.credit = txout.GetValue();
                 if (wtx.txout_address_is_mine[i])
                 {
                     // Received by Bitcoin Address
