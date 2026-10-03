@@ -310,7 +310,7 @@ RPCMethod lockunspent()
 
         const CWalletTx& trans = it->second;
 
-        if (outpt.n >= trans.GetTx()->vout.size()) {
+        if (outpt.n >= trans.GetTx()->GetNumOutputs()) {
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, vout index out of bounds");
         }
 
