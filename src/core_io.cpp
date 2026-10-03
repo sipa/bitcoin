@@ -135,14 +135,14 @@ static bool CheckTxScriptsSanity(const CMutableTransaction& tx)
 {
     // Check input scripts for non-coinbase txs
     if (!CTransaction(tx).IsCoinBase()) {
-        for (unsigned int i = 0; i < tx.vin.size(); i++) {
+        for (unsigned int i = 0; i < tx.GetNumInputs(); i++) {
             if (!tx.vin[i].scriptSig.HasValidOps() || tx.vin[i].scriptSig.size() > MAX_SCRIPT_SIZE) {
                 return false;
             }
         }
     }
     // Check output scripts
-    for (unsigned int i = 0; i < tx.vout.size(); i++) {
+    for (unsigned int i = 0; i < tx.GetNumOutputs(); i++) {
         if (!tx.vout[i].scriptPubKey.HasValidOps() || tx.vout[i].scriptPubKey.size() > MAX_SCRIPT_SIZE) {
             return false;
         }
@@ -442,7 +442,7 @@ void TxToUniv(const CTransaction& tx, const uint256& block_hash, UniValue& entry
     entry.pushKV("locktime", tx.nLockTime);
 
     UniValue vin{UniValue::VARR};
-    vin.reserve(tx.vin.size());
+    vin.reserve(tx.GetNumInputs());
 
     // If available, use Undo data to calculate the fee. Note that txundo == nullptr
     // for coinbase transactions and for transactions where undo data is unavailable.
@@ -450,7 +450,7 @@ void TxToUniv(const CTransaction& tx, const uint256& block_hash, UniValue& entry
     CAmount amt_total_in = 0;
     CAmount amt_total_out = 0;
 
-    for (unsigned int i = 0; i < tx.vin.size(); i++) {
+    for (unsigned int i = 0; i < tx.GetNumInputs(); i++) {
         const CTxIn& txin = tx.vin[i];
         UniValue in(UniValue::VOBJ);
         if (tx.IsCoinBase()) {
@@ -495,8 +495,8 @@ void TxToUniv(const CTransaction& tx, const uint256& block_hash, UniValue& entry
     entry.pushKV("vin", std::move(vin));
 
     UniValue vout(UniValue::VARR);
-    vout.reserve(tx.vout.size());
-    for (unsigned int i = 0; i < tx.vout.size(); i++) {
+    vout.reserve(tx.GetNumOutputs());
+    for (unsigned int i = 0; i < tx.GetNumOutputs(); i++) {
         const CTxOut& txout = tx.vout[i];
 
         UniValue out(UniValue::VOBJ);
