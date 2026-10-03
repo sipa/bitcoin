@@ -64,7 +64,7 @@ class TxOrphanageImpl final : public TxOrphanage {
          * small number of inputs (9 or fewer) are counted as 1 to make it easier to reason about each peer's limits in
          * terms of "normal" transactions. */
         TxOrphanage::Count GetLatencyScore() const {
-            return 1 + (m_tx->vin.size() / 10);
+            return 1 + (m_tx->GetNumInputs() / 10);
         }
     };
 
@@ -253,8 +253,8 @@ void TxOrphanageImpl::Erase(Iter<Tag> it)
 
         // Remove references in m_outpoint_to_orphan_wtxids
         const auto& wtxid{it->m_tx->GetWitnessHash()};
-        for (const auto& input : it->m_tx->vin) {
-            auto it_prev = m_outpoint_to_orphan_wtxids.find(input.prevout);
+        for (const CTxInView input : it->m_tx->Inputs()) {
+            auto it_prev = m_outpoint_to_orphan_wtxids.find(input.GetPrevout());
             if (it_prev != m_outpoint_to_orphan_wtxids.end()) {
                 it_prev->second.erase(wtxid);
                 // Clean up keys if they point to an empty set.
@@ -329,8 +329,8 @@ bool TxOrphanageImpl::AddTx(const CTransactionRef& tx, NodeId peer)
 
     // Add links in m_outpoint_to_orphan_wtxids
     if (brand_new) {
-        for (const auto& input : tx->vin) {
-            auto& wtxids_for_prevout = m_outpoint_to_orphan_wtxids.try_emplace(input.prevout).first->second;
+        for (const CTxInView input : tx->Inputs()) {
+            auto& wtxids_for_prevout = m_outpoint_to_orphan_wtxids.try_emplace(input.GetPrevout()).first->second;
             wtxids_for_prevout.emplace(wtxid);
         }
 
@@ -535,7 +535,7 @@ std::vector<std::pair<Wtxid, NodeId>> TxOrphanageImpl::AddChildrenToWorkSet(cons
 
     std::vector<std::pair<Wtxid, NodeId>> ret;
     auto& index_by_wtxid = m_orphans.get<ByWtxid>();
-    for (unsigned int i = 0; i < tx.vout.size(); i++) {
+    for (unsigned int i = 0; i < tx.GetNumOutputs(); i++) {
         const auto it_by_prev = m_outpoint_to_orphan_wtxids.find(COutPoint(tx.GetHash(), i));
         if (it_by_prev != m_outpoint_to_orphan_wtxids.end()) {
             for (const auto& wtxid : it_by_prev->second) {
@@ -623,8 +623,8 @@ void TxOrphanageImpl::EraseForBlock(const CBlock& block)
         const CTransaction& block_tx = *ptx;
 
         // Which orphan pool entries must we evict?
-        for (const auto& input : block_tx.vin) {
-            auto it_prev = m_outpoint_to_orphan_wtxids.find(input.prevout);
+        for (const CTxInView input : block_tx.Inputs()) {
+            auto it_prev = m_outpoint_to_orphan_wtxids.find(input.GetPrevout());
             if (it_prev != m_outpoint_to_orphan_wtxids.end()) {
                 // Copy all wtxids to wtxids_to_erase.
                 std::copy(it_prev->second.cbegin(), it_prev->second.cend(), std::inserter(wtxids_to_erase, wtxids_to_erase.end()));
@@ -666,8 +666,8 @@ std::vector<CTransactionRef> TxOrphanageImpl::GetChildrenFromSamePeer(const CTra
         --it_upper;
         if (!Assume(it_upper->m_announcer == peer)) break;
         // Check if this tx spends from parent.
-        for (const auto& input : it_upper->m_tx->vin) {
-            if (input.prevout.hash == parent_txid) {
+        for (const CTxInView input : it_upper->m_tx->Inputs()) {
+            if (input.GetPrevout().hash == parent_txid) {
                 children_found.emplace_back(it_upper->m_tx);
                 break;
             }
@@ -707,8 +707,8 @@ void TxOrphanageImpl::SanityCheck() const
     std::set<Wtxid> reconstructed_reconsiderable_wtxids;
 
     for (auto it = m_orphans.begin(); it != m_orphans.end(); ++it) {
-        for (const auto& input : it->m_tx->vin) {
-            all_outpoints.insert(input.prevout);
+        for (const CTxInView input : it->m_tx->Inputs()) {
+            all_outpoints.insert(input.GetPrevout());
         }
         unique_wtxids_to_scores.emplace(it->m_tx->GetWitnessHash(), std::make_pair(it->GetMemUsage(), it->GetLatencyScore() - 1));
 
