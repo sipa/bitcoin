@@ -224,16 +224,16 @@ UniValue blockheaderToJSON(const CBlockIndex& tip, const CBlockIndex& blockindex
 UniValue coinbaseTxToJSON(const CTransaction& coinbase_tx)
 {
     CHECK_NONFATAL(!coinbase_tx.Inputs().empty());
-    const CTxIn& vin_0{coinbase_tx.vin[0]};
+    const CTxInView vin_0{coinbase_tx.GetInput(0)};
     UniValue coinbase_tx_obj(UniValue::VOBJ);
-    coinbase_tx_obj.pushKV("version", coinbase_tx.version);
-    coinbase_tx_obj.pushKV("locktime", coinbase_tx.nLockTime);
-    coinbase_tx_obj.pushKV("sequence", vin_0.nSequence);
-    coinbase_tx_obj.pushKV("coinbase", HexStr(vin_0.scriptSig));
-    const auto& witness_stack{vin_0.scriptWitness.stack};
-    if (!witness_stack.empty()) {
-        CHECK_NONFATAL(witness_stack.size() == 1);
-        coinbase_tx_obj.pushKV("witness", HexStr(witness_stack[0]));
+    coinbase_tx_obj.pushKV("version", coinbase_tx.GetVersion());
+    coinbase_tx_obj.pushKV("locktime", coinbase_tx.GetLockTime());
+    coinbase_tx_obj.pushKV("sequence", vin_0.GetSequence());
+    coinbase_tx_obj.pushKV("coinbase", HexStr(vin_0.GetScriptSig()));
+    const WitnessView witness{vin_0.GetWitness()};
+    if (!witness.empty()) {
+        CHECK_NONFATAL(witness.size() == 1);
+        coinbase_tx_obj.pushKV("witness", HexStr(witness.front()));
     }
     return coinbase_tx_obj;
 }
@@ -2112,8 +2112,8 @@ static RPCMethod getblockstats()
 
         CAmount tx_total_out = 0;
         if (loop_outputs) {
-            for (const CTxOut& out : tx->vout) {
-                tx_total_out += out.nValue;
+            for (const CTxOutView out : tx->Outputs()) {
+                tx_total_out += out.GetValue();
 
                 uint64_t out_size{GetSerializeSize(out) + PER_UTXO_OVERHEAD};
                 utxo_size_inc += out_size;
@@ -2122,7 +2122,7 @@ static RPCMethod getblockstats()
                 // set counts, so they have to be excluded from the statistics
                 if (pindex.nHeight == 0 || (IsBIP30Repeat(pindex) && tx->IsCoinBase())) continue;
                 // Skip unspendable outputs since they are not included in the UTXO set
-                if (out.scriptPubKey.IsUnspendable()) continue;
+                if (IsUnspendable(out.GetScriptPubKey())) continue;
 
                 ++utxos;
                 utxo_size_inc_actual += out_size;
@@ -2546,8 +2546,8 @@ static bool CheckBlockFilterMatches(BlockManager& blockman, const CBlockIndex& b
 
     // Check if any of the outputs match the scriptPubKey
     for (const auto& tx : block.vtx) {
-        if (std::any_of(tx->vout.cbegin(), tx->vout.cend(), [&](const auto& txout) {
-                return needles.contains(std::vector<unsigned char>(txout.scriptPubKey.begin(), txout.scriptPubKey.end()));
+        if (std::any_of(tx->Outputs().begin(), tx->Outputs().end(), [&](const CTxOutView txout) {
+                return needles.contains(std::vector<unsigned char>(txout.GetScriptPubKey().begin(), txout.GetScriptPubKey().end()));
             })) {
             return true;
         }
@@ -2915,7 +2915,7 @@ static RPCMethod getdescriptoractivity()
 
                 for (size_t vin_idx = 0; vin_idx < tx->GetNumInputs(); ++vin_idx) {
                     const auto& coin = txundo.vprevout.at(vin_idx);
-                    const auto& txin = tx->vin.at(vin_idx);
+                    const CTxIn txin{tx->GetInput(vin_idx).ToTxIn()};
                     if (scripts_to_watch.contains(coin.out.scriptPubKey)) {
                         activity.push_back(AddSpend(
                                     coin.out.scriptPubKey, coin.out.nValue, tx, vin_idx, txin, blockindex));
@@ -2924,7 +2924,7 @@ static RPCMethod getdescriptoractivity()
             }
 
             for (size_t vout_idx = 0; vout_idx < tx->GetNumOutputs(); ++vout_idx) {
-                const auto& vout = tx->vout.at(vout_idx);
+                const CTxOut vout{tx->GetOutput(vout_idx).ToTxOut()};
                 if (scripts_to_watch.contains(vout.scriptPubKey)) {
                     activity.push_back(AddReceive(vout, blockindex, vout_idx, tx));
                 }
@@ -2949,7 +2949,7 @@ static RPCMethod getdescriptoractivity()
             for (size_t vin_idx = 0; vin_idx < tx->GetNumInputs(); ++vin_idx) {
                 CScript scriptPubKey;
                 CAmount value;
-                const auto& txin = tx->vin.at(vin_idx);
+                const CTxIn txin{tx->GetInput(vin_idx).ToTxIn()};
                 std::optional<Coin> coin = coins_view.GetCoin(txin.prevout);
 
                 // Check if the previous output is in the chain
@@ -2961,9 +2961,9 @@ static RPCMethod getdescriptoractivity()
                     if (txin.prevout.n >= prev_tx->GetNumOutputs()) {
                         throw std::runtime_error("Invalid output index");
                     }
-                    const CTxOut& out = prev_tx->vout[txin.prevout.n];
-                    scriptPubKey = out.scriptPubKey;
-                    value = out.nValue;
+                    const CTxOutView out{prev_tx->GetOutput(txin.prevout.n)};
+                    scriptPubKey = CScript(out.GetScriptPubKey().begin(), out.GetScriptPubKey().end());
+                    value = out.GetValue();
                 } else {
                     // Coin found in the chain
                     const CTxOut& out = coin->out;
@@ -2979,7 +2979,7 @@ static RPCMethod getdescriptoractivity()
             }
 
             for (size_t vout_idx = 0; vout_idx < tx->GetNumOutputs(); ++vout_idx) {
-                const auto& vout = tx->vout.at(vout_idx);
+                const CTxOut vout{tx->GetOutput(vout_idx).ToTxOut()};
                 if (scripts_to_watch.contains(vout.scriptPubKey)) {
                     activity.push_back(AddReceive(vout, nullptr, vout_idx, tx));
                 }
