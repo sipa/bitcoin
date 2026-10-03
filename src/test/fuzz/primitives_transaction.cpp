@@ -27,8 +27,8 @@ FUZZ_TARGET(primitives_transaction)
     const std::optional<CMutableTransaction> mutable_tx_1 = ConsumeDeserializable<CMutableTransaction>(fuzzed_data_provider, TX_WITH_WITNESS);
     const std::optional<CMutableTransaction> mutable_tx_2 = ConsumeDeserializable<CMutableTransaction>(fuzzed_data_provider, TX_WITH_WITNESS);
     if (mutable_tx_1 && mutable_tx_2) {
-        const CTransaction tx_1{*mutable_tx_1};
-        const CTransaction tx_2{*mutable_tx_2};
+        const Transaction tx_1{*mutable_tx_1};
+        const Transaction tx_2{*mutable_tx_2};
         (void)tx_1.Equals(tx_2);
     }
 }
