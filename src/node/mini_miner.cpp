@@ -270,8 +270,8 @@ void MiniMiner::BuildMockTemplate(std::optional<CFeeRate> target_feerate)
                 auto iter = to_process.begin();
                 Assume(iter != to_process.end());
                 ancestors.insert(*iter);
-                for (const auto& input : (*iter)->second.GetTx().vin) {
-                    if (auto parent_it{m_entries_by_txid.find(input.prevout.hash)}; parent_it != m_entries_by_txid.end()) {
+                for (const CTxInView input : (*iter)->second.GetTx().Inputs()) {
+                    if (auto parent_it{m_entries_by_txid.find(input.GetPrevout().hash)}; parent_it != m_entries_by_txid.end()) {
                         if (!ancestors.contains(parent_it)) {
                             to_process.insert(parent_it);
                         }
@@ -409,9 +409,9 @@ std::optional<CAmount> MiniMiner::CalculateTotalBumpFees(const CFeeRate& target_
     while (!to_process.empty()) {
         auto iter = to_process.begin();
         const CTransaction& tx = (*iter)->second.GetTx();
-        for (const auto& input : tx.vin) {
-            if (auto parent_it{m_entries_by_txid.find(input.prevout.hash)}; parent_it != m_entries_by_txid.end()) {
-                if (!has_been_processed.contains(input.prevout.hash)) {
+        for (const CTxInView input : tx.Inputs()) {
+            if (auto parent_it{m_entries_by_txid.find(input.GetPrevout().hash)}; parent_it != m_entries_by_txid.end()) {
+                if (!has_been_processed.contains(input.GetPrevout().hash)) {
                     to_process.insert(parent_it);
                 }
                 ancestors.insert(parent_it);
