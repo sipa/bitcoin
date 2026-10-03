@@ -25,8 +25,8 @@ bool IsTopoSortedPackage(const Package& txns, std::unordered_set<Txid, SaltedTxi
     // txns. If any transaction's input spends a tx in that set, we've found a parent placed later
     // than its child.
     for (const auto& tx : txns) {
-        for (const auto& input : tx->vin) {
-            if (later_txids.contains(input.prevout.hash)) {
+        for (const CTxInView input : tx->Inputs()) {
+            if (later_txids.contains(input.GetPrevout().hash)) {
                 // The parent is a subsequent transaction in the package.
                 return false;
             }
@@ -54,7 +54,7 @@ bool IsConsistentPackage(const Package& txns)
     // Don't allow any conflicting transactions, i.e. spending the same inputs, in a package.
     std::unordered_set<COutPoint, SaltedOutpointHasher> inputs_seen;
     for (const auto& tx : txns) {
-        if (tx->vin.empty()) {
+        if (tx->Inputs().empty()) {
             // This function checks consistency based on inputs, and we can't do that if there are
             // no inputs. Duplicate empty transactions are also not consistent with one another.
             // This doesn't create false negatives, as unconfirmed transactions are not allowed to
@@ -141,8 +141,8 @@ bool IsChildWithParentsTree(const Package& package)
                    [](const auto& ptx) { return ptx->GetHash(); });
     // Each parent must not have an input who is one of the other parents.
     return std::all_of(package.cbegin(), package.cend() - 1, [&](const auto& ptx) {
-        for (const auto& input : ptx->vin) {
-            if (parent_txids.contains(input.prevout.hash)) return false;
+        for (const CTxInView input : ptx->Inputs()) {
+            if (parent_txids.contains(input.GetPrevout().hash)) return false;
         }
         return true;
     });
