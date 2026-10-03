@@ -565,20 +565,6 @@ public:
     size_t DynamicMemoryUsage() const;
 };
 
-/** A Transaction whose fields are publicly accessible. Code is being migrated to Transaction (and its
- *  accessors) instead. */
-class CTransaction : public Transaction
-{
-public:
-    using Transaction::Transaction;
-    explicit CTransaction(const Transaction& tx) : Transaction(tx) {}
-
-    using Transaction::vin;
-    using Transaction::vout;
-    using Transaction::version;
-    using Transaction::nLockTime;
-};
-
 COutPoint CTxInView::GetPrevout() const noexcept { return m_tx->GetInputPrevout(m_idx); }
 std::span<const unsigned char> CTxInView::GetScriptSig() const noexcept { return m_tx->GetInputScriptSig(m_idx); }
 uint32_t CTxInView::GetSequence() const noexcept { return m_tx->GetInputSequence(m_idx); }
@@ -662,18 +648,12 @@ struct CMutableTransaction
 };
 
 typedef std::shared_ptr<const Transaction> TransactionRef;
-typedef std::shared_ptr<const CTransaction> CTransactionRef;
-template <typename Tx> static inline CTransactionRef MakeTransactionRef(Tx&& txIn) { return std::make_shared<const CTransaction>(std::forward<Tx>(txIn)); }
+template <typename Tx> static inline TransactionRef MakeTransactionRef(Tx&& txIn) { return std::make_shared<const Transaction>(std::forward<Tx>(txIn)); }
 
 namespace std {
 /** Disable default std::hash for TransactionRef to prevent accidentally
  *  comparing by pointer. Use TransactionRefHash or provide a custom
  *  hasher. */
-template <>
-struct hash<CTransactionRef> {
-    hash() = delete;
-    size_t operator()(const CTransactionRef&) const = delete;
-};
 template <>
 struct hash<TransactionRef> {
     hash() = delete;
