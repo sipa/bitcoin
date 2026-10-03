@@ -72,7 +72,7 @@ bool MutableTransactionSignatureCreator::CreateSig(const SigningProvider& provid
     // If an input is signed with SIGHASH_SINGLE but there is no output at the same index, the
     // signature commits to no output at all. Which means such a signature stays valid if the
     // output is swapped, which is a footgun. So don't produce it.
-    if ((hashtype & SIGHASH_OUTPUT_MASK) == SIGHASH_SINGLE && nIn >= m_txto.vout.size()) return false;
+    if ((hashtype & SIGHASH_OUTPUT_MASK) == SIGHASH_SINGLE && nIn >= m_txto.GetNumOutputs()) return false;
 
     uint256 hash = SignatureHash(scriptCode, m_txto, nIn, hashtype, amount, sigversion, m_txdata);
     if (!key.Sign(hash, vchSig))
@@ -858,7 +858,7 @@ struct Stacks
 SignatureData DataFromTransaction(const CMutableTransaction& tx, unsigned int nIn, const CTxOut& txout)
 {
     SignatureData data;
-    assert(tx.vin.size() > nIn);
+    assert(tx.GetNumInputs() > nIn);
     data.scriptSig = tx.vin[nIn].scriptSig;
     data.scriptWitness = tx.vin[nIn].scriptWitness;
     Stacks stack(data);
@@ -1035,7 +1035,7 @@ bool SignTransaction(CMutableTransaction& mtx, const SigningProvider* keystore, 
 
     PrecomputedTransactionData txdata;
     std::vector<CTxOut> spent_outputs;
-    for (unsigned int i = 0; i < mtx.vin.size(); ++i) {
+    for (unsigned int i = 0; i < mtx.GetNumInputs(); ++i) {
         CTxIn& txin = mtx.vin[i];
         auto coin = coins.find(txin.prevout);
         if (coin == coins.end() || coin->second.IsSpent()) {
@@ -1045,12 +1045,12 @@ bool SignTransaction(CMutableTransaction& mtx, const SigningProvider* keystore, 
             spent_outputs.emplace_back(coin->second.out.nValue, coin->second.out.scriptPubKey);
         }
     }
-    if (spent_outputs.size() == mtx.vin.size()) {
+    if (spent_outputs.size() == mtx.GetNumInputs()) {
         txdata.Init(txConst, std::move(spent_outputs), true);
     }
 
     // Sign what we can:
-    for (unsigned int i = 0; i < mtx.vin.size(); ++i) {
+    for (unsigned int i = 0; i < mtx.GetNumInputs(); ++i) {
         CTxIn& txin = mtx.vin[i];
         auto coin = coins.find(txin.prevout);
         if (coin == coins.end() || coin->second.IsSpent()) {
