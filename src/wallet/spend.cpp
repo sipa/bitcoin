@@ -156,11 +156,11 @@ TxSize CalculateMaximumSignedTxSize(const CTransaction &tx, const CWallet *walle
     if (is_segwit) weight += 2;
 
     // Add the size of the transaction outputs.
-    for (const auto& txo : tx.vout) weight += GetSerializeSize(txo) * WITNESS_SCALE_FACTOR;
+    for (const CTxOutView txo : tx.Outputs()) weight += GetSerializeSize(txo) * WITNESS_SCALE_FACTOR;
 
     // Add the size of the transaction inputs as if they were signed.
     for (uint32_t i = 0; i < txouts.size(); i++) {
-        const auto txin_weight = GetSignedTxinWeight(wallet, coin_control, tx.vin[i], txouts[i], is_segwit, wallet->CanGrindR());
+        const auto txin_weight = GetSignedTxinWeight(wallet, coin_control, tx.GetInput(i).ToTxIn(), txouts[i], is_segwit, wallet->CanGrindR());
         if (!txin_weight) return TxSize{-1, -1};
         assert(*txin_weight > -1);
         weight += *txin_weight;
@@ -174,14 +174,14 @@ TxSize CalculateMaximumSignedTxSize(const CTransaction &tx, const CWallet *walle
 {
     std::vector<CTxOut> txouts;
     // Look up the inputs. The inputs are either in the wallet, or in coin_control.
-    for (const CTxIn& input : tx.vin) {
-        const auto mi = wallet->mapWallet.find(input.prevout.hash);
+    for (const CTxInView input : tx.Inputs()) {
+        const auto mi = wallet->mapWallet.find(input.GetPrevout().hash);
         // Can not estimate size without knowing the input details
         if (mi != wallet->mapWallet.end()) {
-            assert(input.prevout.n < mi->second.GetTx()->GetNumOutputs());
-            txouts.emplace_back(mi->second.GetTx()->vout.at(input.prevout.n));
+            assert(input.GetPrevout().n < mi->second.GetTx()->GetNumOutputs());
+            txouts.emplace_back(mi->second.GetTx()->GetOutput(input.GetPrevout().n).ToTxOut());
         } else if (coin_control) {
-            const auto& txout{coin_control->GetExternalOutput(input.prevout)};
+            const auto& txout{coin_control->GetExternalOutput(input.GetPrevout())};
             if (!txout) return TxSize{-1, -1};
             txouts.emplace_back(*txout);
         } else {
@@ -521,24 +521,24 @@ CoinsResult AvailableCoins(const CWallet& wallet,
     return result;
 }
 
-const CTxOut& FindNonChangeParentOutput(const CWallet& wallet, const COutPoint& outpoint)
+CTxOut FindNonChangeParentOutput(const CWallet& wallet, const COutPoint& outpoint)
 {
     AssertLockHeld(wallet.cs_wallet);
     const CWalletTx* wtx{Assert(wallet.GetWalletTx(outpoint.hash))};
 
     const CTransaction* ptx = wtx->GetTx().get();
     int n = outpoint.n;
-    while (OutputIsChange(wallet, ptx->vout[n]) && ptx->GetNumInputs() > 0) {
+    while (OutputIsChange(wallet, ptx->GetOutput(n)) && ptx->GetNumInputs() > 0) {
         const COutPoint& prevout = ptx->GetInputPrevout(0);
         const CWalletTx* it = wallet.GetWalletTx(prevout.hash);
         if (!it || it->GetTx()->GetNumOutputs() <= prevout.n ||
-            !wallet.IsMine(it->GetTx()->vout[prevout.n])) {
+            !wallet.IsMine(it->GetTx()->GetOutput(prevout.n))) {
             break;
         }
         ptx = it->GetTx().get();
         n = prevout.n;
     }
-    return ptx->vout[n];
+    return ptx->GetOutput(n).ToTxOut();
 }
 
 std::map<CTxDestination, std::vector<COutput>> ListCoins(const CWallet& wallet)
@@ -1478,7 +1478,7 @@ util::Result<CreatedTransactionResult> CreateTransaction(
 
         // Reuse the change destination from the first creation attempt to avoid skipping BIP44 indexes
         if (txr_ungrouped.change_pos) {
-            ExtractDestination(txr_ungrouped.tx->vout[*txr_ungrouped.change_pos].scriptPubKey, tmp_cc.destChange);
+            ExtractDestination(txr_ungrouped.tx->GetOutput(*txr_ungrouped.change_pos).ToTxOut().scriptPubKey, tmp_cc.destChange);
         }
 
         auto txr_grouped = CreateTransactionInternal(wallet, vecSend, change_pos, tmp_cc, sign);
@@ -1545,8 +1545,8 @@ util::Result<CreatedTransactionResult> FundTransaction(CWallet& wallet, const CM
     }
 
     if (lockUnspents) {
-        for (const CTxIn& txin : res->tx->vin) {
-            wallet.LockCoin(txin.prevout, /*persist=*/false);
+        for (const CTxInView txin : res->tx->Inputs()) {
+            wallet.LockCoin(txin.GetPrevout(), /*persist=*/false);
         }
     }
 

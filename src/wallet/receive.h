@@ -12,16 +12,20 @@
 
 namespace wallet {
 bool InputIsMine(const CWallet& wallet, const CTxIn& txin) EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet);
+inline bool InputIsMine(const CWallet& wallet, const CTxInView& txin) EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet) { return InputIsMine(wallet, txin.ToTxIn()); }
 
 /** Returns whether all of the inputs belong to the wallet*/
 bool AllInputsMine(const CWallet& wallet, const CTransaction& tx);
 
 CAmount OutputGetCredit(const CWallet& wallet, const CTxOut& txout);
+inline CAmount OutputGetCredit(const CWallet& wallet, const CTxOutView& txout) { return OutputGetCredit(wallet, txout.ToTxOut()); }
 CAmount TxGetCredit(const CWallet& wallet, const CTransaction& tx);
 
 bool ScriptIsChange(const CWallet& wallet, const CScript& script) EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet);
 bool OutputIsChange(const CWallet& wallet, const CTxOut& txout) EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet);
+inline bool OutputIsChange(const CWallet& wallet, const CTxOutView& txout) EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet) { return OutputIsChange(wallet, txout.ToTxOut()); }
 CAmount OutputGetChange(const CWallet& wallet, const CTxOut& txout) EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet);
+inline CAmount OutputGetChange(const CWallet& wallet, const CTxOutView& txout) EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet) { return OutputGetChange(wallet, txout.ToTxOut()); }
 CAmount TxGetChange(const CWallet& wallet, const CTransaction& tx);
 
 CAmount CachedTxGetCredit(const CWallet& wallet, const CWalletTx& wtx, bool avoid_reuse)

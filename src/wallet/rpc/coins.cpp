@@ -66,9 +66,9 @@ static CAmount GetReceived(const CWallet& wallet, const UniValue& params, bool b
             continue;
         }
 
-        for (const CTxOut& txout : wtx.GetTx()->vout) {
-            if (output_scripts.contains(txout.scriptPubKey)) {
-                amount += txout.nValue;
+        for (const CTxOutView txout : wtx.GetTx()->Outputs()) {
+            if (output_scripts.contains(txout.ToTxOut().scriptPubKey)) {
+                amount += txout.GetValue();
             }
         }
     }

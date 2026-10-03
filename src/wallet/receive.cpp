@@ -15,7 +15,7 @@ bool InputIsMine(const CWallet& wallet, const CTxIn& txin)
     AssertLockHeld(wallet.cs_wallet);
     const CWalletTx* prev = wallet.GetWalletTx(txin.prevout.hash);
     if (prev && txin.prevout.n < prev->GetTx()->GetNumOutputs()) {
-        return wallet.IsMine(prev->GetTx()->vout[txin.prevout.n]);
+        return wallet.IsMine(prev->GetTx()->GetOutput(txin.prevout.n));
     }
     return false;
 }
@@ -23,7 +23,7 @@ bool InputIsMine(const CWallet& wallet, const CTxIn& txin)
 bool AllInputsMine(const CWallet& wallet, const CTransaction& tx)
 {
     LOCK(wallet.cs_wallet);
-    for (const CTxIn& txin : tx.vin) {
+    for (const CTxInView txin : tx.Inputs()) {
         if (!InputIsMine(wallet, txin)) return false;
     }
     return true;
@@ -40,7 +40,7 @@ CAmount OutputGetCredit(const CWallet& wallet, const CTxOut& txout)
 CAmount TxGetCredit(const CWallet& wallet, const CTransaction& tx)
 {
     CAmount nCredit = 0;
-    for (const CTxOut& txout : tx.vout)
+    for (const CTxOutView txout : tx.Outputs())
     {
         nCredit += OutputGetCredit(wallet, txout);
         if (!MoneyRange(nCredit))
@@ -88,7 +88,7 @@ CAmount TxGetChange(const CWallet& wallet, const CTransaction& tx)
 {
     LOCK(wallet.cs_wallet);
     CAmount nChange = 0;
-    for (const CTxOut& txout : tx.vout)
+    for (const CTxOutView txout : tx.Outputs())
     {
         nChange += OutputGetChange(wallet, txout);
         if (!MoneyRange(nChange))
@@ -157,7 +157,7 @@ void CachedTxGetAmounts(const CWallet& wallet, const CWalletTx& wtx,
     // Sent/received.
     for (unsigned int i = 0; i < wtx.GetTx()->GetNumOutputs(); ++i)
     {
-        const CTxOut& txout = wtx.GetTx()->vout[i];
+        const CTxOutView txout{wtx.GetTx()->GetOutput(i)};
         bool ismine = wallet.IsMine(txout);
         // Only need to handle txouts if AT LEAST one of these is true:
         //   1) they debit from us (sent)
@@ -173,14 +173,14 @@ void CachedTxGetAmounts(const CWallet& wallet, const CWalletTx& wtx,
         // In either case, we need to get the destination address
         CTxDestination address;
 
-        if (!ExtractDestination(txout.scriptPubKey, address) && !txout.scriptPubKey.IsUnspendable())
+        if (!ExtractDestination(txout.ToTxOut().scriptPubKey, address) && !IsUnspendable(txout.GetScriptPubKey()))
         {
             wallet.WalletLogPrintf("CWalletTx::GetAmounts: Unknown transaction type found, txid %s\n",
                                     wtx.GetHash().ToString());
             address = CNoDestination();
         }
 
-        COutputEntry output = {address, txout.nValue, (int)i};
+        COutputEntry output = {address, txout.GetValue(), (int)i};
 
         // If we are debited by the transaction, add the output as a "sent" entry
         if (nDebit > 0)
@@ -223,7 +223,7 @@ bool CachedTxIsTrusted(const CWallet& wallet, const CWalletTx& wtx, std::set<Txi
         // Transactions not sent by us: not trusted
         const CWalletTx* parent = wallet.GetWalletTx(txin.GetPrevout().hash);
         if (parent == nullptr) return false;
-        const CTxOut& parentOut = parent->GetTx()->vout[txin.GetPrevout().n];
+        const CTxOutView parentOut{parent->GetTx()->GetOutput(txin.GetPrevout().n)};
         // Check that this specific input being spent is trusted
         if (!wallet.IsMine(parentOut)) return false;
         // If we've already trusted this parent, continue
@@ -336,12 +336,12 @@ std::set< std::set<CTxDestination> > GetAddressGroupings(const CWallet& wallet)
         {
             bool any_mine = false;
             // group all input addresses with each other
-            for (const CTxIn& txin : wtx.GetTx()->vin)
+            for (const CTxInView txin : wtx.GetTx()->Inputs())
             {
                 CTxDestination address;
                 if(!InputIsMine(wallet, txin)) /* If this input isn't mine, ignore it */
                     continue;
-                if(!ExtractDestination(wallet.mapWallet.at(txin.prevout.hash).GetTx()->vout[txin.prevout.n].scriptPubKey, address))
+                if(!ExtractDestination(wallet.mapWallet.at(txin.GetPrevout().hash).GetTx()->GetOutput(txin.GetPrevout().n).ToTxOut().scriptPubKey, address))
                     continue;
                 grouping.insert(address);
                 any_mine = true;
@@ -350,11 +350,11 @@ std::set< std::set<CTxDestination> > GetAddressGroupings(const CWallet& wallet)
             // group change with input addresses
             if (any_mine)
             {
-               for (const CTxOut& txout : wtx.GetTx()->vout)
+               for (const CTxOutView txout : wtx.GetTx()->Outputs())
                    if (OutputIsChange(wallet, txout))
                    {
                        CTxDestination txoutAddr;
-                       if(!ExtractDestination(txout.scriptPubKey, txoutAddr))
+                       if(!ExtractDestination(txout.ToTxOut().scriptPubKey, txoutAddr))
                            continue;
                        grouping.insert(txoutAddr);
                    }
@@ -367,11 +367,11 @@ std::set< std::set<CTxDestination> > GetAddressGroupings(const CWallet& wallet)
         }
 
         // group lone addrs by themselves
-        for (const auto& txout : wtx.GetTx()->vout)
+        for (const CTxOutView txout : wtx.GetTx()->Outputs())
             if (wallet.IsMine(txout))
             {
                 CTxDestination address;
-                if(!ExtractDestination(txout.scriptPubKey, address))
+                if(!ExtractDestination(txout.ToTxOut().scriptPubKey, address))
                     continue;
                 grouping.insert(address);
                 groupings.insert(grouping);

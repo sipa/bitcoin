@@ -197,18 +197,18 @@ Result CreateRateBumpTransaction(CWallet& wallet, const Txid& txid, const CCoinC
     std::map<COutPoint, Coin> coins;
     CAmount input_value = 0;
     std::vector<CTxOut> spent_outputs;
-    for (const CTxIn& txin : tx->vin) {
-        coins[txin.prevout]; // Create empty map entry keyed by prevout.
+    for (const CTxInView txin : tx->Inputs()) {
+        coins[txin.GetPrevout()]; // Create empty map entry keyed by prevout.
     }
     wallet.chain().findCoins(coins);
-    for (const CTxIn& txin : tx->vin) {
-        const Coin& coin = coins.at(txin.prevout);
+    for (const CTxInView txin : tx->Inputs()) {
+        const Coin& coin = coins.at(txin.GetPrevout());
         if (coin.out.IsNull()) {
-            errors.emplace_back(Untranslated(strprintf("%s:%u is already spent", txin.prevout.hash.GetHex(), txin.prevout.n)));
+            errors.emplace_back(Untranslated(strprintf("%s:%u is already spent", txin.GetPrevout().hash.GetHex(), txin.GetPrevout().n)));
             return Result::MISC_ERROR;
         }
-        PreselectedInput& preset_txin = new_coin_control.Select(txin.prevout);
-        if (!wallet.IsMine(txin.prevout)) {
+        PreselectedInput& preset_txin = new_coin_control.Select(txin.GetPrevout());
+        if (!wallet.IsMine(txin.GetPrevout())) {
             preset_txin.SetTxOut(coin.out);
         }
         input_value += coin.out.nValue;
@@ -219,7 +219,7 @@ Result CreateRateBumpTransaction(CWallet& wallet, const Txid& txid, const CCoinC
     PrecomputedTransactionData txdata;
     txdata.Init(*tx, std::move(spent_outputs), /* force=*/ true);
     for (unsigned int i = 0; i < tx->GetNumInputs(); ++i) {
-        const CTxIn& txin = tx->vin.at(i);
+        const CTxIn txin{tx->GetInput(i).ToTxIn()};
         const Coin& coin = coins.at(txin.prevout);
 
         if (new_coin_control.IsExternalSelected(txin.prevout)) {
@@ -246,8 +246,8 @@ Result CreateRateBumpTransaction(CWallet& wallet, const Txid& txid, const CCoinC
 
     // Calculate the old output amount.
     CAmount output_value = 0;
-    for (const auto& old_output : tx->vout) {
-        output_value += old_output.nValue;
+    for (const CTxOutView old_output : tx->Outputs()) {
+        output_value += old_output.GetValue();
     }
 
     old_fee = input_value - output_value;
@@ -257,7 +257,7 @@ Result CreateRateBumpTransaction(CWallet& wallet, const Txid& txid, const CCoinC
     // outputs with its contents, otherwise use original outputs.
     std::vector<CRecipient> recipients;
     CAmount new_outputs_value = 0;
-    const auto& txouts = outputs.empty() ? tx->vout : outputs;
+    const std::vector<CTxOut> txouts{outputs.empty() ? CMutableTransaction{*tx}.vout : outputs};
     for (size_t i = 0; i < txouts.size(); ++i) {
         const CTxOut& output = txouts.at(i);
         CTxDestination dest;
@@ -312,8 +312,8 @@ Result CreateRateBumpTransaction(CWallet& wallet, const Txid& txid, const CCoinC
     // A2 and A3 where A2 and A3 don't conflict (or alternatively bump A to A2 and A2
     // to A3 where A and A3 don't conflict). If both later get confirmed then the sender
     // has accidentally double paid.
-    for (const auto& inputs : tx->vin) {
-        new_coin_control.Select(COutPoint(inputs.prevout));
+    for (const CTxInView inputs : tx->Inputs()) {
+        new_coin_control.Select(COutPoint(inputs.GetPrevout()));
     }
     new_coin_control.m_allow_other_inputs = true;
 

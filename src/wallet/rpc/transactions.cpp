@@ -117,9 +117,9 @@ static UniValue ListReceived(const CWallet& wallet, const UniValue& params, cons
             continue;
         }
 
-        for (const CTxOut& txout : wtx.GetTx()->vout) {
+        for (const CTxOutView txout : wtx.GetTx()->Outputs()) {
             CTxDestination address;
-            if (!ExtractDestination(txout.scriptPubKey, address))
+            if (!ExtractDestination(txout.ToTxOut().scriptPubKey, address))
                 continue;
 
             if (filtered_address && !(filtered_address == address)) {
@@ -130,7 +130,7 @@ static UniValue ListReceived(const CWallet& wallet, const UniValue& params, cons
                 continue;
 
             tallyitem& item = mapTally[address];
-            item.nAmount += txout.nValue;
+            item.nAmount += txout.GetValue();
             item.nConf = std::min(item.nConf, nDepth);
             item.txids.push_back(wtx.GetHash());
         }
@@ -366,7 +366,7 @@ static void ListTransactions(const CWallet& wallet, const CWalletTx& wtx, int nM
             }
             UniValue entry(UniValue::VOBJ);
             MaybePushAddress(entry, r.destination);
-            PushParentDescriptors(wallet, wtx.GetTx()->vout.at(r.vout).scriptPubKey, entry);
+            PushParentDescriptors(wallet, wtx.GetTx()->GetOutput(r.vout).ToTxOut().scriptPubKey, entry);
             if (wtx.IsCoinBase())
             {
                 if (wallet.GetTxDepthInMainChain(wtx) < 1)
