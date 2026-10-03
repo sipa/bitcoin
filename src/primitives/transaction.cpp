@@ -114,11 +114,45 @@ Txid CMutableTransaction::GetHash() const
     return Txid::FromUint256((HashWriter{} << TX_NO_WITNESS(*this)).GetHash());
 }
 
+namespace {
+/** Replace vec by an exactly-sized copy, and hand its old buffer to scratch (unless it is very large). */
+template <typename T>
+void ReleaseScratch(std::vector<T>& vec, std::vector<T>& scratch)
+{
+    std::vector<T> copy(vec.begin(), vec.end());
+    vec.swap(copy);
+    if (copy.capacity() * sizeof(T) <= (1 << 20)) scratch.swap(copy);
+}
+} // namespace
+
+Transaction::Scratch& Transaction::GetScratch()
+{
+    static thread_local Scratch scratch;
+    return scratch;
+}
+
+void Transaction::UseScratchBuffers()
+{
+    Scratch& scratch{GetScratch()};
+    m_data.swap(scratch.data);
+    m_data.clear();
+    m_offsets.swap(scratch.offsets);
+    m_offsets.clear();
+}
+
+void Transaction::FinishData()
+{
+    Scratch& scratch{GetScratch()};
+    ReleaseScratch(m_data, scratch.data);
+    m_witness_data.swap(scratch.data);
+    m_witness_data.clear();
+}
+
 void Transaction::Finalize()
 {
-    m_data.shrink_to_fit();
-    m_witness_data.shrink_to_fit();
-    m_offsets.shrink_to_fit();
+    Scratch& scratch{GetScratch()};
+    ReleaseScratch(m_witness_data, scratch.data);
+    ReleaseScratch(m_offsets, scratch.offsets);
     assert(m_offsets.size() == 2 * size_t{m_num_inputs} + m_num_outputs);
 
     HashWriter txid_hasher{};
@@ -136,9 +170,7 @@ void Transaction::Finalize()
 Transaction::Transaction(const CMutableTransaction& tx)
     : m_version{tx.version}, m_lock_time{tx.nLockTime}, m_num_inputs(tx.vin.size()), m_num_outputs(tx.vout.size())
 {
-    const size_t stripped_size{::GetSerializeSize(TX_NO_WITNESS(tx))};
-    m_data.reserve(stripped_size - 8);
-    m_offsets.reserve(2 * tx.vin.size() + tx.vout.size());
+    UseScratchBuffers();
     VectorWriter writer{m_data, 0};
     writer << COMPACTSIZE(tx.vin.size());
     for (const CTxIn& txin : tx.vin) {
@@ -151,8 +183,8 @@ Transaction::Transaction(const CMutableTransaction& tx)
         m_offsets.push_back(CurrentOffset(m_data));
         writer << txout.nValue << txout.scriptPubKey;
     }
+    FinishData();
     if (tx.HasWitness()) {
-        m_witness_data.reserve(::GetSerializeSize(TX_WITH_WITNESS(tx)) - stripped_size - 2);
         VectorWriter witness_writer{m_witness_data, 0};
         for (size_t i = 0; i < tx.vin.size(); ++i) {
             m_offsets[2 * i + 1] = CurrentOffset(m_witness_data);
