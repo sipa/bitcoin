@@ -664,13 +664,13 @@ private:
     struct InputToFetch {
         //! Workers set this after setting the coin. The main thread tests this before reading the coin.
         std::atomic_flag ready{};
-        //! The outpoint of the input to fetch.
-        const COutPoint& outpoint;
+        //! The outpoint of the input to fetch (a copy, as transactions do not necessarily hold COutPoint objects).
+        const COutPoint outpoint;
         //! The coin that workers will fetch and main thread will insert into cache.
         //! Mutable so it can be moved in FetchCoinFromBase.
         mutable std::optional<Coin> coin{std::nullopt};
 
-        explicit InputToFetch(const COutPoint& o LIFETIMEBOUND) noexcept : outpoint{o} {}
+        explicit InputToFetch(const COutPoint& o) noexcept : outpoint{o} {}
 
         //! Move ctor is required for resizing m_inputs in StartFetching. Elements will never move once parallel tasks
         //! are started, so we can assert that coin is nullopt and ready is false.

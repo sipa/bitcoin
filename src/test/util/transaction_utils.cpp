@@ -107,7 +107,7 @@ bool SignSignature(const SigningProvider &provider, const CTransaction& txFrom, 
     assert(nIn < txTo.GetNumInputs());
     const CTxIn& txin = txTo.vin[nIn];
     assert(txin.prevout.n < txFrom.GetNumOutputs());
-    const CTxOut& txout = txFrom.vout[txin.prevout.n];
+    const CTxOutView txout{txFrom.GetOutput(txin.prevout.n)};
 
-    return SignSignature(provider, txout.scriptPubKey, txTo, nIn, txout.nValue, nHashType, sig_data);
+    return SignSignature(provider, txout.ToTxOut().scriptPubKey, txTo, nIn, txout.GetValue(), nHashType, sig_data);
 }
