@@ -468,9 +468,9 @@ FUZZ_TARGET(tx_package_eval, .init = initialize_tx_pool)
                 auto tx = MakeTransactionRef(tx_mut);
                 // Restore previously removed outpoints, except in-package outpoints
                 if (!last_tx) {
-                    for (const auto& in : tx->vin) {
+                    for (const CTxInView in : tx->Inputs()) {
                         // It's a fake input, or a new input, or a duplicate
-                        Assert(in == CTxIn() || outpoints.insert(in.prevout).second || dup_input);
+                        Assert(in.ToTxIn() == CTxIn() || outpoints.insert(in.GetPrevout()).second || dup_input);
                     }
                     // Cache the in-package outpoints being made
                     for (size_t i = 0; i < tx->GetNumOutputs(); ++i) {
