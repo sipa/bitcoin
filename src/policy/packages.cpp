@@ -148,7 +148,7 @@ bool IsChildWithParentsTree(const Package& package)
     });
 }
 
-uint256 GetPackageHash(const std::vector<CTransactionRef>& transactions)
+uint256 GetPackageHash(const std::vector<TransactionRef>& transactions)
 {
     // Create a vector of the wtxids.
     std::vector<Wtxid> wtxids_copy;

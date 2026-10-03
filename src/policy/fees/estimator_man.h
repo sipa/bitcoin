@@ -101,7 +101,7 @@ public:
 protected:
     /** Overridden from CValidationInterface. */
     void TransactionAddedToMempool(const NewMempoolTransactionInfo& tx, uint64_t /*unused*/) override;
-    void TransactionRemovedFromMempool(const CTransactionRef& tx, MemPoolRemovalReason /*unused*/, uint64_t /*unused*/) override;
+    void TransactionRemovedFromMempool(const TransactionRef& tx, MemPoolRemovalReason /*unused*/, uint64_t /*unused*/) override;
     void MempoolTransactionsRemovedForBlock(const std::shared_ptr<const CBlock>& block, const std::vector<RemovedMempoolTransactionInfo>& txs_removed_for_block, unsigned int block_height) override;
 
 private:

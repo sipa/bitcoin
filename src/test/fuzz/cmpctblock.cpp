@@ -164,9 +164,9 @@ FUZZ_TARGET(cmpctblock, .init = initialize_cmpctblock)
 
     const uint64_t initial_sequence{WITH_LOCK(mempool.cs, return mempool.GetSequence())};
 
-    auto create_tx = [&]() -> CTransactionRef {
+    auto create_tx = [&]() -> TransactionRef {
         CMutableTransaction tx_mut;
-        tx_mut.version = fuzzed_data_provider.ConsumeBool() ? CTransaction::CURRENT_VERSION : TRUC_VERSION;
+        tx_mut.version = fuzzed_data_provider.ConsumeBool() ? Transaction::CURRENT_VERSION : TRUC_VERSION;
         tx_mut.nLockTime = fuzzed_data_provider.ConsumeBool() ? 0 : fuzzed_data_provider.ConsumeIntegral<uint32_t>();
 
         // Choose an outpoint from the mempool, created blocks, or coinbases.
@@ -175,7 +175,7 @@ FUZZ_TARGET(cmpctblock, .init = initialize_cmpctblock)
         unsigned long mempool_size = mempool.size();
         if (mempool_size != 0 && fuzzed_data_provider.ConsumeBool()) {
             size_t random_idx = fuzzed_data_provider.ConsumeIntegralInRange<size_t>(0, mempool_size - 1);
-            CTransactionRef tx = WITH_LOCK(mempool.cs, return mempool.txns_randomized[random_idx].second->GetSharedTx(););
+            TransactionRef tx = WITH_LOCK(mempool.cs, return mempool.txns_randomized[random_idx].second->GetSharedTx(););
             outpoint = COutPoint(tx->GetHash(), 0);
             amount_in = tx->GetOutputValue(0);
         } else if (info.size() != 0 && fuzzed_data_provider.ConsumeBool()) {
@@ -254,7 +254,7 @@ FUZZ_TARGET(cmpctblock, .init = initialize_cmpctblock)
 
             LOCK(mempool.cs);
             for (size_t i = random_idx; i < random_idx + num_txns; ++i) {
-                CTransactionRef mempool_tx = mempool.txns_randomized[i % mempool_size].second->GetSharedTx();
+                TransactionRef mempool_tx = mempool.txns_randomized[i % mempool_size].second->GetSharedTx();
                 block->vtx.push_back(mempool_tx);
             }
         }
@@ -263,7 +263,7 @@ FUZZ_TARGET(cmpctblock, .init = initialize_cmpctblock)
         if (fuzzed_data_provider.ConsumeBool()) {
             size_t new_txns = fuzzed_data_provider.ConsumeIntegralInRange<size_t>(1, 10);
             for (size_t i = 0; i < new_txns; ++i) {
-                CTransactionRef non_mempool_tx = create_tx();
+                TransactionRef non_mempool_tx = create_tx();
                 block->vtx.push_back(non_mempool_tx);
             }
         }
@@ -336,7 +336,7 @@ FUZZ_TARGET(cmpctblock, .init = initialize_cmpctblock)
 
                     uint16_t prefill_idx = num_erased == 0 ? i : i - prev_idx - 1;
                     prev_idx = i;
-                    CTransactionRef txref = cblock->vtx[i];
+                    TransactionRef txref = cblock->vtx[i];
                     PrefilledTransaction prefilledtx = {/*index=*/prefill_idx, txref};
                     cmpctblock.AddPrefilledTx(std::move(prefilledtx));
 
@@ -407,7 +407,7 @@ FUZZ_TARGET(cmpctblock, .init = initialize_cmpctblock)
             },
             [&]() {
                 // Send a transaction.
-                CTransactionRef tx = create_tx();
+                TransactionRef tx = create_tx();
                 net_msg = NetMsg::Make(NetMsgType::TX, TX_WITH_WITNESS(*tx));
             },
             [&]() {

@@ -31,7 +31,7 @@ static TransactionError HandleATMPError(const TxValidationState& state, std::str
     }
 }
 
-TransactionError BroadcastTransaction(NodeContext& node, const CTransactionRef tx, std::string& err_string, const CAmount& max_tx_fee, const CFeeRate& max_tx_fee_rate, TxBroadcast broadcast_method, bool wait_callback)
+TransactionError BroadcastTransaction(NodeContext& node, const TransactionRef tx, std::string& err_string, const CAmount& max_tx_fee, const CFeeRate& max_tx_fee_rate, TxBroadcast broadcast_method, bool wait_callback)
 {
     // BroadcastTransaction can be called by RPC or by the wallet.
     // chainman, mempool and peerman are initialized before the RPC server and wallet are started
@@ -139,10 +139,10 @@ TransactionError BroadcastTransaction(NodeContext& node, const CTransactionRef t
     return TransactionError::OK;
 }
 
-CTransactionRef GetTransaction(const CBlockIndex* const block_index, const CTxMemPool* const mempool, const Txid& hash, const BlockManager& blockman, uint256& hashBlock)
+TransactionRef GetTransaction(const CBlockIndex* const block_index, const CTxMemPool* const mempool, const Txid& hash, const BlockManager& blockman, uint256& hashBlock)
 {
     if (mempool && !block_index) {
-        CTransactionRef ptx = mempool->get(hash);
+        TransactionRef ptx = mempool->get(hash);
         if (ptx) return ptx;
     }
     if (g_txindex) {

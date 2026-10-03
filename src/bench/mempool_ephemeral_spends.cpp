@@ -22,7 +22,7 @@
 #include <vector>
 
 
-static void AddTx(const CTransactionRef& tx, CTxMemPool& pool) EXCLUSIVE_LOCKS_REQUIRED(cs_main, pool.cs)
+static void AddTx(const TransactionRef& tx, CTxMemPool& pool) EXCLUSIVE_LOCKS_REQUIRED(cs_main, pool.cs)
 {
     int64_t nTime{0};
     unsigned int nHeight{1};
@@ -67,8 +67,8 @@ static void MempoolCheckEphemeralSpends(benchmark::Bench& bench)
     CTxMemPool& pool = *Assert(testing_setup->m_node.mempool);
     LOCK2(cs_main, pool.cs);
     // Create transaction references outside the "hot loop"
-    const CTransactionRef tx1_r{MakeTransactionRef(tx1)};
-    const CTransactionRef tx2_r{MakeTransactionRef(tx2)};
+    const TransactionRef tx1_r{MakeTransactionRef(tx1)};
+    const TransactionRef tx2_r{MakeTransactionRef(tx2)};
 
     AddTx(tx1_r, pool);
     assert(tx2_r->Inputs().back().GetPrevout() == COutPoint(parent_txid, tx1_r->GetNumOutputs() - 1));

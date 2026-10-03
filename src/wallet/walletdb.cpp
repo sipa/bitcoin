@@ -113,7 +113,7 @@ bool WalletBatch::EraseTx(Txid hash)
     return m_batch->ErasePrefix(DataStream() << DBKeys::WTX_VARIANT << hash);
 }
 
-bool WalletBatch::WriteWtxVariant(const Txid& txid, const CTransactionRef& tx)
+bool WalletBatch::WriteWtxVariant(const Txid& txid, const TransactionRef& tx)
 {
     return WriteIC(std::make_pair(DBKeys::WTX_VARIANT, std::make_pair(txid, tx->GetWitnessHash())), TX_WITH_WITNESS(tx));
 }
@@ -998,9 +998,9 @@ static DBErrors LoadAddressBookRecords(CWallet* pwallet, DatabaseBatch& batch) E
     return result;
 }
 
-static std::map<Wtxid, CTransactionRef> ReadWtxVariants(DatabaseBatch& batch, const Txid& txid)
+static std::map<Wtxid, TransactionRef> ReadWtxVariants(DatabaseBatch& batch, const Txid& txid)
 {
-    std::map<Wtxid, CTransactionRef> variants;
+    std::map<Wtxid, TransactionRef> variants;
 
     DataStream prefix;
     prefix << DBKeys::WTX_VARIANT << txid;
@@ -1017,7 +1017,7 @@ static std::map<Wtxid, CTransactionRef> ReadWtxVariants(DatabaseBatch& batch, co
         if (status == DatabaseCursor::Status::FAIL) {
             throw std::runtime_error(strprintf("Error reading '%s' record", DBKeys::WTX_VARIANT));
         }
-        CTransactionRef tx;
+        TransactionRef tx;
         value >> TX_WITH_WITNESS(tx);
         if (tx->GetHash() != txid) {
             throw std::runtime_error(strprintf("Corrupted witness variant, tx hash differs"));

@@ -372,7 +372,7 @@ public:
         LOCK(::cs_main);
         return chainman().ActiveChainstate().CoinsTip().GetCoin(output);
     }
-    TransactionError broadcastTransaction(CTransactionRef tx, CAmount max_tx_fee, CFeeRate max_tx_fee_rate, std::string& err_string) override
+    TransactionError broadcastTransaction(TransactionRef tx, CAmount max_tx_fee, CFeeRate max_tx_fee_rate, std::string& err_string) override
     {
         return BroadcastTransaction(*m_context, std::move(tx), err_string, max_tx_fee, max_tx_fee_rate, /*broadcast_method=*/TxBroadcast::MEMPOOL_AND_BROADCAST_TO_ALL, /*wait_callback=*/false);
     }
@@ -469,7 +469,7 @@ public:
     {
         m_notifications->transactionAddedToMempool(tx.info.m_tx);
     }
-    void TransactionRemovedFromMempool(const CTransactionRef& tx, MemPoolRemovalReason reason, uint64_t mempool_sequence) override
+    void TransactionRemovedFromMempool(const TransactionRef& tx, MemPoolRemovalReason reason, uint64_t mempool_sequence) override
     {
         m_notifications->transactionRemovedFromMempool(tx, reason);
     }
@@ -662,7 +662,7 @@ public:
         }
         return false;
     }
-    RBFTransactionState isRBFOptIn(const CTransaction& tx) override
+    RBFTransactionState isRBFOptIn(const Transaction& tx) override
     {
         if (!m_node.mempool) return IsRBFOptInEmptyMempool(tx);
         LOCK(m_node.mempool->cs);
@@ -678,7 +678,7 @@ public:
         if (!m_node.mempool) return false;
         return m_node.mempool->HasDescendants(txid);
     }
-    bool broadcastTransaction(const CTransactionRef& tx,
+    bool broadcastTransaction(const TransactionRef& tx,
                               const CAmount& max_tx_fee,
                               const CFeeRate& max_tx_fee_rate,
                               TxBroadcast broadcast_method,
@@ -725,7 +725,7 @@ public:
         limit_ancestor_count = limits.ancestor_count;
         limit_descendant_count = limits.descendant_count;
     }
-    util::Result<void> checkChainLimits(const CTransactionRef& tx) override
+    util::Result<void> checkChainLimits(const TransactionRef& tx) override
     {
         if (!m_node.mempool) return {};
         if (!m_node.mempool->CheckPolicyLimits(tx)) {
@@ -914,7 +914,7 @@ public:
         return TransactionMerklePath(m_block_template->block, 0);
     }
 
-    bool submitSolution(uint32_t version, uint32_t timestamp, uint32_t nonce, CTransactionRef coinbase, std::string& reason, std::string& debug) override
+    bool submitSolution(uint32_t version, uint32_t timestamp, uint32_t nonce, TransactionRef coinbase, std::string& reason, std::string& debug) override
     {
         if (!coinbase) return false;
         AddMerkleRootAndCoinbase(m_block_template->block, std::move(coinbase), version, timestamp, nonce);
@@ -1012,11 +1012,11 @@ public:
         return block_template_manager().SubmitBlock(std::make_shared<const CBlock>(block_in), reason, debug);
     }
 
-    std::vector<CTransactionRef> getTransactionsByTxID(const std::vector<Txid>& txids) override
+    std::vector<TransactionRef> getTransactionsByTxID(const std::vector<Txid>& txids) override
     {
         if (!m_node.mempool) return {};
 
-        std::vector<CTransactionRef> results;
+        std::vector<TransactionRef> results;
         results.reserve(txids.size());
         LOCK(m_node.mempool->cs);
         for (const auto& txid : txids) {
@@ -1025,11 +1025,11 @@ public:
         return results;
     }
 
-    std::vector<CTransactionRef> getTransactionsByWitnessID(const std::vector<Wtxid>& wtxids) override
+    std::vector<TransactionRef> getTransactionsByWitnessID(const std::vector<Wtxid>& wtxids) override
     {
         if (!m_node.mempool) return {};
 
-        std::vector<CTransactionRef> results;
+        std::vector<TransactionRef> results;
         results.reserve(wtxids.size());
         LOCK(m_node.mempool->cs);
         for (const auto& wtxid : wtxids) {

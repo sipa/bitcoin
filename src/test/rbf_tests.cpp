@@ -16,7 +16,7 @@
 
 BOOST_FIXTURE_TEST_SUITE(rbf_tests, BasicTestingSetup)
 
-static inline CTransactionRef make_tx(const std::vector<CTransactionRef>& inputs,
+static inline TransactionRef make_tx(const std::vector<TransactionRef>& inputs,
                                       const std::vector<CAmount>& output_values)
 {
     CMutableTransaction tx = CMutableTransaction();
@@ -37,7 +37,7 @@ static inline CTransactionRef make_tx(const std::vector<CTransactionRef>& inputs
     return MakeTransactionRef(tx);
 }
 
-static CTransactionRef add_descendants(const CTransactionRef& tx, int32_t num_descendants, CTxMemPool& pool)
+static TransactionRef add_descendants(const TransactionRef& tx, int32_t num_descendants, CTxMemPool& pool)
     EXCLUSIVE_LOCKS_REQUIRED(::cs_main, pool.cs)
 {
     AssertLockHeld(::cs_main);
@@ -177,7 +177,7 @@ BOOST_FIXTURE_TEST_CASE(rbf_conflicts_calculator, TestChain100Setup)
     TryAddToMempool(pool, entry.Fee(normal_fee).FromTx(parent_tx_1));
     TryAddToMempool(pool, entry.Fee(normal_fee).FromTx(parent_tx_2));
 
-    std::vector<CTransactionRef> direct_children;
+    std::vector<TransactionRef> direct_children;
 
     // Create individual spends of these outputs
     for (const auto& parent_tx : {parent_tx_1, parent_tx_2}) {

@@ -10,7 +10,7 @@
 #include <ranges>
 
 
-PrivateBroadcast::AddResult PrivateBroadcast::Add(const CTransactionRef& tx)
+PrivateBroadcast::AddResult PrivateBroadcast::Add(const TransactionRef& tx)
     EXCLUSIVE_LOCKS_REQUIRED(!m_mutex)
 {
     LOCK(m_mutex);
@@ -29,7 +29,7 @@ PrivateBroadcast::AddResult PrivateBroadcast::Add(const CTransactionRef& tx)
     return AddResult::Added;
 }
 
-std::optional<size_t> PrivateBroadcast::Remove(const CTransactionRef& tx)
+std::optional<size_t> PrivateBroadcast::Remove(const TransactionRef& tx)
     EXCLUSIVE_LOCKS_REQUIRED(!m_mutex)
 {
     LOCK(m_mutex);
@@ -41,7 +41,7 @@ std::optional<size_t> PrivateBroadcast::Remove(const CTransactionRef& tx)
     return std::nullopt;
 }
 
-std::optional<CTransactionRef> PrivateBroadcast::PickTxForSend(const NodeId& will_send_to_nodeid, const CService& will_send_to_address)
+std::optional<TransactionRef> PrivateBroadcast::PickTxForSend(const NodeId& will_send_to_nodeid, const CService& will_send_to_address)
     EXCLUSIVE_LOCKS_REQUIRED(!m_mutex)
 {
     LOCK(m_mutex);
@@ -66,7 +66,7 @@ std::optional<CTransactionRef> PrivateBroadcast::PickTxForSend(const NodeId& wil
     return std::nullopt;
 }
 
-std::optional<CTransactionRef> PrivateBroadcast::GetTxForNode(const NodeId& nodeid)
+std::optional<TransactionRef> PrivateBroadcast::GetTxForNode(const NodeId& nodeid)
     EXCLUSIVE_LOCKS_REQUIRED(!m_mutex)
 {
     LOCK(m_mutex);
@@ -105,12 +105,12 @@ bool PrivateBroadcast::HavePendingTransactions()
     return std::ranges::any_of(m_transactions, [this](const auto& entry) { return IsPending(entry.second); });
 }
 
-std::vector<CTransactionRef> PrivateBroadcast::GetStale() const
+std::vector<TransactionRef> PrivateBroadcast::GetStale() const
     EXCLUSIVE_LOCKS_REQUIRED(!m_mutex)
 {
     LOCK(m_mutex);
     const auto now{NodeClock::now()};
-    std::vector<CTransactionRef> stale;
+    std::vector<TransactionRef> stale;
     for (const auto& [tx, state] : m_transactions) {
         if (!IsPending(state)) continue;
         const Priority p{DerivePriority(state.send_statuses)};

@@ -308,12 +308,12 @@ void MemPoolFeeRateEstimator::MempoolTxsRemovedForBlock(const std::shared_ptr<co
     LOCK(cs);
     Assert(!block->vtx.empty());
     // Accumulate total block weight and removed mempool tx weight, both excluding the coinbase.
-    const auto get_tx_weight = [](const CTransactionRef& tx) {
+    const auto get_tx_weight = [](const TransactionRef& tx) {
         return static_cast<uint64_t>(GetTransactionWeight(*tx));
     };
     // Skip vtx[0], which is the coinbase.
     const uint64_t block_weight = std::accumulate(std::next(block->vtx.begin()), block->vtx.end(), uint64_t{0},
-                                                  [&](uint64_t acc, const CTransactionRef& tx) {
+                                                  [&](uint64_t acc, const TransactionRef& tx) {
                                                       return acc + get_tx_weight(tx);
                                                   });
     const uint64_t removed_weight = std::accumulate(

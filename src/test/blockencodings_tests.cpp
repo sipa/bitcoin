@@ -15,7 +15,7 @@
 
 #include <boost/test/unit_test.hpp>
 
-const std::vector<std::pair<Wtxid, CTransactionRef>> empty_extra_txn;
+const std::vector<std::pair<Wtxid, TransactionRef>> empty_extra_txn;
 
 BOOST_FIXTURE_TEST_SUITE(blockencodings_tests, RegTestingSetup)
 
@@ -307,7 +307,7 @@ BOOST_AUTO_TEST_CASE(EmptyBlockRoundTripTest)
         BOOST_CHECK(partialBlock.IsTxAvailable(0));
 
         CBlock block2;
-        std::vector<CTransactionRef> vtx_missing;
+        std::vector<TransactionRef> vtx_missing;
         BOOST_CHECK(partialBlock.FillBlock(block2, vtx_missing, /*segwit_active=*/true) == READ_STATUS_OK);
         BOOST_CHECK_EQUAL(block.GetHash().ToString(), block2.GetHash().ToString());
         BOOST_CHECK_EQUAL(block.hashMerkleRoot.ToString(), BlockMerkleRoot(block2, &mutated).ToString());
@@ -323,7 +323,7 @@ BOOST_AUTO_TEST_CASE(ReceiveWithExtraTransactions) {
     CMutableTransaction mtx = BuildTransactionTestCase();
     mtx.GetInputPrevout(0).hash = Txid::FromUint256(rand_ctx.rand256());
     mtx.GetInputPrevout(0).n = 0;
-    const CTransactionRef non_block_tx = MakeTransactionRef(std::move(mtx));
+    const TransactionRef non_block_tx = MakeTransactionRef(std::move(mtx));
 
     CBlock block(BuildBlockTestCase(rand_ctx));
     // Leave one transaction missing so scanning doesn't stop before the collision.
@@ -333,7 +333,7 @@ BOOST_AUTO_TEST_CASE(ReceiveWithExtraTransactions) {
     block.hashMerkleRoot = BlockMerkleRoot(block);
     while (!CheckProofOfWork(block.GetHash(), block.nBits, Params().GetConsensus())) ++block.nNonce;
 
-    std::vector<std::pair<Wtxid, CTransactionRef>> extra_txn;
+    std::vector<std::pair<Wtxid, TransactionRef>> extra_txn;
     extra_txn.resize(10);
 
     LOCK2(cs_main, pool.cs);

@@ -27,7 +27,7 @@ struct TestMemPoolEntryHelper {
     LockPoints lp;
 
     CTxMemPoolEntry FromTx(const CMutableTransaction& tx) const;
-    CTxMemPoolEntry FromTx(const CTransactionRef& tx) const;
+    CTxMemPoolEntry FromTx(const TransactionRef& tx) const;
 
     // Change the default value
     TestMemPoolEntryHelper& Fee(CAmount _fee) { nFee = _fee; return *this; }

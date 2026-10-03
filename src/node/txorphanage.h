@@ -42,12 +42,12 @@ public:
 
     /** Allows providing orphan information externally */
     struct OrphanInfo {
-        CTransactionRef tx;
+        TransactionRef tx;
         /** Peers added with AddTx or AddAnnouncer. */
         std::set<NodeId> announcers;
 
         // Constructor with moved announcers
-        OrphanInfo(CTransactionRef tx, std::set<NodeId>&& announcers) :
+        OrphanInfo(TransactionRef tx, std::set<NodeId>&& announcers) :
             tx(std::move(tx)),
             announcers(std::move(announcers))
         {}
@@ -56,13 +56,13 @@ public:
     virtual ~TxOrphanage() = default;
 
     /** Add a new orphan transaction */
-    virtual bool AddTx(const CTransactionRef& tx, NodeId peer) = 0;
+    virtual bool AddTx(const TransactionRef& tx, NodeId peer) = 0;
 
     /** Add an additional announcer to an orphan if it exists. Otherwise, do nothing. */
     virtual bool AddAnnouncer(const Wtxid& wtxid, NodeId peer) = 0;
 
     /** Get a transaction by its witness txid */
-    virtual CTransactionRef GetTx(const Wtxid& wtxid) const = 0;
+    virtual TransactionRef GetTx(const Wtxid& wtxid) const = 0;
 
     /** Check if we already have an orphan transaction (by wtxid only) */
     virtual bool HaveTx(const Wtxid& wtxid) const = 0;
@@ -75,7 +75,7 @@ public:
      *  Otherwise returns the transaction reference, and removes
      *  it from the work set.
      */
-    virtual CTransactionRef GetTxToReconsider(NodeId peer) = 0;
+    virtual TransactionRef GetTxToReconsider(NodeId peer) = 0;
 
     /** Erase an orphan by wtxid, including all announcements if there are multiple.
      * Returns true if an orphan was erased, false if no tx with this wtxid exists. */
@@ -89,14 +89,14 @@ public:
     virtual void EraseForBlock(const CBlock& block) = 0;
 
     /** Add any orphans that list a particular tx as a parent into the from peer's work set */
-    virtual std::vector<std::pair<Wtxid, NodeId>> AddChildrenToWorkSet(const CTransaction& tx, FastRandomContext& rng) = 0;
+    virtual std::vector<std::pair<Wtxid, NodeId>> AddChildrenToWorkSet(const Transaction& tx, FastRandomContext& rng) = 0;
 
     /** Does this peer have any work to do? */
     virtual bool HaveTxToReconsider(NodeId peer) = 0;
 
     /** Get all children that spend from this tx and were received from nodeid. Sorted
      * reconsiderable before non-reconsiderable, then from most recent to least recent. */
-    virtual std::vector<CTransactionRef> GetChildrenFromSamePeer(const CTransactionRef& parent, NodeId nodeid) const = 0;
+    virtual std::vector<TransactionRef> GetChildrenFromSamePeer(const TransactionRef& parent, NodeId nodeid) const = 0;
 
     /** Get all orphan transactions */
     virtual std::vector<OrphanInfo> GetOrphanTransactions() const = 0;

@@ -25,7 +25,7 @@ inline constexpr bool DEFAULT_TXINDEX{false};
 /// A found transaction and the hash of the block that contains it.
 struct TxIndexResult {
     uint256 block_hash;
-    CTransactionRef tx;
+    TransactionRef tx;
 };
 
 /**

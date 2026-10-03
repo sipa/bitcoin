@@ -27,7 +27,7 @@ static constexpr int64_t APPROX_WEIGHT_PER_INPUT{200};
 
 // Creates a transaction with num_inputs inputs and 1 output, padded to target_weight. Use this function to maximize m_outpoint_to_orphan_it operations.
 // If num_inputs is 0, we maximize the number of inputs.
-static CTransactionRef MakeTransactionBulkedTo(unsigned int num_inputs, int64_t target_weight, FastRandomContext& det_rand)
+static TransactionRef MakeTransactionBulkedTo(unsigned int num_inputs, int64_t target_weight, FastRandomContext& det_rand)
 {
     CMutableTransaction tx;
     assert(target_weight >= 40 + APPROX_WEIGHT_PER_INPUT);
@@ -47,7 +47,7 @@ static CTransactionRef MakeTransactionBulkedTo(unsigned int num_inputs, int64_t 
 }
 
 // Constructs a transaction using a subset of inputs[start_input : start_input + num_inputs] up to the weight_limit.
-static CTransactionRef MakeTransactionSpendingUpTo(const std::vector<CTxIn>& inputs, unsigned int start_input, unsigned int num_inputs, int64_t weight_limit)
+static TransactionRef MakeTransactionSpendingUpTo(const std::vector<CTxIn>& inputs, unsigned int start_input, unsigned int num_inputs, int64_t weight_limit)
 {
     CMutableTransaction tx;
     for (unsigned int i{start_input}; i < start_input + num_inputs; ++i) {
@@ -65,7 +65,7 @@ static void OrphanageSinglePeerEviction(benchmark::Bench& bench)
     unsigned int NUM_TINY_TRANSACTIONS((node::DEFAULT_MAX_ORPHANAGE_LATENCY_SCORE));
 
     // Construct transactions to submit to orphanage: 1-in-1-out tiny transactions
-    std::vector<CTransactionRef> tiny_txs;
+    std::vector<TransactionRef> tiny_txs;
     tiny_txs.reserve(NUM_TINY_TRANSACTIONS);
     for (unsigned int i{0}; i < NUM_TINY_TRANSACTIONS; ++i) {
         tiny_txs.emplace_back(MakeTransactionBulkedTo(1, TINY_TX_WEIGHT, det_rand));
@@ -127,7 +127,7 @@ static void OrphanageMultiPeerEviction(benchmark::Bench& bench)
 
     FastRandomContext det_rand{true};
     // Construct large transactions
-    std::vector<CTransactionRef> shared_txs;
+    std::vector<TransactionRef> shared_txs;
     shared_txs.reserve(NUM_UNIQUE_TXNS);
     for (unsigned int i{0}; i < NUM_UNIQUE_TXNS; ++i) {
         shared_txs.emplace_back(MakeTransactionBulkedTo(9, LARGE_TX_WEIGHT, det_rand));
@@ -145,8 +145,8 @@ static void OrphanageMultiPeerEviction(benchmark::Bench& bench)
     // We need each peer to send some transactions so that the global limit (which is a function of the number of peers providing at least 1 announcement) rises.
     for (unsigned int i{0}; i < NUM_UNIQUE_TXNS; ++i) {
         for (NodeId peer{0}; peer < NUM_PEERS; ++peer) {
-            const CTransactionRef& reserved_last_tx{shared_txs.at(peer)};
-            CTransactionRef reserved_second_to_last_tx{peer < NUM_UNIQUE_TXNS - NUM_PEERS ? shared_txs.at(peer + NUM_PEERS) : nullptr};
+            const TransactionRef& reserved_last_tx{shared_txs.at(peer)};
+            TransactionRef reserved_second_to_last_tx{peer < NUM_UNIQUE_TXNS - NUM_PEERS ? shared_txs.at(peer + NUM_PEERS) : nullptr};
 
             const auto& tx{shared_txs.at(indexes.at(i))};
             if (tx == reserved_last_tx) {
@@ -161,8 +161,8 @@ static void OrphanageMultiPeerEviction(benchmark::Bench& bench)
 
     // Now add the final reserved transactions.
     for (NodeId peer{0}; peer < NUM_PEERS; ++peer) {
-        const CTransactionRef& reserved_last_tx{shared_txs.at(peer)};
-        CTransactionRef reserved_second_to_last_tx{peer < NUM_UNIQUE_TXNS - NUM_PEERS ? shared_txs.at(peer + NUM_PEERS) : nullptr};
+        const TransactionRef& reserved_last_tx{shared_txs.at(peer)};
+        TransactionRef reserved_second_to_last_tx{peer < NUM_UNIQUE_TXNS - NUM_PEERS ? shared_txs.at(peer + NUM_PEERS) : nullptr};
         // Add the final reserved transactions.
         if (reserved_second_to_last_tx) {
             orphanage->AddTx(reserved_second_to_last_tx, peer);

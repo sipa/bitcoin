@@ -38,15 +38,15 @@ inline constexpr unsigned int MAX_DISCONNECTED_TX_POOL_BYTES{20'000'000};
  */
 class DisconnectedBlockTransactions {
 private:
-    /** Cached dynamic memory usage for the `CTransactionRef`s */
+    /** Cached dynamic memory usage for the `TransactionRef`s */
     uint64_t cachedInnerUsage = 0;
     const size_t m_max_mem_usage;
-    std::list<CTransactionRef> queuedTx;
+    std::list<TransactionRef> queuedTx;
     using TxList = decltype(queuedTx);
     std::unordered_map<Txid, TxList::iterator, SaltedTxidHasher> iters_by_txid;
 
     /** Trim the earliest-added entries until we are within memory bounds. */
-    std::vector<CTransactionRef> LimitMemoryUsage();
+    std::vector<TransactionRef> LimitMemoryUsage();
 
 public:
     DisconnectedBlockTransactions(size_t max_mem_usage)
@@ -63,16 +63,16 @@ public:
      * corresponding entry in iters_by_txid.
      * @returns vector of transactions that were evicted for size-limiting.
      */
-    [[nodiscard]] std::vector<CTransactionRef> AddTransactionsFromBlock(const std::vector<CTransactionRef>& vtx);
+    [[nodiscard]] std::vector<TransactionRef> AddTransactionsFromBlock(const std::vector<TransactionRef>& vtx);
 
     /** Remove any entries that are in this block. */
-    void removeForBlock(const std::vector<CTransactionRef>& vtx);
+    void removeForBlock(const std::vector<TransactionRef>& vtx);
 
     size_t size() const { return queuedTx.size(); }
 
     void clear();
 
     /** Clear all data structures and return the list of transactions. */
-    std::list<CTransactionRef> take();
+    std::list<TransactionRef> take();
 };
 #endif // BITCOIN_KERNEL_DISCONNECTED_TRANSACTIONS_H

@@ -149,7 +149,7 @@ public:
      *         txid that corresponds to multiple transactions with different wtxids, multiple
      *         transactions may be returned.
      */
-    virtual std::vector<CTransactionRef> AbortPrivateBroadcast(const uint256& id) = 0;
+    virtual std::vector<TransactionRef> AbortPrivateBroadcast(const uint256& id) = 0;
 
     /**
      * Initiate a transaction broadcast to eligible peers.
@@ -165,7 +165,7 @@ public:
      * @retval node::TransactionError::OK The transaction is scheduled for private broadcast (or was already scheduled).
      * @retval node::TransactionError::PRIVATE_BROADCAST_FULL Rejected because the private broadcast queue is full.
      */
-    [[nodiscard]] virtual node::TransactionError InitiateTxBroadcastPrivate(const CTransactionRef& tx) = 0;
+    [[nodiscard]] virtual node::TransactionError InitiateTxBroadcastPrivate(const TransactionRef& tx) = 0;
 
     /** Send ping message to all peers */
     virtual void SendPings() = 0;

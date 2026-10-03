@@ -27,7 +27,7 @@ CBlockHeaderAndShortTxIDs::CBlockHeaderAndShortTxIDs(const CBlock& block, uint64
     // TODO: Use our mempool prior to block acceptance to predictively fill more than just the coinbase
     prefilledtxn[0] = {0, block.vtx[0]};
     for (size_t i = 1; i < block.vtx.size(); i++) {
-        const CTransaction& tx = *block.vtx[i];
+        const Transaction& tx = *block.vtx[i];
         shorttxids[i - 1] = GetShortID(tx.GetWitnessHash());
     }
 }
@@ -56,7 +56,7 @@ uint64_t CBlockHeaderAndShortTxIDs::GetShortID(const Wtxid& wtxid) const
  * in a vector and iterate over the vector directly. This allows optimal
  * CPU caching behaviour, at a cost of only 40 bytes per transaction.
  */
-ReadStatus PartiallyDownloadedBlock::InitData(const CBlockHeaderAndShortTxIDs& cmpctblock, const std::vector<std::pair<Wtxid, CTransactionRef>>& extra_txn)
+ReadStatus PartiallyDownloadedBlock::InitData(const CBlockHeaderAndShortTxIDs& cmpctblock, const std::vector<std::pair<Wtxid, TransactionRef>>& extra_txn)
 {
     LogDebug(BCLog::CMPCTBLOCK, "Initializing PartiallyDownloadedBlock for block %s using a cmpctblock of %u bytes\n", cmpctblock.header.GetHash().ToString(), GetSerializeSize(cmpctblock));
     if (cmpctblock.header.IsNull() || (cmpctblock.shorttxids.empty() && cmpctblock.prefilledtxn.empty()))
@@ -185,7 +185,7 @@ bool PartiallyDownloadedBlock::IsTxAvailable(size_t index) const
     return txn_available[index] != nullptr;
 }
 
-ReadStatus PartiallyDownloadedBlock::FillBlock(CBlock& block, const std::vector<CTransactionRef>& vtx_missing, bool segwit_active)
+ReadStatus PartiallyDownloadedBlock::FillBlock(CBlock& block, const std::vector<TransactionRef>& vtx_missing, bool segwit_active)
 {
     if (header.IsNull()) return READ_STATUS_INVALID;
 

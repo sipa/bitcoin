@@ -49,12 +49,12 @@ enum class AddressPurpose {
 
 struct CreatedTransactionResult
 {
-    CTransactionRef tx;
+    TransactionRef tx;
     CAmount fee;
     FeeReason fee_reason;
     std::optional<unsigned int> change_pos;
 
-    CreatedTransactionResult(CTransactionRef _tx, CAmount _fee, std::optional<unsigned int> _change_pos, FeeReason _fee_reason)
+    CreatedTransactionResult(TransactionRef _tx, CAmount _fee, std::optional<unsigned int> _change_pos, FeeReason _fee_reason)
         : tx(_tx), fee(_fee), fee_reason(_fee_reason), change_pos(_change_pos) {}
 };
 

@@ -141,7 +141,7 @@ static std::optional<int64_t> GetSignedTxinWeight(const CWallet* wallet, const C
 }
 
 // txouts needs to be in the order of tx.vin
-TxSize CalculateMaximumSignedTxSize(const CTransaction &tx, const CWallet *wallet, const std::vector<CTxOut>& txouts, const CCoinControl* coin_control)
+TxSize CalculateMaximumSignedTxSize(const Transaction &tx, const CWallet *wallet, const std::vector<CTxOut>& txouts, const CCoinControl* coin_control)
 {
     // version + nLockTime + input count + output count
     int64_t weight = (4 + 4 + GetSizeOfCompactSize(tx.GetNumInputs()) + GetSizeOfCompactSize(tx.GetNumOutputs())) * WITNESS_SCALE_FACTOR;
@@ -170,7 +170,7 @@ TxSize CalculateMaximumSignedTxSize(const CTransaction &tx, const CWallet *walle
     return TxSize{GetVirtualTransactionSize(weight, 0, 0), weight};
 }
 
-TxSize CalculateMaximumSignedTxSize(const CTransaction &tx, const CWallet *wallet, const CCoinControl* coin_control)
+TxSize CalculateMaximumSignedTxSize(const Transaction &tx, const CWallet *wallet, const CCoinControl* coin_control)
 {
     std::vector<CTxOut> txouts;
     // Look up the inputs. The inputs are either in the wallet, or in coin_control.
@@ -526,7 +526,7 @@ CTxOut FindNonChangeParentOutput(const CWallet& wallet, const COutPoint& outpoin
     AssertLockHeld(wallet.cs_wallet);
     const CWalletTx* wtx{Assert(wallet.GetWalletTx(outpoint.hash))};
 
-    const CTransaction* ptx = wtx->GetTx().get();
+    const Transaction* ptx = wtx->GetTx().get();
     int n = outpoint.n;
     while (OutputIsChange(wallet, ptx->GetOutput(n)) && ptx->GetNumInputs() > 0) {
         const COutPoint& prevout = ptx->GetInputPrevout(0);
@@ -1329,7 +1329,7 @@ static util::Result<CreatedTransactionResult> CreateTransactionInternal(
     }
 
     // Calculate the transaction fee
-    TxSize tx_sizes = CalculateMaximumSignedTxSize(CTransaction(txNew), &wallet, &coin_control);
+    TxSize tx_sizes = CalculateMaximumSignedTxSize(Transaction(txNew), &wallet, &coin_control);
     int nBytes = tx_sizes.vsize;
     if (nBytes == -1) {
         return util::Error{_("Missing solving data for estimating transaction size")};
@@ -1409,7 +1409,7 @@ static util::Result<CreatedTransactionResult> CreateTransactionInternal(
     }
 
     // Return the constructed transaction data.
-    CTransactionRef tx = MakeTransactionRef(std::move(txNew));
+    TransactionRef tx = MakeTransactionRef(std::move(txNew));
 
     // Limit size
     if ((sign && GetTransactionWeight(*tx) > MAX_STANDARD_TX_WEIGHT) ||

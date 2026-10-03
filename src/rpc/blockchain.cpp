@@ -221,7 +221,7 @@ UniValue blockheaderToJSON(const CBlockIndex& tip, const CBlockIndex& blockindex
 }
 
 /** Serialize coinbase transaction metadata */
-UniValue coinbaseTxToJSON(const CTransaction& coinbase_tx)
+UniValue coinbaseTxToJSON(const Transaction& coinbase_tx)
 {
     CHECK_NONFATAL(!coinbase_tx.Inputs().empty());
     const CTxInView vin_0{coinbase_tx.GetInput(0)};
@@ -254,7 +254,7 @@ UniValue blockToJSON(BlockManager& blockman, const CBlock& block, const CBlockIn
 
     switch (verbosity) {
         case TxVerbosity::SHOW_TXID:
-            for (const CTransactionRef& tx : block.vtx) {
+            for (const TransactionRef& tx : block.vtx) {
                 txs.push_back(tx->GetHash().GetHex());
             }
             break;
@@ -268,7 +268,7 @@ UniValue blockToJSON(BlockManager& blockman, const CBlock& block, const CBlockIn
                 throw JSONRPCError(RPC_INTERNAL_ERROR, "Undo data expected but can't be read. This could be due to disk corruption or a conflict with a pruning event.");
             }
             for (size_t i = 0; i < block.vtx.size(); ++i) {
-                const CTransactionRef& tx = block.vtx.at(i);
+                const TransactionRef& tx = block.vtx.at(i);
                 // coinbase transaction (i.e. i == 0) doesn't have undo data
                 const CTxUndo* txundo = (have_undo && i > 0) ? &blockUndo.vtxundo.at(i - 1) : nullptr;
                 UniValue objTx(UniValue::VOBJ);
@@ -2853,7 +2853,7 @@ static RPCMethod getdescriptoractivity()
     const auto AddSpend = [&](
             const CScript& spk,
             const CAmount val,
-            const CTransactionRef& tx,
+            const TransactionRef& tx,
             int vin,
             const CTxIn& txin,
             const CBlockIndex* index
@@ -2877,7 +2877,7 @@ static RPCMethod getdescriptoractivity()
         return event;
     };
 
-    const auto AddReceive = [&](const CTxOut& txout, const CBlockIndex* index, int vout, const CTransactionRef& tx) {
+    const auto AddReceive = [&](const CTxOut& txout, const CBlockIndex* index, int vout, const TransactionRef& tx) {
         UniValue event(UniValue::VOBJ);
         UniValue spkUv(UniValue::VOBJ);
         ScriptToUniv(txout.scriptPubKey, /*out=*/spkUv, /*include_hex=*/true, /*include_address=*/true);
@@ -2956,7 +2956,7 @@ static RPCMethod getdescriptoractivity()
                 if (!coin) {
                     // If not found in the chain, check the mempool. Likely, this is a
                     // child transaction of another transaction in the mempool.
-                    CTransactionRef prev_tx = CHECK_NONFATAL(mempool.get(txin.prevout.hash));
+                    TransactionRef prev_tx = CHECK_NONFATAL(mempool.get(txin.prevout.hash));
 
                     if (txin.prevout.n >= prev_tx->GetNumOutputs()) {
                         throw std::runtime_error("Invalid output index");

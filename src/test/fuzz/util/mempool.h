@@ -8,7 +8,7 @@
 #include <kernel/mempool_entry.h>
 #include <validation.h>
 
-class CTransaction;
+class Transaction;
 class CTxMemPool;
 class FuzzedDataProvider;
 
@@ -21,6 +21,6 @@ public:
     }
 };
 
-[[nodiscard]] CTxMemPoolEntry ConsumeTxMemPoolEntry(FuzzedDataProvider& fuzzed_data_provider, const CTransaction& tx, uint32_t max_height=std::numeric_limits<uint32_t>::max()) noexcept;
+[[nodiscard]] CTxMemPoolEntry ConsumeTxMemPoolEntry(FuzzedDataProvider& fuzzed_data_provider, const Transaction& tx, uint32_t max_height=std::numeric_limits<uint32_t>::max()) noexcept;
 
 #endif // BITCOIN_TEST_FUZZ_UTIL_MEMPOOL_H

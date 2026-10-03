@@ -39,7 +39,7 @@ BOOST_AUTO_TEST_CASE(MempoolLookupTest)
 
     // Not in the mempool, so can't find it by txid or wtxid
     BOOST_CHECK(!pool.get(tx.GetHash()));
-    BOOST_CHECK(!pool.get(CTransaction(tx).GetWitnessHash()));
+    BOOST_CHECK(!pool.get(Transaction(tx).GetWitnessHash()));
 
     TryAddToMempool(pool, entry.Fee(1000LL).FromTx(tx));
 
@@ -47,7 +47,7 @@ BOOST_AUTO_TEST_CASE(MempoolLookupTest)
     BOOST_CHECK(pool.get(tx.GetHash()));
 
     // Lookup by Wtxid
-    BOOST_CHECK(pool.get(CTransaction(tx).GetWitnessHash()));
+    BOOST_CHECK(pool.get(Transaction(tx).GetWitnessHash()));
 }
 
 BOOST_AUTO_TEST_CASE(MempoolRemoveTest)
@@ -95,13 +95,13 @@ BOOST_AUTO_TEST_CASE(MempoolRemoveTest)
 
     // Nothing in pool, remove should do nothing:
     unsigned int poolSize = testPool.size();
-    testPool.removeRecursive(CTransaction(txParent), REMOVAL_REASON_DUMMY);
+    testPool.removeRecursive(Transaction(txParent), REMOVAL_REASON_DUMMY);
     BOOST_CHECK_EQUAL(testPool.size(), poolSize);
 
     // Just the parent:
     TryAddToMempool(testPool, entry.FromTx(txParent));
     poolSize = testPool.size();
-    testPool.removeRecursive(CTransaction(txParent), REMOVAL_REASON_DUMMY);
+    testPool.removeRecursive(Transaction(txParent), REMOVAL_REASON_DUMMY);
     BOOST_CHECK_EQUAL(testPool.size(), poolSize - 1);
 
     // Parent, children, grandchildren:
@@ -113,18 +113,18 @@ BOOST_AUTO_TEST_CASE(MempoolRemoveTest)
     }
     // Remove Child[0], GrandChild[0] should be removed:
     poolSize = testPool.size();
-    testPool.removeRecursive(CTransaction(txChild[0]), REMOVAL_REASON_DUMMY);
+    testPool.removeRecursive(Transaction(txChild[0]), REMOVAL_REASON_DUMMY);
     BOOST_CHECK_EQUAL(testPool.size(), poolSize - 2);
     // ... make sure grandchild and child are gone:
     poolSize = testPool.size();
-    testPool.removeRecursive(CTransaction(txGrandChild[0]), REMOVAL_REASON_DUMMY);
+    testPool.removeRecursive(Transaction(txGrandChild[0]), REMOVAL_REASON_DUMMY);
     BOOST_CHECK_EQUAL(testPool.size(), poolSize);
     poolSize = testPool.size();
-    testPool.removeRecursive(CTransaction(txChild[0]), REMOVAL_REASON_DUMMY);
+    testPool.removeRecursive(Transaction(txChild[0]), REMOVAL_REASON_DUMMY);
     BOOST_CHECK_EQUAL(testPool.size(), poolSize);
     // Remove parent, all children/grandchildren should go:
     poolSize = testPool.size();
-    testPool.removeRecursive(CTransaction(txParent), REMOVAL_REASON_DUMMY);
+    testPool.removeRecursive(Transaction(txParent), REMOVAL_REASON_DUMMY);
     BOOST_CHECK_EQUAL(testPool.size(), poolSize - 5);
     BOOST_CHECK_EQUAL(testPool.size(), 0U);
 
@@ -137,7 +137,7 @@ BOOST_AUTO_TEST_CASE(MempoolRemoveTest)
     // Now remove the parent, as might happen if a block-re-org occurs but the parent cannot be
     // put into the mempool (maybe because it is non-standard):
     poolSize = testPool.size();
-    testPool.removeRecursive(CTransaction(txParent), REMOVAL_REASON_DUMMY);
+    testPool.removeRecursive(Transaction(txParent), REMOVAL_REASON_DUMMY);
     BOOST_CHECK_EQUAL(testPool.size(), poolSize - 6);
     BOOST_CHECK_EQUAL(testPool.size(), 0U);
 }
@@ -187,12 +187,12 @@ BOOST_AUTO_TEST_CASE(MempoolSizeLimitTest)
     BOOST_CHECK(pool.exists(tx2.GetHash()));
     BOOST_CHECK(pool.exists(tx3.GetHash()));
 
-    pool.TrimToSize(GetVirtualTransactionSize(CTransaction(tx1))); // mempool is limited to tx1's size in memory usage, so nothing fits
+    pool.TrimToSize(GetVirtualTransactionSize(Transaction(tx1))); // mempool is limited to tx1's size in memory usage, so nothing fits
     BOOST_CHECK(!pool.exists(tx1.GetHash()));
     BOOST_CHECK(!pool.exists(tx2.GetHash()));
     BOOST_CHECK(!pool.exists(tx3.GetHash()));
 
-    CFeeRate maxFeeRateRemoved(2500, GetVirtualTransactionSize(CTransaction(tx3)) + GetVirtualTransactionSize(CTransaction(tx2)));
+    CFeeRate maxFeeRateRemoved(2500, GetVirtualTransactionSize(Transaction(tx3)) + GetVirtualTransactionSize(Transaction(tx2)));
     BOOST_CHECK_EQUAL(pool.GetMinFee(1).GetFeePerK(), maxFeeRateRemoved.GetFeePerK() + DEFAULT_INCREMENTAL_RELAY_FEE);
 
     CMutableTransaction tx4 = CMutableTransaction();
@@ -277,7 +277,7 @@ BOOST_AUTO_TEST_CASE(MempoolSizeLimitTest)
     TryAddToMempool(pool, entry.Fee(110LL).FromTx(tx6));
     TryAddToMempool(pool, entry.Fee(900LL).FromTx(tx7));
 
-    std::vector<CTransactionRef> vtx;
+    std::vector<TransactionRef> vtx;
     FakeNodeClock clock{42s};
     constexpr std::chrono::seconds HALFLIFE{CTxMemPool::ROLLING_FEE_HALFLIFE};
     clock += HALFLIFE;
@@ -305,7 +305,7 @@ BOOST_AUTO_TEST_CASE(MempoolSizeLimitTest)
     // ... unless it has gone all the way to 0 (after getting past DEFAULT_INCREMENTAL_RELAY_FEE/2)
 }
 
-inline CTransactionRef make_tx(std::vector<CAmount>&& output_values, std::vector<CTransactionRef>&& inputs=std::vector<CTransactionRef>(), std::vector<uint32_t>&& input_indices=std::vector<uint32_t>())
+inline TransactionRef make_tx(std::vector<CAmount>&& output_values, std::vector<TransactionRef>&& inputs=std::vector<TransactionRef>(), std::vector<uint32_t>&& input_indices=std::vector<uint32_t>())
 {
     CMutableTransaction tx = CMutableTransaction();
     tx.vin.resize(inputs.size());
@@ -334,7 +334,7 @@ BOOST_AUTO_TEST_CASE(MempoolAncestryTests)
     //
     // [tx1]
     //
-    CTransactionRef tx1 = make_tx(/*output_values=*/{10 * COIN});
+    TransactionRef tx1 = make_tx(/*output_values=*/{10 * COIN});
     TryAddToMempool(pool, entry.Fee(10000LL).FromTx(tx1));
 
     // Ancestors / clustersize should be 1 / 1 (itself / itself)
@@ -346,7 +346,7 @@ BOOST_AUTO_TEST_CASE(MempoolAncestryTests)
     //
     // [tx1].0 <- [tx2]
     //
-    CTransactionRef tx2 = make_tx(/*output_values=*/{495 * CENT, 5 * COIN}, /*inputs=*/{tx1});
+    TransactionRef tx2 = make_tx(/*output_values=*/{495 * CENT, 5 * COIN}, /*inputs=*/{tx1});
     TryAddToMempool(pool, entry.Fee(10000LL).FromTx(tx2));
 
     // Ancestors / clustersize should be:
@@ -365,7 +365,7 @@ BOOST_AUTO_TEST_CASE(MempoolAncestryTests)
     //
     // [tx1].0 <- [tx2].0 <- [tx3]
     //
-    CTransactionRef tx3 = make_tx(/*output_values=*/{290 * CENT, 200 * CENT}, /*inputs=*/{tx2});
+    TransactionRef tx3 = make_tx(/*output_values=*/{290 * CENT, 200 * CENT}, /*inputs=*/{tx2});
     TryAddToMempool(pool, entry.Fee(10000LL).FromTx(tx3));
 
     // Ancestors / clustersize should be:
@@ -390,7 +390,7 @@ BOOST_AUTO_TEST_CASE(MempoolAncestryTests)
     //              |
     //              \---1 <- [tx4]
     //
-    CTransactionRef tx4 = make_tx(/*output_values=*/{290 * CENT, 250 * CENT}, /*inputs=*/{tx2}, /*input_indices=*/{1});
+    TransactionRef tx4 = make_tx(/*output_values=*/{290 * CENT, 250 * CENT}, /*inputs=*/{tx2}, /*input_indices=*/{1});
     TryAddToMempool(pool, entry.Fee(10000LL).FromTx(tx4));
 
     // Ancestors / clustersize should be:
@@ -421,19 +421,19 @@ BOOST_AUTO_TEST_CASE(MempoolAncestryTests)
     //              |
     //              \---1 <- [tx4]
     //
-    CTransactionRef ty1, ty2, ty3, ty4, ty5;
-    CTransactionRef* ty[5] = {&ty1, &ty2, &ty3, &ty4, &ty5};
+    TransactionRef ty1, ty2, ty3, ty4, ty5;
+    TransactionRef* ty[5] = {&ty1, &ty2, &ty3, &ty4, &ty5};
     CAmount v = 5 * COIN;
     for (uint64_t i = 0; i < 5; i++) {
-        CTransactionRef& tyi = *ty[i];
-        tyi = make_tx(/*output_values=*/{v}, /*inputs=*/i > 0 ? std::vector<CTransactionRef>{*ty[i - 1]} : std::vector<CTransactionRef>{});
+        TransactionRef& tyi = *ty[i];
+        tyi = make_tx(/*output_values=*/{v}, /*inputs=*/i > 0 ? std::vector<TransactionRef>{*ty[i - 1]} : std::vector<TransactionRef>{});
         v -= 50 * CENT;
         TryAddToMempool(pool, entry.Fee(10000LL).FromTx(tyi));
         pool.GetTransactionAncestry(tyi->GetHash(), ancestors, clustersize);
         BOOST_CHECK_EQUAL(ancestors, i+1);
         BOOST_CHECK_EQUAL(clustersize, i+1);
     }
-    CTransactionRef ty6 = make_tx(/*output_values=*/{5 * COIN}, /*inputs=*/{tx3, ty5});
+    TransactionRef ty6 = make_tx(/*output_values=*/{5 * COIN}, /*inputs=*/{tx3, ty5});
     TryAddToMempool(pool, entry.Fee(10000LL).FromTx(ty6));
 
     // Ancestors / clustersize should be:
@@ -495,7 +495,7 @@ BOOST_AUTO_TEST_CASE(MempoolAncestryTestsDiamond)
     //            |                    |
     //            \---1 <- [tc].0 --<--/
     //
-    CTransactionRef ta, tb, tc, td;
+    TransactionRef ta, tb, tc, td;
     ta = make_tx(/*output_values=*/{10 * COIN});
     tb = make_tx(/*output_values=*/{5 * COIN, 3 * COIN}, /*inputs=*/ {ta});
     tc = make_tx(/*output_values=*/{2 * COIN}, /*inputs=*/{tb}, /*input_indices=*/{1});

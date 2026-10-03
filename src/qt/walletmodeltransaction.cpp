@@ -16,12 +16,12 @@ QList<SendCoinsRecipient> WalletModelTransaction::getRecipients() const
     return recipients;
 }
 
-CTransactionRef& WalletModelTransaction::getWtx()
+TransactionRef& WalletModelTransaction::getWtx()
 {
     return wtx;
 }
 
-void WalletModelTransaction::setWtx(const CTransactionRef& newTx)
+void WalletModelTransaction::setWtx(const TransactionRef& newTx)
 {
     wtx = newTx;
 }
@@ -43,7 +43,7 @@ void WalletModelTransaction::setTransactionFee(const CAmount& newFee)
 
 void WalletModelTransaction::reassignAmounts(int nChangePosRet)
 {
-    const CTransaction* walletTransaction = wtx.get();
+    const Transaction* walletTransaction = wtx.get();
     int i = 0;
     for (QList<SendCoinsRecipient>::iterator it = recipients.begin(); it != recipients.end(); ++it)
     {

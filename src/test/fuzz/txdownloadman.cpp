@@ -48,7 +48,7 @@ static TxValidationResult TESTED_TX_RESULTS[] = {
 };
 
 // Precomputed transactions. Some may conflict with each other.
-std::vector<CTransactionRef> TRANSACTIONS;
+std::vector<TransactionRef> TRANSACTIONS;
 
 // Limit the total number of peers because we don't expect coverage to change much with lots more peers.
 constexpr int NUM_PEERS = 16;
@@ -56,7 +56,7 @@ constexpr int NUM_PEERS = 16;
 // Precomputed random durations (positive and negative, each ~exponentially distributed).
 std::chrono::microseconds TIME_SKIPS[128];
 
-static CTransactionRef MakeTransactionSpending(const std::vector<COutPoint>& outpoints, size_t num_outputs, bool add_witness)
+static TransactionRef MakeTransactionSpending(const std::vector<COutPoint>& outpoints, size_t num_outputs, bool add_witness)
 {
     CMutableTransaction tx;
     // If no outpoints are given, create a random one.

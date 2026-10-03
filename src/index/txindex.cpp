@@ -201,7 +201,7 @@ std::optional<TxIndexResult> TxIndex::FindTx(const Txid& tx_hash) const
             LogWarning("OpenBlockFile failed for txid %s", tx_hash.ToString());
             continue;
         }
-        CTransactionRef tx;
+        TransactionRef tx;
         try {
             file >> TX_WITH_WITNESS(tx);
         } catch (const std::exception& e) {
@@ -230,7 +230,7 @@ std::optional<TxIndexResult> TxIndex::FindLegacyTx(const Txid& tx_hash) const
         return std::nullopt;
     }
     CBlockHeader header;
-    CTransactionRef tx;
+    TransactionRef tx;
     try {
         file >> header;
         file.seek(postx.nTxOffset, SEEK_CUR);

@@ -11,7 +11,7 @@
 #include <string>
 
 class CBlockIndex;
-class CTransaction;
+class Transaction;
 class CZMQAbstractNotifier;
 
 using CZMQNotifierFactory = std::function<std::unique_ptr<CZMQAbstractNotifier>()>;
@@ -50,11 +50,11 @@ public:
     // Notifies of every block disconnection
     virtual bool NotifyBlockDisconnect(const CBlockIndex *pindex);
     // Notifies of every mempool acceptance
-    virtual bool NotifyTransactionAcceptance(const CTransaction &transaction, uint64_t mempool_sequence);
+    virtual bool NotifyTransactionAcceptance(const Transaction &transaction, uint64_t mempool_sequence);
     // Notifies of every mempool removal, except inclusion in blocks
-    virtual bool NotifyTransactionRemoval(const CTransaction &transaction, uint64_t mempool_sequence);
+    virtual bool NotifyTransactionRemoval(const Transaction &transaction, uint64_t mempool_sequence);
     // Notifies of transactions added to mempool or appearing in blocks
-    virtual bool NotifyTransaction(const CTransaction &transaction);
+    virtual bool NotifyTransaction(const Transaction &transaction);
 
 protected:
     void* psocket{nullptr};

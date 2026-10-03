@@ -517,7 +517,7 @@ void SendCoinsDialog::sendButtonClicked([[maybe_unused]] bool checked)
                 // e.g. in a multisig wallet.
                 if (complete) {
                     // Prepare transaction for broadcast transaction if complete
-                    const CTransactionRef tx = MakeTransactionRef(mtx);
+                    const TransactionRef tx = MakeTransactionRef(mtx);
                     m_current_transaction->setWtx(tx);
                 } else {
                     presentPSBT(psbtx);

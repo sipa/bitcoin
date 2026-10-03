@@ -19,7 +19,7 @@
 #include <vector>
 
 
-static void AddTx(const CTransactionRef& tx, const CAmount& fee, CTxMemPool& pool) EXCLUSIVE_LOCKS_REQUIRED(cs_main, pool.cs)
+static void AddTx(const TransactionRef& tx, const CAmount& fee, CTxMemPool& pool) EXCLUSIVE_LOCKS_REQUIRED(cs_main, pool.cs)
 {
     LockPoints lp;
     TryAddToMempool(pool, CTxMemPoolEntry(tx, fee, /*time=*/0, /*entry_height=*/1, /*entry_sequence=*/0, /*spends_coinbase=*/false, /*sigops_cost=*/4, lp));
@@ -39,7 +39,7 @@ static void RpcMempool(benchmark::Bench& bench)
         tx.vout.resize(1);
         tx.vout[0].scriptPubKey = CScript() << OP_1 << OP_EQUAL;
         tx.vout[0].nValue = i;
-        const CTransactionRef tx_r{MakeTransactionRef(tx)};
+        const TransactionRef tx_r{MakeTransactionRef(tx)};
         AddTx(tx_r, /*fee=*/i, pool);
     }
 

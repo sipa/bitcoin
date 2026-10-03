@@ -23,7 +23,7 @@
 
 BOOST_FIXTURE_TEST_SUITE(mempool_fee_estimator_tests, TestingSetup)
 
-static inline CTransactionRef MakeRandomTx()
+static inline TransactionRef MakeRandomTx()
 {
     auto rng = FastRandomContext();
     auto tx = CMutableTransaction();

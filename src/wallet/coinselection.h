@@ -169,7 +169,7 @@ struct CoinSelectionParams {
      */
     bool m_include_unsafe_inputs = false;
     /** The version of the transaction we are trying to create. */
-    uint32_t m_version{CTransaction::CURRENT_VERSION};
+    uint32_t m_version{Transaction::CURRENT_VERSION};
     /** The maximum weight for this transaction. */
     std::optional<int> m_max_tx_weight{std::nullopt};
 
@@ -416,7 +416,7 @@ public:
 
     /** Get m_selected_inputs */
     const OutputSet& GetInputSet() const;
-    /** Get the vector of COutputs that will be used to fill in a CTransaction's vin */
+    /** Get the vector of COutputs that will be used to fill in a Transaction's vin */
     std::vector<std::shared_ptr<COutput>> GetShuffledInputVector() const;
 
     bool operator<(SelectionResult other) const;

@@ -20,7 +20,7 @@ const CAmount med_fee{CENT/200}; // 5000 ṩ
 const CAmount high_fee{CENT/10}; // 100_000 ṩ
 
 
-static inline CTransactionRef make_tx(const std::vector<COutPoint>& inputs, size_t num_outputs)
+static inline TransactionRef make_tx(const std::vector<COutPoint>& inputs, size_t num_outputs)
 {
     CMutableTransaction tx = CMutableTransaction();
     tx.vin.resize(inputs.size());
@@ -37,7 +37,7 @@ static inline CTransactionRef make_tx(const std::vector<COutPoint>& inputs, size
     return MakeTransactionRef(tx);
 }
 
-static inline bool sanity_check(const std::vector<CTransactionRef>& transactions,
+static inline bool sanity_check(const std::vector<TransactionRef>& transactions,
                                 const std::map<COutPoint, CAmount>& bumpfees)
 {
     // No negative bumpfees.
@@ -173,7 +173,7 @@ BOOST_FIXTURE_TEST_CASE(miniminer_1p1c, TestChain100Setup)
     });
 
 
-    std::vector<CTransactionRef> all_transactions{tx0, tx1, tx2, tx3, tx4, tx5, tx6, tx7};
+    std::vector<TransactionRef> all_transactions{tx0, tx1, tx2, tx3, tx4, tx5, tx6, tx7};
     struct TxDimensions {
         int32_t vsize; CAmount mod_fee; CFeeRate feerate;
     };
@@ -423,7 +423,7 @@ BOOST_FIXTURE_TEST_CASE(miniminer_overlap, TestChain100Setup)
     const auto tx7 = make_tx({COutPoint{tx5->GetHash(), 1}}, /*num_outputs=*/2);
     TryAddToMempool(pool, entry.Fee(high_fee).FromTx(tx7));
 
-    std::vector<CTransactionRef> all_transactions{tx0, tx1, tx2, tx3, tx4, tx5, tx6, tx7};
+    std::vector<TransactionRef> all_transactions{tx0, tx1, tx2, tx3, tx4, tx5, tx6, tx7};
     std::vector<int64_t> tx_vsizes;
     tx_vsizes.reserve(all_transactions.size());
     for (const auto& tx : all_transactions) tx_vsizes.push_back(GetVirtualTransactionSize(*tx));

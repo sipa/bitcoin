@@ -69,7 +69,7 @@ FUZZ_TARGET(rbf, .init = initialize_rbf)
         if (!another_mtx) {
             break;
         }
-        const CTransaction another_tx{*another_mtx};
+        const Transaction another_tx{*another_mtx};
         if (fuzzed_data_provider.ConsumeBool() && !mtx->Inputs().empty()) {
             mtx->vin[0].prevout = COutPoint{another_tx.GetHash(), 0};
         }
@@ -78,7 +78,7 @@ FUZZ_TARGET(rbf, .init = initialize_rbf)
             TryAddToMempool(pool, ConsumeTxMemPoolEntry(fuzzed_data_provider, another_tx));
         }
     }
-    const CTransaction tx{*mtx};
+    const Transaction tx{*mtx};
     if (fuzzed_data_provider.ConsumeBool()) {
         LOCK2(cs_main, pool.cs);
         if (!pool.GetIter(tx.GetHash())) {
@@ -107,7 +107,7 @@ FUZZ_TARGET(package_rbf, .init = initialize_package_rbf)
     Assert(error.empty());
 
     // Add a bunch of parent-child pairs to the mempool, and remember them.
-    std::vector<CTransaction> mempool_txs;
+    std::vector<Transaction> mempool_txs;
     uint32_t iter{0};
 
     // Keep track of the total vsize of CTxMemPoolEntry's being added to the mempool to avoid overflow
@@ -118,7 +118,7 @@ FUZZ_TARGET(package_rbf, .init = initialize_package_rbf)
     }
     replacement_tx->vin.resize(1);
     replacement_tx->vin[0].prevout = g_outpoints.at(iter++);
-    CTransaction replacement_tx_final{*replacement_tx};
+    Transaction replacement_tx_final{*replacement_tx};
     auto replacement_entry = ConsumeTxMemPoolEntry(fuzzed_data_provider, replacement_tx_final);
     int32_t replacement_weight = replacement_entry.GetAdjustedWeight();
     // Ensure that we don't hit FeeFrac limits, as we store TxGraph entries in terms of FeePerWeight
