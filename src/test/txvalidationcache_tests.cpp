@@ -157,7 +157,7 @@ static void ValidateCheckInputsForAllFlags(const CTransaction &tx, script_verify
             // was invalid, or we didn't add to cache.
             std::vector<CScriptCheck> scriptchecks;
             BOOST_CHECK(CheckInputScripts(tx, state, &active_coins_tip, test_flags, true, add_to_cache, txdata, validation_cache, &scriptchecks));
-            BOOST_CHECK_EQUAL(scriptchecks.size(), tx.vin.size());
+            BOOST_CHECK_EQUAL(scriptchecks.size(), tx.GetNumInputs());
         }
     }
 }
@@ -329,7 +329,7 @@ BOOST_FIXTURE_TEST_CASE(checkinputs_test, Dersig100Setup)
         FlatSigningProvider tr_keystore;
         tr_keystore.keys.emplace(coinbaseKey.GetPubKey().GetID(), coinbaseKey);
         const std::map<COutPoint, Coin> coins{
-            {tr_tx.vin[0].prevout, Coin(spend_tx.vout[4], /*nHeightIn=*/0, /*fCoinBaseIn=*/false)}
+            {tr_tx.GetInputPrevout(0), Coin(spend_tx.vout[4], /*nHeightIn=*/0, /*fCoinBaseIn=*/false)}
         };
         std::map<int, bilingual_str> input_errors;
         BOOST_REQUIRE(SignTransaction(tr_tx, &tr_keystore, coins, {.sighash_type = SIGHASH_DEFAULT}, input_errors));

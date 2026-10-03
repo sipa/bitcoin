@@ -177,7 +177,7 @@ FUZZ_TARGET(cmpctblock, .init = initialize_cmpctblock)
             size_t random_idx = fuzzed_data_provider.ConsumeIntegralInRange<size_t>(0, mempool_size - 1);
             CTransactionRef tx = WITH_LOCK(mempool.cs, return mempool.txns_randomized[random_idx].second->GetSharedTx(););
             outpoint = COutPoint(tx->GetHash(), 0);
-            amount_in = tx->vout[0].nValue;
+            amount_in = tx->GetOutputValue(0);
         } else if (info.size() != 0 && fuzzed_data_provider.ConsumeBool()) {
             // These blocks (and txs) may be invalid, use a spent output, or not be in the main chain.
             auto info_it = info.begin();
@@ -185,7 +185,7 @@ FUZZ_TARGET(cmpctblock, .init = initialize_cmpctblock)
             auto tx_it = info_it->block->vtx.begin();
             std::advance(tx_it, fuzzed_data_provider.ConsumeIntegralInRange<size_t>(0, info_it->block->vtx.size() - 1));
             outpoint = COutPoint(tx_it->get()->GetHash(), 0);
-            amount_in = tx_it->get()->vout[0].nValue;
+            amount_in = tx_it->get()->GetOutputValue(0);
         } else {
             auto coinbase_it = mature_coinbase.begin();
             std::advance(coinbase_it, fuzzed_data_provider.ConsumeIntegralInRange<size_t>(0, mature_coinbase.size() - 1));
@@ -239,7 +239,7 @@ FUZZ_TARGET(cmpctblock, .init = initialize_cmpctblock)
 
         CMutableTransaction coinbase_tx;
         coinbase_tx.vin.resize(1);
-        coinbase_tx.vin[0].prevout.SetNull();
+        coinbase_tx.GetInputPrevout(0).SetNull();
         coinbase_tx.vin[0].scriptSig = CScript() << height << OP_0;
         coinbase_tx.vout.resize(1);
         coinbase_tx.vout[0].scriptPubKey = CScript() << OP_TRUE;

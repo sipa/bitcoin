@@ -531,7 +531,7 @@ std::pair<CMutableTransaction, CAmount> TestChain100Setup::CreateValidTransactio
     // Deduct fees from fee_output to meet feerate if set
     if (feerate.has_value()) {
         assert(fee_output.has_value());
-        assert(fee_output.value() < mempool_txn.vout.size());
+        assert(fee_output.value() < mempool_txn.GetNumOutputs());
         CAmount target_fee = feerate.value().GetFee(GetVirtualTransactionSize(CTransaction{mempool_txn}));
         CAmount deduction = target_fee - current_fee;
         if (deduction > 0) {
@@ -587,7 +587,7 @@ std::vector<CTransactionRef> TestChain100Setup::PopulateMempool(FastRandomContex
     std::vector<CTransactionRef> mempool_transactions;
     std::deque<std::pair<COutPoint, CAmount>> unspent_prevouts, undo_info;
     std::transform(m_coinbase_txns.begin(), m_coinbase_txns.end(), std::back_inserter(unspent_prevouts),
-        [](const auto& tx){ return std::make_pair(COutPoint(tx->GetHash(), 0), tx->vout[0].nValue); });
+        [](const auto& tx){ return std::make_pair(COutPoint(tx->GetHash(), 0), tx->GetOutputValue(0)); });
     while (num_transactions > 0 && !unspent_prevouts.empty()) {
         // The number of inputs and outputs are randomly chosen, between 1-5
         // and 1-25 respectively.
