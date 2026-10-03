@@ -144,7 +144,7 @@ static std::optional<int64_t> GetSignedTxinWeight(const CWallet* wallet, const C
 TxSize CalculateMaximumSignedTxSize(const CTransaction &tx, const CWallet *wallet, const std::vector<CTxOut>& txouts, const CCoinControl* coin_control)
 {
     // version + nLockTime + input count + output count
-    int64_t weight = (4 + 4 + GetSizeOfCompactSize(tx.vin.size()) + GetSizeOfCompactSize(tx.vout.size())) * WITNESS_SCALE_FACTOR;
+    int64_t weight = (4 + 4 + GetSizeOfCompactSize(tx.GetNumInputs()) + GetSizeOfCompactSize(tx.GetNumOutputs())) * WITNESS_SCALE_FACTOR;
     // Whether any input spends a witness program. Necessary to run before the next loop over the
     // inputs in order to accurately compute the compactSize length for the witness data per input.
     bool is_segwit = std::any_of(txouts.begin(), txouts.end(), [&](const CTxOut& txo) {
@@ -178,7 +178,7 @@ TxSize CalculateMaximumSignedTxSize(const CTransaction &tx, const CWallet *walle
         const auto mi = wallet->mapWallet.find(input.prevout.hash);
         // Can not estimate size without knowing the input details
         if (mi != wallet->mapWallet.end()) {
-            assert(input.prevout.n < mi->second.GetTx()->vout.size());
+            assert(input.prevout.n < mi->second.GetTx()->GetNumOutputs());
             txouts.emplace_back(mi->second.GetTx()->vout.at(input.prevout.n));
         } else if (coin_control) {
             const auto& txout{coin_control->GetExternalOutput(input.prevout)};
@@ -281,10 +281,10 @@ util::Result<CoinsResult> FetchSelectedInputs(const CWallet& wallet, const CCoin
             }
             const CWalletTx& parent_tx = txo->GetWalletTx();
             if (wallet.GetTxDepthInMainChain(parent_tx) == 0) {
-                if (parent_tx.GetTx()->version == TRUC_VERSION && coin_control.m_version != TRUC_VERSION) {
+                if (parent_tx.GetTx()->GetVersion() == TRUC_VERSION && coin_control.m_version != TRUC_VERSION) {
                     return util::Error{strprintf(_("Can't spend unconfirmed version 3 pre-selected input with a version %d tx"), coin_control.m_version)};
-                } else if (coin_control.m_version == TRUC_VERSION && parent_tx.GetTx()->version != TRUC_VERSION) {
-                    return util::Error{strprintf(_("Can't spend unconfirmed version %d pre-selected input with a version 3 tx"), parent_tx.GetTx()->version)};
+                } else if (coin_control.m_version == TRUC_VERSION && parent_tx.GetTx()->GetVersion() != TRUC_VERSION) {
+                    return util::Error{strprintf(_("Can't spend unconfirmed version %d pre-selected input with a version 3 tx"), parent_tx.GetTx()->GetVersion())};
                 }
             }
         } else {
@@ -396,7 +396,7 @@ CoinsResult AvailableCoins(const CWallet& wallet,
 
             if (nDepth == 0 && params.check_version_trucness) {
                 if (coinControl->m_version == TRUC_VERSION) {
-                    if (wtx.GetTx()->version != TRUC_VERSION) continue;
+                    if (wtx.GetTx()->GetVersion() != TRUC_VERSION) continue;
                     // this unconfirmed v3 transaction already has a child
                     if (wtx.truc_child_in_mempool.has_value()) continue;
 
@@ -405,7 +405,7 @@ CoinsResult AvailableCoins(const CWallet& wallet,
                     wallet.chain().getTransactionAncestry(wtx.GetTx()->GetHash(), ancestors, unused_cluster_count);
                     if (ancestors > 1) continue;
                 } else {
-                    if (wtx.GetTx()->version == TRUC_VERSION) continue;
+                    if (wtx.GetTx()->GetVersion() == TRUC_VERSION) continue;
                 }
             }
 
@@ -468,7 +468,7 @@ CoinsResult AvailableCoins(const CWallet& wallet,
 
         auto available_output_type = GetOutputType(type, is_from_p2sh);
         auto available_output = COutput(outpoint, output, nDepth, input_bytes, solvable, tx_safe, wtx.GetTxTime(), tx_from_me, feerate);
-        if (wtx.GetTx()->version == TRUC_VERSION && nDepth == 0 && params.check_version_trucness) {
+        if (wtx.GetTx()->GetVersion() == TRUC_VERSION && nDepth == 0 && params.check_version_trucness) {
             unconfirmed_truc_coins.emplace_back(available_output_type, available_output);
             auto [it, _] = truc_txid_by_value.try_emplace(wtx.GetTx()->GetHash(), 0);
             it->second += output.nValue;
@@ -528,10 +528,10 @@ const CTxOut& FindNonChangeParentOutput(const CWallet& wallet, const COutPoint& 
 
     const CTransaction* ptx = wtx->GetTx().get();
     int n = outpoint.n;
-    while (OutputIsChange(wallet, ptx->vout[n]) && ptx->vin.size() > 0) {
-        const COutPoint& prevout = ptx->vin[0].prevout;
+    while (OutputIsChange(wallet, ptx->vout[n]) && ptx->GetNumInputs() > 0) {
+        const COutPoint& prevout = ptx->GetInputPrevout(0);
         const CWalletTx* it = wallet.GetWalletTx(prevout.hash);
-        if (!it || it->GetTx()->vout.size() <= prevout.n ||
+        if (!it || it->GetTx()->GetNumOutputs() <= prevout.n ||
             !wallet.IsMine(it->GetTx()->vout[prevout.n])) {
             break;
         }
@@ -996,7 +996,7 @@ void DiscourageFeeSniping(CMutableTransaction& tx, FastRandomContext& rng_fast,
                                  interfaces::Chain& chain, const uint256& block_hash, int block_height)
 {
     // All inputs must be added by now
-    assert(!tx.vin.empty());
+    assert(!tx.Inputs().empty());
     // Discourage fee sniping.
     //
     // For a large miner the value of the transactions in the best block and
@@ -1261,8 +1261,8 @@ static util::Result<CreatedTransactionResult> CreateTransactionInternal(
         CTxOut newTxOut(change_amount, scriptChange);
         if (!change_pos) {
             // Insert change txn at random position:
-            change_pos = rng_fast.randrange(txNew.vout.size() + 1);
-        } else if ((unsigned int)*change_pos > txNew.vout.size()) {
+            change_pos = rng_fast.randrange(txNew.GetNumOutputs() + 1);
+        } else if ((unsigned int)*change_pos > txNew.GetNumOutputs()) {
             return util::Error{_("Transaction change output index out of range")};
         }
         txNew.vout.insert(txNew.vout.begin() + *change_pos, newTxOut);
@@ -1503,7 +1503,7 @@ util::Result<CreatedTransactionResult> FundTransaction(CWallet& wallet, const CM
 {
     // We want to make sure tx.vout is not used now that we are passing outputs as a vector of recipients.
     // This sets us up to remove tx completely in a future PR in favor of passing the inputs directly.
-    assert(tx.vout.empty());
+    assert(tx.Outputs().empty());
 
     // Set the user desired locktime
     coinControl.m_locktime = tx.nLockTime;

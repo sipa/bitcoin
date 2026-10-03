@@ -14,7 +14,7 @@ bool InputIsMine(const CWallet& wallet, const CTxIn& txin)
 {
     AssertLockHeld(wallet.cs_wallet);
     const CWalletTx* prev = wallet.GetWalletTx(txin.prevout.hash);
-    if (prev && txin.prevout.n < prev->GetTx()->vout.size()) {
+    if (prev && txin.prevout.n < prev->GetTx()->GetNumOutputs()) {
         return wallet.IsMine(prev->GetTx()->vout[txin.prevout.n]);
     }
     return false;
@@ -121,7 +121,7 @@ CAmount CachedTxGetCredit(const CWallet& wallet, const CWalletTx& wtx, bool avoi
 
 CAmount CachedTxGetDebit(const CWallet& wallet, const CWalletTx& wtx, bool avoid_reuse)
 {
-    if (wtx.GetTx()->vin.empty())
+    if (wtx.GetTx()->Inputs().empty())
         return 0;
 
     return GetCachableAmount(wallet, wtx, CWalletTx::DEBIT, avoid_reuse);
@@ -155,7 +155,7 @@ void CachedTxGetAmounts(const CWallet& wallet, const CWalletTx& wtx,
 
     LOCK(wallet.cs_wallet);
     // Sent/received.
-    for (unsigned int i = 0; i < wtx.GetTx()->vout.size(); ++i)
+    for (unsigned int i = 0; i < wtx.GetTx()->GetNumOutputs(); ++i)
     {
         const CTxOut& txout = wtx.GetTx()->vout[i];
         bool ismine = wallet.IsMine(txout);
@@ -218,12 +218,12 @@ bool CachedTxIsTrusted(const CWallet& wallet, const CWalletTx& wtx, std::set<Txi
     if (!wtx.InMempool()) return false;
 
     // Trusted if all inputs are from us and are in the mempool:
-    for (const CTxIn& txin : wtx.GetTx()->vin)
+    for (const CTxInView txin : wtx.GetTx()->Inputs())
     {
         // Transactions not sent by us: not trusted
-        const CWalletTx* parent = wallet.GetWalletTx(txin.prevout.hash);
+        const CWalletTx* parent = wallet.GetWalletTx(txin.GetPrevout().hash);
         if (parent == nullptr) return false;
-        const CTxOut& parentOut = parent->GetTx()->vout[txin.prevout.n];
+        const CTxOut& parentOut = parent->GetTx()->vout[txin.GetPrevout().n];
         // Check that this specific input being spent is trusted
         if (!wallet.IsMine(parentOut)) return false;
         // If we've already trusted this parent, continue
@@ -332,7 +332,7 @@ std::set< std::set<CTxDestination> > GetAddressGroupings(const CWallet& wallet)
     {
         const CWalletTx& wtx = walletEntry.second;
 
-        if (wtx.GetTx()->vin.size() > 0)
+        if (wtx.GetTx()->GetNumInputs() > 0)
         {
             bool any_mine = false;
             // group all input addresses with each other

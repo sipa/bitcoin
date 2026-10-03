@@ -76,7 +76,7 @@ static feebumper::Result CheckFeeRate(const CWallet& wallet, const CMutableTrans
     }
 
     std::vector<COutPoint> reused_inputs;
-    reused_inputs.reserve(mtx.vin.size());
+    reused_inputs.reserve(mtx.GetNumInputs());
     for (const CTxIn& txin : mtx.vin) {
         reused_inputs.push_back(txin.prevout);
     }
@@ -187,7 +187,7 @@ Result CreateRateBumpTransaction(CWallet& wallet, const Txid& txid, const CCoinC
     const CTransactionRef& tx = wtx.GetTx();
 
     // Make sure that original_change_index is valid
-    if (original_change_index.has_value() && original_change_index.value() >= tx->vout.size()) {
+    if (original_change_index.has_value() && original_change_index.value() >= tx->GetNumOutputs()) {
         errors.emplace_back(Untranslated("Change position is out of range"));
         return Result::INVALID_PARAMETER;
     }
@@ -218,7 +218,7 @@ Result CreateRateBumpTransaction(CWallet& wallet, const Txid& txid, const CCoinC
     // Figure out if we need to compute the input weight, and do so if necessary
     PrecomputedTransactionData txdata;
     txdata.Init(*tx, std::move(spent_outputs), /* force=*/ true);
-    for (unsigned int i = 0; i < tx->vin.size(); ++i) {
+    for (unsigned int i = 0; i < tx->GetNumInputs(); ++i) {
         const CTxIn& txin = tx->vin.at(i);
         const Coin& coin = coins.at(txin.prevout);
 
