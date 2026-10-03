@@ -62,13 +62,13 @@ WalletTx MakeWalletTx(CWallet& wallet, const CWalletTx& wtx)
     LOCK(wallet.cs_wallet);
     WalletTx result;
     result.tx = wtx.GetTx();
-    result.txin_is_mine.reserve(result.tx->vin.size());
+    result.txin_is_mine.reserve(result.tx->GetNumInputs());
     for (const auto& txin : result.tx->vin) {
         result.txin_is_mine.emplace_back(InputIsMine(wallet, txin));
     }
-    result.txout_is_mine.reserve(result.tx->vout.size());
-    result.txout_address.reserve(result.tx->vout.size());
-    result.txout_address_is_mine.reserve(result.tx->vout.size());
+    result.txout_is_mine.reserve(result.tx->GetNumOutputs());
+    result.txout_address.reserve(result.tx->GetNumOutputs());
+    result.txout_address_is_mine.reserve(result.tx->GetNumOutputs());
     for (const auto& txout : result.tx->vout) {
         result.txout_is_mine.emplace_back(wallet.IsMine(txout));
         result.txout_is_change.push_back(OutputIsChange(wallet, txout));
@@ -103,7 +103,7 @@ WalletTxStatus MakeWalletTxStatus(const CWallet& wallet, const CWalletTx& wtx)
     result.blocks_to_maturity = wallet.GetTxBlocksToMaturity(wtx);
     result.depth_in_main_chain = wallet.GetTxDepthInMainChain(wtx);
     result.time_received = wtx.nTimeReceived;
-    result.lock_time = wtx.GetTx()->nLockTime;
+    result.lock_time = wtx.GetTx()->GetLockTime();
     result.is_trusted = CachedTxIsTrusted(wallet, wtx);
     result.is_abandoned = wtx.isAbandoned();
     result.is_coinbase = wtx.IsCoinBase();

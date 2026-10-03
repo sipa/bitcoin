@@ -478,7 +478,7 @@ CreatedTransactionResult FundTransaction(CWallet& wallet, const CMutableTransact
 {
     // We want to make sure tx.vout is not used now that we are passing outputs as a vector of recipients.
     // This sets us up to remove tx completely in a future PR in favor of passing the inputs directly.
-    CHECK_NONFATAL(tx.vout.empty());
+    CHECK_NONFATAL(tx.Outputs().empty());
     // Make sure the results are valid at least up to the most recent block
     // the user could have gotten from another RPC command prior to now
     wallet.BlockUntilSyncedToCurrentChain();
@@ -1283,7 +1283,7 @@ RPCMethod send()
             CMutableTransaction rawTx = ConstructTransaction(options["inputs"], request.params[0], options["locktime"], rbf, coin_control.m_version);
             // Automatically select coins, unless at least one is manually selected. Can
             // be overridden by options.add_inputs.
-            coin_control.m_allow_other_inputs = rawTx.vin.size() == 0;
+            coin_control.m_allow_other_inputs = rawTx.GetNumInputs() == 0;
             if (options.exists("max_tx_weight")) {
                 coin_control.m_max_tx_weight = options["max_tx_weight"].getInt<int>();
             }
@@ -1476,17 +1476,17 @@ RPCMethod sendall()
                         throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Input not available. UTXO (%s:%d) was already spent.", input.prevout.hash.ToString(), input.prevout.n));
                     }
                     const CWalletTx* tx{pwallet->GetWalletTx(input.prevout.hash)};
-                    if (!tx || input.prevout.n >= tx->GetTx()->vout.size() || !pwallet->IsMine(tx->GetTx()->vout[input.prevout.n])) {
+                    if (!tx || input.prevout.n >= tx->GetTx()->GetNumOutputs() || !pwallet->IsMine(tx->GetTx()->vout[input.prevout.n])) {
                         throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Input not found. UTXO (%s:%d) is not part of wallet.", input.prevout.hash.ToString(), input.prevout.n));
                     }
                     if (pwallet->GetTxDepthInMainChain(*tx) == 0) {
-                        if (tx->GetTx()->version == TRUC_VERSION && coin_control.m_version != TRUC_VERSION) {
+                        if (tx->GetTx()->GetVersion() == TRUC_VERSION && coin_control.m_version != TRUC_VERSION) {
                             throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Can't spend unconfirmed version 3 pre-selected input with a version %d tx", coin_control.m_version));
-                        } else if (coin_control.m_version == TRUC_VERSION && tx->GetTx()->version != TRUC_VERSION) {
-                            throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Can't spend unconfirmed version %d pre-selected input with a version 3 tx", tx->GetTx()->version));
+                        } else if (coin_control.m_version == TRUC_VERSION && tx->GetTx()->GetVersion() != TRUC_VERSION) {
+                            throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Can't spend unconfirmed version %d pre-selected input with a version 3 tx", tx->GetTx()->GetVersion()));
                         }
                     }
-                    total_input_value += tx->GetTx()->vout[input.prevout.n].nValue;
+                    total_input_value += tx->GetTx()->GetOutputValue(input.prevout.n);
                 }
             } else {
                 CoinFilterParams coins_params;
@@ -1506,7 +1506,7 @@ RPCMethod sendall()
             }
 
             std::vector<COutPoint> outpoints_spent;
-            outpoints_spent.reserve(rawTx.vin.size());
+            outpoints_spent.reserve(rawTx.GetNumInputs());
 
             for (const CTxIn& tx_in : rawTx.vin) {
                 outpoints_spent.push_back(tx_in.prevout);
@@ -1782,7 +1782,7 @@ RPCMethod walletcreatefundedpsbt()
     );
     // Automatically select coins, unless at least one is manually selected. Can
     // be overridden by options.add_inputs.
-    coin_control.m_allow_other_inputs = rawTx.vin.size() == 0;
+    coin_control.m_allow_other_inputs = rawTx.GetNumInputs() == 0;
     SetOptionsInputWeights(request.params[0], options);
     // Clear tx.vout since it is not meant to be used now that we are passing outputs directly.
     // This sets us up for a future PR to completely remove tx from the function signature in favor of passing inputs directly
