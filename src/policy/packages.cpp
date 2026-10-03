@@ -61,8 +61,8 @@ bool IsConsistentPackage(const Package& txns)
             // have no inputs.
             return false;
         }
-        for (const auto& input : tx->vin) {
-            if (inputs_seen.contains(input.prevout)) {
+        for (const CTxInView input : tx->Inputs()) {
+            if (inputs_seen.contains(input.GetPrevout())) {
                 // This input is also present in another tx in the package.
                 return false;
             }
@@ -70,8 +70,8 @@ bool IsConsistentPackage(const Package& txns)
         // Batch-add all the inputs for a tx at a time. If we added them 1 at a time, we could
         // catch duplicate inputs within a single tx.  This is a more severe, consensus error,
         // and we want to report that from CheckTransaction instead.
-        std::transform(tx->vin.cbegin(), tx->vin.cend(), std::inserter(inputs_seen, inputs_seen.end()),
-                       [](const auto& input) { return input.prevout; });
+        std::transform(tx->Inputs().begin(), tx->Inputs().end(), std::inserter(inputs_seen, inputs_seen.end()),
+                       [](const CTxInView input) { return input.GetPrevout(); });
     }
     return true;
 }
@@ -124,9 +124,9 @@ bool IsChildWithParents(const Package& package)
     // The package is expected to be sorted, so the last transaction is the child.
     const auto& child = package.back();
     std::unordered_set<Txid, SaltedTxidHasher> input_txids;
-    std::transform(child->vin.cbegin(), child->vin.cend(),
+    std::transform(child->Inputs().begin(), child->Inputs().end(),
                    std::inserter(input_txids, input_txids.end()),
-                   [](const auto& input) { return input.prevout.hash; });
+                   [](const CTxInView input) { return input.GetPrevout().hash; });
 
     // Every transaction must be a parent of the last transaction in the package.
     return std::all_of(package.cbegin(), package.cend() - 1,
