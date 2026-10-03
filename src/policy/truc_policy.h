@@ -17,7 +17,7 @@
 
 // This module enforces rules for BIP 431 TRUC transactions which help make
 // RBF abilities more robust. A transaction with version=3 is treated as TRUC.
-inline constexpr std::remove_const_t<decltype(CTransaction::CURRENT_VERSION)> TRUC_VERSION{3};
+inline constexpr std::remove_const_t<decltype(Transaction::CURRENT_VERSION)> TRUC_VERSION{3};
 
 // TRUC only allows 1 parent and 1 child when unconfirmed. This translates to a descendant set size
 // of 2 and ancestor set size of 2.
@@ -63,7 +63,7 @@ static_assert(TRUC_MAX_VSIZE + TRUC_CHILD_MAX_VSIZE <= DEFAULT_CLUSTER_SIZE_LIMI
  * - debug string + nullptr if this transaction violates some TRUC rule and sibling eviction is not
  *   applicable.
  */
-std::optional<std::pair<std::string, CTransactionRef>> SingleTRUCChecks(const CTxMemPool& pool, const CTransactionRef& ptx,
+std::optional<std::pair<std::string, TransactionRef>> SingleTRUCChecks(const CTxMemPool& pool, const TransactionRef& ptx,
                                           const std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef>& mempool_parents,
                                           const std::set<Txid>& direct_conflicts,
                                           int64_t vsize) EXCLUSIVE_LOCKS_REQUIRED(pool.cs);
@@ -89,7 +89,7 @@ std::optional<std::pair<std::string, CTransactionRef>> SingleTRUCChecks(const CT
  *
  * @returns debug string if an error occurs, std::nullopt otherwise.
  * */
-std::optional<std::string> PackageTRUCChecks(const CTxMemPool& pool, const CTransactionRef& ptx, int64_t vsize,
+std::optional<std::string> PackageTRUCChecks(const CTxMemPool& pool, const TransactionRef& ptx, int64_t vsize,
                                            const Package& package,
                                            const std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef>& mempool_parents) EXCLUSIVE_LOCKS_REQUIRED(pool.cs);
 

@@ -20,7 +20,7 @@
 #include <utility>
 #include <vector>
 
-bool PreCheckEphemeralTx(const CTransaction& tx, CFeeRate dust_relay_rate, CAmount base_fee, CAmount mod_fee, TxValidationState& state)
+bool PreCheckEphemeralTx(const Transaction& tx, CFeeRate dust_relay_rate, CAmount base_fee, CAmount mod_fee, TxValidationState& state)
 {
     // We never want to give incentives to mine this transaction alone
     if ((base_fee != 0 || mod_fee != 0) && !GetDust(tx, dust_relay_rate).empty()) {
@@ -37,7 +37,7 @@ bool CheckEphemeralSpends(const Package& package, CFeeRate dust_relay_rate, cons
         return true;
     }
 
-    std::map<Txid, CTransactionRef> map_txid_ref;
+    std::map<Txid, TransactionRef> map_txid_ref;
     for (const auto& tx : package) {
         map_txid_ref[tx->GetHash()] = tx;
     }
@@ -52,7 +52,7 @@ bool CheckEphemeralSpends(const Package& package, CFeeRate dust_relay_rate, cons
             if (processed_parent_set.contains(parent_txid)) continue;
 
             // We look for an in-package or in-mempool dependency
-            CTransactionRef parent_ref = nullptr;
+            TransactionRef parent_ref = nullptr;
             if (auto it = map_txid_ref.find(parent_txid); it != map_txid_ref.end()) {
                 parent_ref = it->second;
             } else {

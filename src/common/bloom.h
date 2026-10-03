@@ -12,7 +12,7 @@
 #include <vector>
 
 class COutPoint;
-class CTransaction;
+class Transaction;
 
 //! 20,000 items with fp rate < 0.1% or 10,000 items and <0.0001%
 inline constexpr unsigned int MAX_BLOOM_FILTER_SIZE{36'000}; // bytes
@@ -78,7 +78,7 @@ public:
     bool IsWithinSizeConstraints() const;
 
     //! Also adds any outputs which match the filter to the filter (to match their spending txes)
-    bool IsRelevantAndUpdate(const CTransaction& tx);
+    bool IsRelevantAndUpdate(const Transaction& tx);
 };
 
 /**

@@ -274,7 +274,7 @@ void TestCoinsView(FuzzedDataProvider& fuzzed_data_provider, CCoinsViewCache& co
         (void)coins_view_cache.GetBestBlock();
         (void)coins_view_cache.GetCacheSize();
         (void)coins_view_cache.GetHeadBlocks();
-        (void)coins_view_cache.HaveInputs(CTransaction{random_mutable_transaction});
+        (void)coins_view_cache.HaveInputs(Transaction{random_mutable_transaction});
     }
 
     {
@@ -290,7 +290,7 @@ void TestCoinsView(FuzzedDataProvider& fuzzed_data_provider, CCoinsViewCache& co
         CallOneOf(
             fuzzed_data_provider,
             [&] {
-                const CTransaction transaction{random_mutable_transaction};
+                const Transaction transaction{random_mutable_transaction};
                 bool is_spent = false;
                 for (const CTxOutView tx_out : transaction.Outputs()) {
                     if (Coin{tx_out.ToTxOut(), 0, transaction.IsCoinBase()}.IsSpent()) {
@@ -312,15 +312,15 @@ void TestCoinsView(FuzzedDataProvider& fuzzed_data_provider, CCoinsViewCache& co
                 AddCoins(coins_view_cache, transaction, height, check_for_overwrite);
             },
             [&] {
-                (void)ValidateInputsStandardness(CTransaction{random_mutable_transaction}, coins_view_cache);
+                (void)ValidateInputsStandardness(Transaction{random_mutable_transaction}, coins_view_cache);
             },
             [&] {
                 TxValidationState state;
                 CAmount tx_fee_out;
-                const CTransaction transaction{random_mutable_transaction};
+                const Transaction transaction{random_mutable_transaction};
                 if (ContainsSpentInput(transaction, coins_view_cache)) {
                     // Avoid:
-                    // consensus/tx_verify.cpp:171: bool Consensus::CheckTxInputs(const CTransaction &, TxValidationState &, const CCoinsViewCache &, int, CAmount &): Assertion `!coin.IsSpent()' failed.
+                    // consensus/tx_verify.cpp:171: bool Consensus::CheckTxInputs(const Transaction &, TxValidationState &, const CCoinsViewCache &, int, CAmount &): Assertion `!coin.IsSpent()' failed.
                     return;
                 }
                 TxValidationState dummy;
@@ -333,19 +333,19 @@ void TestCoinsView(FuzzedDataProvider& fuzzed_data_provider, CCoinsViewCache& co
                 }
             },
             [&] {
-                const CTransaction transaction{random_mutable_transaction};
+                const Transaction transaction{random_mutable_transaction};
                 if (ContainsSpentInput(transaction, coins_view_cache)) {
                     // Avoid:
-                    // consensus/tx_verify.cpp:130: unsigned int GetP2SHSigOpCount(const CTransaction &, const CCoinsViewCache &): Assertion `!coin.IsSpent()' failed.
+                    // consensus/tx_verify.cpp:130: unsigned int GetP2SHSigOpCount(const Transaction &, const CCoinsViewCache &): Assertion `!coin.IsSpent()' failed.
                     return;
                 }
                 (void)GetP2SHSigOpCount(transaction, coins_view_cache);
             },
             [&] {
-                const CTransaction transaction{random_mutable_transaction};
+                const Transaction transaction{random_mutable_transaction};
                 if (ContainsSpentInput(transaction, coins_view_cache)) {
                     // Avoid:
-                    // consensus/tx_verify.cpp:130: unsigned int GetP2SHSigOpCount(const CTransaction &, const CCoinsViewCache &): Assertion `!coin.IsSpent()' failed.
+                    // consensus/tx_verify.cpp:130: unsigned int GetP2SHSigOpCount(const Transaction &, const CCoinsViewCache &): Assertion `!coin.IsSpent()' failed.
                     return;
                 }
                 const auto flags = script_verify_flags::from_int(fuzzed_data_provider.ConsumeIntegral<script_verify_flags::value_type>());
@@ -357,7 +357,7 @@ void TestCoinsView(FuzzedDataProvider& fuzzed_data_provider, CCoinsViewCache& co
                 (void)GetTransactionSigOpCost(transaction, coins_view_cache, flags);
             },
             [&] {
-                (void)IsWitnessStandard(CTransaction{random_mutable_transaction}, coins_view_cache);
+                (void)IsWitnessStandard(Transaction{random_mutable_transaction}, coins_view_cache);
             });
     }
 
