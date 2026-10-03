@@ -36,10 +36,10 @@ protected:
     bool boolval;
     std::string stringval;
     char charstrval[16];
-    CTransactionRef txval;
+    TransactionRef txval;
 public:
     CSerializeMethodsTestSingle() = default;
-    CSerializeMethodsTestSingle(int intvalin, bool boolvalin, std::string stringvalin, const uint8_t* charstrvalin, const CTransactionRef& txvalin) : intval(intvalin), boolval(boolvalin), stringval(std::move(stringvalin)), txval(txvalin)
+    CSerializeMethodsTestSingle(int intvalin, bool boolvalin, std::string stringvalin, const uint8_t* charstrvalin, const TransactionRef& txvalin) : intval(intvalin), boolval(boolvalin), stringval(std::move(stringvalin)), txval(txvalin)
     {
         memcpy(charstrval, charstrvalin, sizeof(charstrval));
     }
@@ -283,7 +283,7 @@ BOOST_AUTO_TEST_CASE(class_methods)
     std::string stringval("testing");
     const uint8_t charstrval[16]{"testing charstr"};
     CMutableTransaction txval;
-    CTransactionRef tx_ref{MakeTransactionRef(txval)};
+    TransactionRef tx_ref{MakeTransactionRef(txval)};
     CSerializeMethodsTestSingle methodtest1(intval, boolval, stringval, charstrval, tx_ref);
     CSerializeMethodsTestMany methodtest2(intval, boolval, stringval, charstrval, tx_ref);
     CSerializeMethodsTestSingle methodtest3;

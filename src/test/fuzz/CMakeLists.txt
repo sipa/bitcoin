@@ -130,6 +130,7 @@ add_executable(fuzz
   timeoffsets.cpp
   torcontrol.cpp
   transaction.cpp
+  transaction_view.cpp
   txdownloadman.cpp
   tx_in.cpp
   tx_out.cpp
