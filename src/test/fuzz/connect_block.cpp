@@ -75,7 +75,7 @@ static void InitTaprootScript()
 static CTxIn GetSpendingScript(const CTransaction& tx, uint32_t vout_index)
 {
     Assert(vout_index < tx.GetNumOutputs());
-    const CTxOut& output = tx.vout[vout_index];
+    const CTxOut output{tx.GetOutput(vout_index).ToTxOut()};
 
     CTxIn res{COutPoint(tx.GetHash(), vout_index)};
     if (output.scriptPubKey == P2WSH_OP_TRUE) {
@@ -99,7 +99,7 @@ static CTxIn GetSpendingScript(const CTransaction& tx, uint32_t vout_index)
 static void MaybeAddSpendCandidate(std::vector<CTxIn>& pool, const CTransaction& tx, uint32_t vout_index)
 {
     Assert(vout_index < tx.GetNumOutputs());
-    if (tx.vout[vout_index].scriptPubKey.IsUnspendable()) return;
+    if (IsUnspendable(tx.GetOutputScriptPubKey(vout_index))) return;
     pool.push_back(GetSpendingScript(tx, vout_index));
 }
 
