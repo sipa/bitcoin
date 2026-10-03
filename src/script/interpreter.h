@@ -334,7 +334,7 @@ public:
     bool CheckSequence(const CScriptNum& nSequence) const override;
 };
 
-using TransactionSignatureChecker = GenericTransactionSignatureChecker<CTransaction>;
+using TransactionSignatureChecker = GenericTransactionSignatureChecker<Transaction>;
 using MutableTransactionSignatureChecker = GenericTransactionSignatureChecker<CMutableTransaction>;
 
 class DeferringSignatureChecker : public BaseSignatureChecker
