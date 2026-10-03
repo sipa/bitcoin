@@ -79,9 +79,9 @@ using node::GetTransaction;
 using node::NodeContext;
 using node::PSBTAnalysis;
 
-static constexpr std::remove_const_t<decltype(CTransaction::CURRENT_VERSION)> DEFAULT_RAWTX_VERSION{CTransaction::CURRENT_VERSION};
+static constexpr std::remove_const_t<decltype(Transaction::CURRENT_VERSION)> DEFAULT_RAWTX_VERSION{Transaction::CURRENT_VERSION};
 
-static void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry,
+static void TxToJSON(const Transaction& tx, const uint256 hashBlock, UniValue& entry,
                      Chainstate& active_chainstate, const CTxUndo* txundo = nullptr,
                      TxVerbosity verbosity = TxVerbosity::SHOW_DETAILS)
 {
@@ -174,7 +174,7 @@ PartiallySignedTransaction ProcessPSBT(const std::string& psbt_string, const std
         // The `non_witness_utxo` is the whole previous transaction
         if (psbt_input.non_witness_utxo) continue;
 
-        CTransactionRef tx;
+        TransactionRef tx;
 
         // Look in the txindex
         if (g_txindex) {
@@ -327,7 +327,7 @@ static RPCMethod getrawtransaction()
     }
 
     uint256 hash_block;
-    const CTransactionRef tx = GetTransaction(blockindex, node.mempool.get(), txid, chainman.m_blockman, hash_block);
+    const TransactionRef tx = GetTransaction(blockindex, node.mempool.get(), txid, chainman.m_blockman, hash_block);
     if (!tx) {
         std::string errmsg;
         if (blockindex) {
@@ -389,7 +389,7 @@ static RPCMethod getrawtransaction()
     }
 
     CTxUndo* undoTX {nullptr};
-    auto it = std::find_if(block.vtx.begin(), block.vtx.end(), [tx](CTransactionRef t){ return t->Equals(*tx); });
+    auto it = std::find_if(block.vtx.begin(), block.vtx.end(), [tx](TransactionRef t){ return t->Equals(*tx); });
     if (it != block.vtx.end()) {
         // -1 as blockundo does not have coinbase tx
         undoTX = &blockUndo.vtxundo.at(it - block.vtx.begin() - 1);
@@ -427,7 +427,7 @@ static RPCMethod createrawtransaction()
     }
     CMutableTransaction rawTx = ConstructTransaction(request.params[0], request.params[1], request.params[2], rbf, self.Arg<uint32_t>("version"));
 
-    return EncodeHexTx(CTransaction(rawTx));
+    return EncodeHexTx(Transaction(rawTx));
 },
     };
 }
@@ -466,7 +466,7 @@ static RPCMethod decoderawtransaction()
     }
 
     UniValue result(UniValue::VOBJ);
-    TxToUniv(CTransaction(std::move(mtx)), /*block_hash=*/uint256(), /*entry=*/result, /*include_hex=*/false);
+    TxToUniv(Transaction(std::move(mtx)), /*block_hash=*/uint256(), /*entry=*/result, /*include_hex=*/false);
 
     return result;
 },
@@ -685,9 +685,9 @@ static RPCMethod combinerawtransaction()
         view.SetBackend(CoinsViewEmpty::Get()); // switch back to avoid locking mempool for too long
     }
 
-    // Use CTransaction for the constant parts of the
+    // Use Transaction for the constant parts of the
     // transaction to avoid rehashing.
-    const CTransaction txConst(mergedTx);
+    const Transaction txConst(mergedTx);
     // Sign what we can:
     for (unsigned int i = 0; i < mergedTx.vin.size(); i++) {
         CTxIn& txin = mergedTx.vin[i];
@@ -708,7 +708,7 @@ static RPCMethod combinerawtransaction()
         UpdateInput(txin, sigdata);
     }
 
-    return EncodeHexTx(CTransaction(mergedTx));
+    return EncodeHexTx(Transaction(mergedTx));
 },
     };
 }
@@ -1138,7 +1138,7 @@ static RPCMethod decodepsbt()
     if (psbtx.GetVersion() < 2) {
         // Add the decoded tx
         UniValue tx_univ(UniValue::VOBJ);
-        TxToUniv(CTransaction(*CHECK_NONFATAL(psbtx.GetUnsignedTx())), /*block_hash=*/uint256(), /*entry=*/tx_univ, /*include_hex=*/false);
+        TxToUniv(Transaction(*CHECK_NONFATAL(psbtx.GetUnsignedTx())), /*block_hash=*/uint256(), /*entry=*/tx_univ, /*include_hex=*/false);
         result.pushKV("tx", std::move(tx_univ));
     }
 
