@@ -171,9 +171,9 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
     coinbase_tx.version = coinbaseTx.version;
 
     coinbaseTx.vin.resize(1);
-    coinbaseTx.vin[0].prevout.SetNull();
+    coinbaseTx.GetInputPrevout(0).SetNull();
     coinbaseTx.vin[0].nSequence = CTxIn::MAX_SEQUENCE_NONFINAL; // Make sure timelock is enforced.
-    coinbase_tx.sequence = coinbaseTx.vin[0].nSequence;
+    coinbase_tx.sequence = coinbaseTx.GetInputSequence(0);
 
     // Add an output that spends the full coinbase reward.
     coinbaseTx.vout.resize(1);
@@ -216,7 +216,7 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
         coinbase_tx.witness = uint256(witness_stack[0]);
     }
     if (const int witness_index = GetWitnessCommitmentIndex(*pblock); witness_index != NO_WITNESS_COMMITMENT) {
-        Assert(witness_index >= 0 && static_cast<size_t>(witness_index) < final_coinbase->vout.size());
+        Assert(witness_index >= 0 && static_cast<size_t>(witness_index) < final_coinbase->GetNumOutputs());
         coinbase_tx.required_outputs.push_back(final_coinbase->vout[witness_index]);
     }
 
