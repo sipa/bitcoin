@@ -47,6 +47,7 @@
 #include <limits>
 #include <list>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -146,10 +147,69 @@ struct Handle {
     }
 };
 
+/** A transaction as exposed through the kernel API.
+ *
+ * The API hands out pointers to the inputs and outputs of a transaction (as CTxIn and CTxOut objects), which
+ * Transaction does not store, so these are materialized on first use, and kept alive as long as this object. */
+class KernelTransaction
+{
+    const TransactionRef m_tx;
+    mutable std::once_flag m_inputs_once;
+    mutable std::vector<CTxIn> m_inputs;
+    mutable std::once_flag m_outputs_once;
+    mutable std::vector<CTxOut> m_outputs;
+
+public:
+    explicit KernelTransaction(TransactionRef tx) noexcept : m_tx{std::move(tx)} {}
+
+    const Transaction& Get() const noexcept LIFETIMEBOUND { return *m_tx; }
+
+    const CTxIn& GetInput(size_t index) const LIFETIMEBOUND
+    {
+        std::call_once(m_inputs_once, [&] {
+            m_inputs.reserve(m_tx->GetNumInputs());
+            for (const CTxInView txin : m_tx->Inputs()) m_inputs.push_back(txin.ToTxIn());
+        });
+        return m_inputs[index];
+    }
+
+    const CTxOut& GetOutput(size_t index) const LIFETIMEBOUND
+    {
+        std::call_once(m_outputs_once, [&] {
+            m_outputs.reserve(m_tx->GetNumOutputs());
+            for (const CTxOutView txout : m_tx->Outputs()) m_outputs.push_back(txout.ToTxOut());
+        });
+        return m_outputs[index];
+    }
+};
+
+/** A block as exposed through the kernel API, with KernelTransaction objects for its transactions (created on first
+ *  use). */
+class KernelBlock
+{
+    const std::shared_ptr<const CBlock> m_block;
+    mutable std::once_flag m_txs_once;
+    mutable std::vector<std::shared_ptr<const KernelTransaction>> m_txs;
+
+public:
+    explicit KernelBlock(std::shared_ptr<const CBlock> block) noexcept : m_block{std::move(block)} {}
+
+    const std::shared_ptr<const CBlock>& Get() const noexcept LIFETIMEBOUND { return m_block; }
+
+    const std::shared_ptr<const KernelTransaction>& GetTransaction(size_t index) const LIFETIMEBOUND
+    {
+        std::call_once(m_txs_once, [&] {
+            m_txs.reserve(m_block->vtx.size());
+            for (const auto& tx : m_block->vtx) m_txs.push_back(std::make_shared<const KernelTransaction>(tx));
+        });
+        return m_txs[index];
+    }
+};
+
 } // namespace
 
 struct btck_BlockTreeEntry: Handle<btck_BlockTreeEntry, CBlockIndex> {};
-struct btck_Block : Handle<btck_Block, std::shared_ptr<const CBlock>> {};
+struct btck_Block : Handle<btck_Block, std::shared_ptr<const KernelBlock>> {};
 struct btck_BlockValidationState : Handle<btck_BlockValidationState, BlockValidationState> {};
 struct btck_TxValidationState : Handle<btck_TxValidationState, TxValidationState> {};
 
@@ -355,7 +415,7 @@ protected:
     {
         if (m_cbs.block_checked) {
             m_cbs.block_checked(m_cbs.user_data,
-                                btck_Block::copy(btck_Block::ref(&block)),
+                                btck_Block::create(std::make_shared<const KernelBlock>(block)),
                                 btck_BlockValidationState::ref(&stateIn));
         }
     }
@@ -364,7 +424,7 @@ protected:
     {
         if (m_cbs.pow_valid_block) {
             m_cbs.pow_valid_block(m_cbs.user_data,
-                                  btck_Block::copy(btck_Block::ref(&block)),
+                                  btck_Block::create(std::make_shared<const KernelBlock>(block)),
                                   btck_BlockTreeEntry::ref(pindex));
         }
     }
@@ -373,7 +433,7 @@ protected:
     {
         if (m_cbs.block_connected) {
             m_cbs.block_connected(m_cbs.user_data,
-                                  btck_Block::copy(btck_Block::ref(&block)),
+                                  btck_Block::create(std::make_shared<const KernelBlock>(block)),
                                   btck_BlockTreeEntry::ref(pindex));
         }
     }
@@ -382,7 +442,7 @@ protected:
     {
         if (m_cbs.block_disconnected) {
             m_cbs.block_disconnected(m_cbs.user_data,
-                                     btck_Block::copy(btck_Block::ref(&block)),
+                                     btck_Block::create(std::make_shared<const KernelBlock>(block)),
                                      btck_BlockTreeEntry::ref(pindex));
         }
     }
@@ -488,7 +548,7 @@ struct ChainMan {
 
 } // namespace
 
-struct btck_Transaction : Handle<btck_Transaction, std::shared_ptr<const CTransaction>> {};
+struct btck_Transaction : Handle<btck_Transaction, std::shared_ptr<const KernelTransaction>> {};
 struct btck_TransactionOutput : Handle<btck_TransactionOutput, CTxOut> {};
 struct btck_ScriptPubkey : Handle<btck_ScriptPubkey, CScript> {};
 struct btck_LoggingConnection : Handle<btck_LoggingConnection, LoggingConnection> {};
@@ -516,7 +576,7 @@ btck_Transaction* btck_transaction_create(const void* raw_transaction, size_t ra
     assert(raw_transaction != nullptr || raw_transaction_len == 0);
     try {
         SpanReader stream{std::span{reinterpret_cast<const std::byte*>(raw_transaction), raw_transaction_len}};
-        return btck_Transaction::create(std::make_shared<const CTransaction>(deserialize, TX_WITH_WITNESS, stream));
+        return btck_Transaction::create(std::make_shared<const KernelTransaction>(std::make_shared<const Transaction>(deserialize, TX_WITH_WITNESS, stream)));
     } catch (...) {
         return nullptr;
     }
@@ -524,50 +584,51 @@ btck_Transaction* btck_transaction_create(const void* raw_transaction, size_t ra
 
 size_t btck_transaction_count_outputs(const btck_Transaction* transaction)
 {
-    return btck_Transaction::get(transaction)->vout.size();
+    return btck_Transaction::get(transaction)->Get().GetNumOutputs();
 }
 
 const btck_TransactionOutput* btck_transaction_get_output_at(const btck_Transaction* transaction, size_t output_index)
 {
-    const CTransaction& tx = *btck_Transaction::get(transaction);
-    assert(output_index < tx.vout.size());
-    return btck_TransactionOutput::ref(&tx.vout[output_index]);
+    const KernelTransaction& tx = *btck_Transaction::get(transaction);
+    assert(output_index < tx.Get().GetNumOutputs());
+    return btck_TransactionOutput::ref(&tx.GetOutput(output_index));
 }
 
 size_t btck_transaction_count_inputs(const btck_Transaction* transaction)
 {
-    return btck_Transaction::get(transaction)->vin.size();
+    return btck_Transaction::get(transaction)->Get().GetNumInputs();
 }
 
 const btck_TransactionInput* btck_transaction_get_input_at(const btck_Transaction* transaction, size_t input_index)
 {
-    assert(input_index < btck_Transaction::get(transaction)->vin.size());
-    return btck_TransactionInput::ref(&btck_Transaction::get(transaction)->vin[input_index]);
+    const KernelTransaction& tx = *btck_Transaction::get(transaction);
+    assert(input_index < tx.Get().GetNumInputs());
+    return btck_TransactionInput::ref(&tx.GetInput(input_index));
 }
 
 uint32_t btck_transaction_get_version(const btck_Transaction* transaction)
 {
-    return btck_Transaction::get(transaction)->version;
+    return btck_Transaction::get(transaction)->Get().GetVersion();
 }
 
 uint32_t btck_transaction_get_locktime(const btck_Transaction* transaction)
 {
-    return btck_Transaction::get(transaction)->nLockTime;
+    return btck_Transaction::get(transaction)->Get().GetLockTime();
 }
 
 const btck_Txid* btck_transaction_get_txid(const btck_Transaction* transaction)
 {
-    return btck_Txid::ref(&btck_Transaction::get(transaction)->GetHash());
+    return btck_Txid::ref(&btck_Transaction::get(transaction)->Get().GetHash());
 }
 
 int btck_transaction_has_witness(const btck_Transaction* transaction)
 {
-    return btck_Transaction::get(transaction)->HasWitness() ? 1 : 0;
+    return btck_Transaction::get(transaction)->Get().HasWitness() ? 1 : 0;
 }
 
 const btck_Wtxid* btck_transaction_get_wtxid(const btck_Transaction* transaction)
 {
-    return btck_Wtxid::ref(&btck_Transaction::get(transaction)->GetWitnessHash());
+    return btck_Wtxid::ref(&btck_Transaction::get(transaction)->Get().GetWitnessHash());
 }
 
 btck_Transaction* btck_transaction_copy(const btck_Transaction* transaction)
@@ -579,7 +640,7 @@ int btck_transaction_to_bytes(const btck_Transaction* transaction, btck_WriteByt
 {
     try {
         WriterStream ws{writer, user_data};
-        ws << TX_WITH_WITNESS(btck_Transaction::get(transaction));
+        ws << TX_WITH_WITNESS(btck_Transaction::get(transaction)->Get());
         return 0;
     } catch (...) {
         return -1;
@@ -644,10 +705,10 @@ btck_PrecomputedTransactionData* btck_precomputed_transaction_data_create(
     const btck_TransactionOutput** spent_outputs_, size_t spent_outputs_len)
 {
     try {
-        const CTransaction& tx{*btck_Transaction::get(tx_to)};
+        const Transaction& tx{btck_Transaction::get(tx_to)->Get()};
         auto txdata{btck_PrecomputedTransactionData::create()};
         if (spent_outputs_ != nullptr && spent_outputs_len > 0) {
-            assert(spent_outputs_len == tx.vin.size());
+            assert(spent_outputs_len == tx.GetNumInputs());
             std::vector<CTxOut> spent_outputs;
             spent_outputs.reserve(spent_outputs_len);
             for (size_t i = 0; i < spent_outputs_len; i++) {
@@ -691,8 +752,8 @@ int btck_script_pubkey_verify(const btck_ScriptPubkey* script_pubkey,
         return 0;
     }
 
-    const CTransaction& tx{*btck_Transaction::get(tx_to)};
-    assert(input_index < tx.vin.size());
+    const Transaction& tx{btck_Transaction::get(tx_to)->Get()};
+    assert(input_index < tx.GetNumInputs());
 
     const PrecomputedTransactionData& txdata{precomputed_txdata ? btck_PrecomputedTransactionData::get(precomputed_txdata) : PrecomputedTransactionData(tx)};
 
@@ -703,9 +764,9 @@ int btck_script_pubkey_verify(const btck_ScriptPubkey* script_pubkey,
 
     if (status) *status = btck_ScriptVerifyStatus_OK;
 
-    bool result = VerifyScript(tx.vin[input_index].scriptSig,
+    bool result = VerifyScript(tx.GetInputScriptSig(input_index),
                                btck_ScriptPubkey::get(script_pubkey),
-                               &tx.vin[input_index].scriptWitness,
+                               tx.GetInputWitness(input_index),
                                script_verify_flags::from_int(flags),
                                TransactionSignatureChecker(&tx, input_index, amount, txdata, MissingDataBehavior::FAIL),
                                nullptr);
@@ -1225,7 +1286,7 @@ btck_Block* btck_block_create(const void* raw_block, size_t raw_block_length)
         return nullptr;
     }
 
-    return btck_Block::create(block);
+    return btck_Block::create(std::make_shared<const KernelBlock>(block));
 }
 
 btck_Block* btck_block_copy(const btck_Block* block)
@@ -1241,25 +1302,26 @@ int btck_block_check(const btck_Block* block, const btck_ConsensusParams* consen
     const bool check_pow    = (flags & btck_BlockCheckFlags_POW) != 0;
     const bool check_merkle = (flags & btck_BlockCheckFlags_MERKLE) != 0;
 
-    const bool result = CheckBlock(*btck_Block::get(block), state, btck_ConsensusParams::get(consensus_params), /*fCheckPOW=*/check_pow, /*fCheckMerkleRoot=*/check_merkle);
+    const bool result = CheckBlock(*btck_Block::get(block)->Get(), state, btck_ConsensusParams::get(consensus_params), /*fCheckPOW=*/check_pow, /*fCheckMerkleRoot=*/check_merkle);
 
     return result ? 1 : 0;
 }
 
 size_t btck_block_count_transactions(const btck_Block* block)
 {
-    return btck_Block::get(block)->vtx.size();
+    return btck_Block::get(block)->Get()->vtx.size();
 }
 
 const btck_Transaction* btck_block_get_transaction_at(const btck_Block* block, size_t index)
 {
-    assert(index < btck_Block::get(block)->vtx.size());
-    return btck_Transaction::ref(&btck_Block::get(block)->vtx[index]);
+    const KernelBlock& kernel_block = *btck_Block::get(block);
+    assert(index < kernel_block.Get()->vtx.size());
+    return btck_Transaction::ref(&kernel_block.GetTransaction(index));
 }
 
 btck_BlockHeader* btck_block_get_header(const btck_Block* block)
 {
-    const auto& block_ptr = btck_Block::get(block);
+    const auto& block_ptr = btck_Block::get(block)->Get();
     return btck_BlockHeader::create(static_cast<const CBlockHeader&>(*block_ptr));
 }
 
@@ -1267,7 +1329,7 @@ int btck_block_to_bytes(const btck_Block* block, btck_WriteBytes writer, void* u
 {
     try {
         WriterStream ws{writer, user_data};
-        ws << TX_WITH_WITNESS(*btck_Block::get(block));
+        ws << TX_WITH_WITNESS(*btck_Block::get(block)->Get());
         return 0;
     } catch (...) {
         return -1;
@@ -1276,7 +1338,7 @@ int btck_block_to_bytes(const btck_Block* block, btck_WriteBytes writer, void* u
 
 btck_BlockHash* btck_block_get_hash(const btck_Block* block)
 {
-    return btck_BlockHash::create(btck_Block::get(block)->GetHash());
+    return btck_BlockHash::create(btck_Block::get(block)->Get()->GetHash());
 }
 
 void btck_block_destroy(btck_Block* block)
@@ -1291,7 +1353,7 @@ btck_Block* btck_block_read(const btck_ChainstateManager* chainman, const btck_B
         LogError("Failed to read block.");
         return nullptr;
     }
-    return btck_Block::create(block);
+    return btck_Block::create(std::make_shared<const KernelBlock>(block));
 }
 
 btck_BlockHeader* btck_block_tree_entry_get_block_header(const btck_BlockTreeEntry* entry)
@@ -1428,7 +1490,7 @@ int btck_chainstate_manager_process_block(
     int* _new_block)
 {
     bool new_block;
-    auto result = btck_ChainstateManager::get(chainman).m_chainman->ProcessNewBlock(btck_Block::get(block), /*force_processing=*/true, /*min_pow_checked=*/true, /*new_block=*/&new_block);
+    auto result = btck_ChainstateManager::get(chainman).m_chainman->ProcessNewBlock(btck_Block::get(block)->Get(), /*force_processing=*/true, /*min_pow_checked=*/true, /*new_block=*/&new_block);
     if (_new_block) {
         *_new_block = new_block ? 1 : 0;
     }
@@ -1588,7 +1650,7 @@ int btck_transaction_check(const btck_Transaction* tx, btck_TxValidationState* v
 {
     auto& state = btck_TxValidationState::get(validation_state);
     state = TxValidationState{};
-    const bool ok = CheckTransaction(*btck_Transaction::get(tx), state);
+    const bool ok = CheckTransaction(btck_Transaction::get(tx)->Get(), state);
     return ok ? 1 : 0;
 }
 
