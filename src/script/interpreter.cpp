@@ -1279,6 +1279,12 @@ bool EvalScript(std::vector<std::vector<unsigned char>>& stack, std::span<const 
 
 namespace {
 
+/** Serialize the prevout of input i of tx (for Transaction, directly from its serialized data). */
+template <typename Stream, typename T>
+void SerializePrevout(Stream& s, const T& tx, uint32_t i) { ::Serialize(s, tx.GetInputPrevout(i)); }
+template <typename Stream>
+void SerializePrevout(Stream& s, const Transaction& tx, uint32_t i) { s.write(std::as_bytes(tx.GetInputPrevoutSerialization(i))); }
+
 /**
  * Wrapper that serializes like Transaction, but with the modifications
  *  required for the signature hash done in-place
@@ -1332,7 +1338,7 @@ public:
         if (fAnyoneCanPay)
             nInput = nIn;
         // Serialize the prevout
-        ::Serialize(s, txTo.GetInputPrevout(nInput));
+        SerializePrevout(s, txTo, nInput);
         // Serialize the script
         if (nInput != nIn)
             // Blank out other inputs' signatures (serialize an empty script)
@@ -1383,7 +1389,7 @@ uint256 GetPrevoutsSHA256(const T& txTo)
 {
     HashWriter ss{};
     for (uint32_t i = 0; i < txTo.GetNumInputs(); ++i) {
-        ss << txTo.GetInputPrevout(i);
+        SerializePrevout(ss, txTo, i);
     }
     return ss.GetSHA256();
 }
@@ -1569,7 +1575,7 @@ bool SignatureHashSchnorr(uint256& hash_out, ScriptExecutionData& execdata, cons
     const uint8_t spend_type = (ext_flag << 1) + (have_annex ? 1 : 0); // The low bit indicates whether an annex is present.
     ss << spend_type;
     if (input_type == SIGHASH_ANYONECANPAY) {
-        ss << tx_to.GetInputPrevout(in_pos);
+        SerializePrevout(ss, tx_to, in_pos);
         ss << cache.m_spent_outputs[in_pos];
         ss << tx_to.GetInputSequence(in_pos);
     } else {
@@ -1684,7 +1690,7 @@ uint256 SignatureHash(std::span<const unsigned char> scriptCode, const T& txTo, 
         // The input being signed (replacing the scriptSig with scriptCode + amount)
         // The prevout may already be contained in hashPrevout, and the nSequence
         // may already be contain in hashSequence.
-        ss << txTo.GetInputPrevout(nIn);
+        SerializePrevout(ss, txTo, nIn);
         ss << CompactSizeWriter(scriptCode.size()) << scriptCode;
         ss << amount;
         ss << txTo.GetInputSequence(nIn);
