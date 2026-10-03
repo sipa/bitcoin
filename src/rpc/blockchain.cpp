@@ -223,7 +223,7 @@ UniValue blockheaderToJSON(const CBlockIndex& tip, const CBlockIndex& blockindex
 /** Serialize coinbase transaction metadata */
 UniValue coinbaseTxToJSON(const CTransaction& coinbase_tx)
 {
-    CHECK_NONFATAL(!coinbase_tx.vin.empty());
+    CHECK_NONFATAL(!coinbase_tx.Inputs().empty());
     const CTxIn& vin_0{coinbase_tx.vin[0]};
     UniValue coinbase_tx_obj(UniValue::VOBJ);
     coinbase_tx_obj.pushKV("version", coinbase_tx.version);
@@ -2108,7 +2108,7 @@ static RPCMethod getblockstats()
 
     for (size_t i = 0; i < block.vtx.size(); ++i) {
         const auto& tx = block.vtx.at(i);
-        outputs += tx->vout.size();
+        outputs += tx->GetNumOutputs();
 
         CAmount tx_total_out = 0;
         if (loop_outputs) {
@@ -2133,7 +2133,7 @@ static RPCMethod getblockstats()
             continue;
         }
 
-        inputs += tx->vin.size(); // Don't count coinbase's fake input
+        inputs += tx->GetNumInputs(); // Don't count coinbase's fake input
         total_out += tx_total_out; // Don't count coinbase reward
 
         int64_t tx_size = 0;
@@ -2913,7 +2913,7 @@ static RPCMethod getdescriptoractivity()
                 // skip coinbase; spends can't happen there.
                 const auto& txundo = block_undo.vtxundo.at(i - 1);
 
-                for (size_t vin_idx = 0; vin_idx < tx->vin.size(); ++vin_idx) {
+                for (size_t vin_idx = 0; vin_idx < tx->GetNumInputs(); ++vin_idx) {
                     const auto& coin = txundo.vprevout.at(vin_idx);
                     const auto& txin = tx->vin.at(vin_idx);
                     if (scripts_to_watch.contains(coin.out.scriptPubKey)) {
@@ -2923,7 +2923,7 @@ static RPCMethod getdescriptoractivity()
                 }
             }
 
-            for (size_t vout_idx = 0; vout_idx < tx->vout.size(); ++vout_idx) {
+            for (size_t vout_idx = 0; vout_idx < tx->GetNumOutputs(); ++vout_idx) {
                 const auto& vout = tx->vout.at(vout_idx);
                 if (scripts_to_watch.contains(vout.scriptPubKey)) {
                     activity.push_back(AddReceive(vout, blockindex, vout_idx, tx));
@@ -2946,7 +2946,7 @@ static RPCMethod getdescriptoractivity()
         for (const CTxMemPoolEntry& e : mempool.entryAll()) {
             const auto& tx = e.GetSharedTx();
 
-            for (size_t vin_idx = 0; vin_idx < tx->vin.size(); ++vin_idx) {
+            for (size_t vin_idx = 0; vin_idx < tx->GetNumInputs(); ++vin_idx) {
                 CScript scriptPubKey;
                 CAmount value;
                 const auto& txin = tx->vin.at(vin_idx);
@@ -2958,7 +2958,7 @@ static RPCMethod getdescriptoractivity()
                     // child transaction of another transaction in the mempool.
                     CTransactionRef prev_tx = CHECK_NONFATAL(mempool.get(txin.prevout.hash));
 
-                    if (txin.prevout.n >= prev_tx->vout.size()) {
+                    if (txin.prevout.n >= prev_tx->GetNumOutputs()) {
                         throw std::runtime_error("Invalid output index");
                     }
                     const CTxOut& out = prev_tx->vout[txin.prevout.n];
@@ -2978,7 +2978,7 @@ static RPCMethod getdescriptoractivity()
                 }
             }
 
-            for (size_t vout_idx = 0; vout_idx < tx->vout.size(); ++vout_idx) {
+            for (size_t vout_idx = 0; vout_idx < tx->GetNumOutputs(); ++vout_idx) {
                 const auto& vout = tx->vout.at(vout_idx);
                 if (scripts_to_watch.contains(vout.scriptPubKey)) {
                     activity.push_back(AddReceive(vout, nullptr, vout_idx, tx));
