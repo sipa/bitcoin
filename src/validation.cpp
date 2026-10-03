@@ -192,9 +192,9 @@ std::optional<std::vector<int>> CalculatePrevHeights(
     const CTransaction& tx)
 {
     std::vector<int> prev_heights;
-    prev_heights.resize(tx.vin.size());
-    for (size_t i = 0; i < tx.vin.size(); ++i) {
-        if (auto coin{coins.GetCoin(tx.vin[i].prevout)}) {
+    prev_heights.resize(tx.GetNumInputs());
+    for (size_t i = 0; i < tx.GetNumInputs(); ++i) {
+        if (auto coin{coins.GetCoin(tx.GetInputPrevout(i))}) {
             prev_heights[i] = coin->nHeight == MEMPOOL_HEIGHT
                               ? tip.nHeight + 1 // Assume all mempool transaction confirm in the next block.
                               : coin->nHeight;
@@ -376,9 +376,9 @@ void Chainstate::MaybeUpdateMempoolForReorg(
 
         // If the transaction spends any coinbase outputs, it must be mature.
         if (it->GetSpendsCoinbase()) {
-            for (const CTxIn& txin : tx.vin) {
-                if (m_mempool->exists(txin.prevout.hash)) continue;
-                const Coin& coin{CoinsTip().AccessCoin(txin.prevout)};
+            for (const CTxInView txin : tx.Inputs()) {
+                if (m_mempool->exists(txin.GetPrevout().hash)) continue;
+                const Coin& coin{CoinsTip().AccessCoin(txin.GetPrevout())};
                 assert(!coin.IsSpent());
                 const auto mempool_spend_height{m_chain.Tip()->nHeight + 1};
                 if (coin.IsCoinBase() && mempool_spend_height - coin.nHeight < COINBASE_MATURITY) {
@@ -411,8 +411,8 @@ static bool CheckInputsFromMempoolAndCache(const CTransaction& tx, TxValidationS
     AssertLockHeld(pool.cs);
 
     assert(!tx.IsCoinBase());
-    for (const CTxIn& txin : tx.vin) {
-        const Coin& coin = view.AccessCoin(txin.prevout);
+    for (const CTxInView txin : tx.Inputs()) {
+        const Coin& coin = view.AccessCoin(txin.GetPrevout());
 
         // This coin was checked in PreChecks and MemPoolAccept
         // has been holding cs_main since then.
@@ -423,13 +423,13 @@ static bool CheckInputsFromMempoolAndCache(const CTransaction& tx, TxValidationS
         // it is available in our current ChainstateActive UTXO set,
         // or it's a UTXO provided by a transaction in our mempool.
         // Ensure the scriptPubKeys in Coins from CoinsView are correct.
-        const CTransactionRef& txFrom = pool.get(txin.prevout.hash);
+        const CTransactionRef& txFrom = pool.get(txin.GetPrevout().hash);
         if (txFrom) {
-            assert(txFrom->GetHash() == txin.prevout.hash);
-            assert(txFrom->vout.size() > txin.prevout.n);
-            assert(txFrom->vout[txin.prevout.n] == coin.out);
+            assert(txFrom->GetHash() == txin.GetPrevout().hash);
+            assert(txFrom->GetNumOutputs() > txin.GetPrevout().n);
+            assert(txFrom->vout[txin.GetPrevout().n] == coin.out);
         } else {
-            const Coin& coinFromUTXOSet = coins_tip.AccessCoin(txin.prevout);
+            const Coin& coinFromUTXOSet = coins_tip.AccessCoin(txin.GetPrevout());
             assert(!coinFromUTXOSet.IsSpent());
             assert(coinFromUTXOSet.out == coin.out);
         }
@@ -843,17 +843,17 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
 
     const CCoinsViewCache& coins_cache = m_active_chainstate.CoinsTip();
     // do all inputs exist?
-    for (const CTxIn& txin : tx.vin) {
-        if (!coins_cache.HaveCoinInCache(txin.prevout)) {
-            coins_to_uncache.push_back(txin.prevout);
+    for (const CTxInView txin : tx.Inputs()) {
+        if (!coins_cache.HaveCoinInCache(txin.GetPrevout())) {
+            coins_to_uncache.push_back(txin.GetPrevout());
         }
 
-        // Note: this call may add txin.prevout to the coins cache
+        // Note: this call may add txin.GetPrevout() to the coins cache
         // (coins_cache.cacheCoins) by way of FetchCoin(). It should be removed
         // later (via coins_to_uncache) if this tx turns out to be invalid.
-        if (!m_view.HaveCoin(txin.prevout)) {
+        if (!m_view.HaveCoin(txin.GetPrevout())) {
             // Are inputs missing because we already have the tx?
-            for (size_t out = 0; out < tx.vout.size(); out++) {
+            for (size_t out = 0; out < tx.GetNumOutputs(); out++) {
                 // Optimistically just do efficient check of cache for outputs
                 if (coins_cache.HaveCoinInCache(COutPoint(hash, out))) {
                     return state.Invalid(TxValidationResult::TX_CONFLICT, "txn-already-known");
@@ -1999,7 +1999,7 @@ void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, CTxUndo &txund
 {
     // mark inputs spent
     if (!tx.IsCoinBase()) {
-        txundo.vprevout.reserve(tx.vin.size());
+        txundo.vprevout.reserve(tx.GetNumInputs());
         for (const CTxIn &txin : tx.vin) {
             txundo.vprevout.emplace_back();
             bool is_spent = inputs.SpendCoin(txin.prevout, &txundo.vprevout.back());
@@ -2017,7 +2017,7 @@ std::optional<std::pair<ScriptError, std::string>> CScriptCheck::operator()() {
     if (VerifyScript(scriptSig, m_tx_out.scriptPubKey, witness, m_flags, CachingTransactionSignatureChecker(ptxTo, nIn, m_tx_out.nValue, cacheStore, *m_signature_cache, *txdata), &error)) {
         return std::nullopt;
     } else {
-        auto debug_str = strprintf("input %i of %s (wtxid %s), spending %s:%i", nIn, ptxTo->GetHash().ToString(), ptxTo->GetWitnessHash().ToString(), ptxTo->vin[nIn].prevout.hash.ToString(), ptxTo->vin[nIn].prevout.n);
+        auto debug_str = strprintf("input %i of %s (wtxid %s), spending %s:%i", nIn, ptxTo->GetHash().ToString(), ptxTo->GetWitnessHash().ToString(), ptxTo->GetInputPrevout(nIn).hash.ToString(), ptxTo->GetInputPrevout(nIn).n);
         return std::make_pair(error, std::move(debug_str));
     }
 }
@@ -2066,7 +2066,7 @@ bool CheckInputScripts(const CTransaction& tx, TxValidationState& state,
     if (tx.IsCoinBase()) return true;
 
     if (pvChecks) {
-        pvChecks->reserve(tx.vin.size());
+        pvChecks->reserve(tx.GetNumInputs());
     }
 
     // First check if script executions have been cached with the same
@@ -2084,19 +2084,19 @@ bool CheckInputScripts(const CTransaction& tx, TxValidationState& state,
 
     if (!txdata.m_spent_outputs_ready) {
         std::vector<CTxOut> spent_outputs;
-        spent_outputs.reserve(tx.vin.size());
+        spent_outputs.reserve(tx.GetNumInputs());
 
-        for (const auto& txin : tx.vin) {
-            const COutPoint& prevout = txin.prevout;
+        for (const CTxInView txin : tx.Inputs()) {
+            const COutPoint& prevout = txin.GetPrevout();
             const Coin& coin = inputs.AccessCoin(prevout);
             assert(!coin.IsSpent());
             spent_outputs.emplace_back(coin.out);
         }
         txdata.Init(tx, std::move(spent_outputs));
     }
-    assert(txdata.m_spent_outputs.size() == tx.vin.size());
+    assert(txdata.m_spent_outputs.size() == tx.GetNumInputs());
 
-    for (unsigned int i = 0; i < tx.vin.size(); i++) {
+    for (unsigned int i = 0; i < tx.GetNumInputs(); i++) {
 
         // We very carefully only pass in things to CScriptCheck which
         // are clearly committed to by tx' witness hash. This provides
@@ -2209,7 +2209,7 @@ DisconnectResult Chainstate::DisconnectBlock(const CBlock& block, const CBlockIn
 
         // Check that all outputs are available and match the outputs in the block itself
         // exactly.
-        for (size_t o = 0; o < tx.vout.size(); o++) {
+        for (size_t o = 0; o < tx.GetNumOutputs(); o++) {
             if (!tx.vout[o].scriptPubKey.IsUnspendable()) {
                 COutPoint out(hash, o);
                 Coin coin;
@@ -2225,13 +2225,13 @@ DisconnectResult Chainstate::DisconnectBlock(const CBlock& block, const CBlockIn
         // restore inputs
         if (i > 0) { // not coinbases
             CTxUndo &txundo = blockUndo.vtxundo[i-1];
-            if (txundo.vprevout.size() != tx.vin.size()) {
+            if (txundo.vprevout.size() != tx.GetNumInputs()) {
                 LogError("DisconnectBlock(): transaction and undo data inconsistent\n");
                 return DISCONNECT_FAILED;
             }
-            for (unsigned int j = tx.vin.size(); j > 0;) {
+            for (unsigned int j = tx.GetNumInputs(); j > 0;) {
                 --j;
-                const COutPoint& out = tx.vin[j].prevout;
+                const COutPoint& out = tx.GetInputPrevout(j);
                 int res = ApplyTxInUndo(std::move(txundo.vprevout[j]), view, out);
                 if (res == DISCONNECT_FAILED) return DISCONNECT_FAILED;
                 fClean = fClean && res != DISCONNECT_UNCLEAN;
@@ -2465,7 +2465,7 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
     // duplicate earlier coinbases.
     if (fEnforceBIP30 || pindex->nHeight >= BIP34_IMPLIES_BIP30_LIMIT) {
         for (const auto& tx : block.vtx) {
-            for (size_t o = 0; o < tx->vout.size(); o++) {
+            for (size_t o = 0; o < tx->GetNumOutputs(); o++) {
                 if (view.HaveCoin(COutPoint(tx->GetHash(), o))) {
                     state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-txns-BIP30",
                                   "tried to overwrite transaction");
@@ -2524,7 +2524,7 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
         if (!state.IsValid()) break;
         const CTransaction &tx = *(block.vtx[i]);
 
-        nInputs += tx.vin.size();
+        nInputs += tx.GetNumInputs();
 
         if (!tx.IsCoinBase())
         {
@@ -2547,9 +2547,9 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
             // Check that transaction is BIP68 final
             // BIP68 lock checks (as opposed to nLockTime checks) must
             // be in ConnectBlock because they require the UTXO set
-            prevheights.resize(tx.vin.size());
-            for (size_t j = 0; j < tx.vin.size(); j++) {
-                prevheights[j] = view.AccessCoin(tx.vin[j].prevout).nHeight;
+            prevheights.resize(tx.GetNumInputs());
+            for (size_t j = 0; j < tx.GetNumInputs(); j++) {
+                prevheights[j] = view.AccessCoin(tx.GetInputPrevout(j)).nHeight;
             }
 
             if (!SequenceLocks(tx, nLockTimeFlags, prevheights, *pindex)) {
@@ -3882,7 +3882,7 @@ static bool CheckWitnessMalleation(const CBlock& block, bool expect_witness_comm
 
         int commitpos = GetWitnessCommitmentIndex(block);
         if (commitpos != NO_WITNESS_COMMITMENT) {
-            assert(!block.vtx.empty() && !block.vtx[0]->vin.empty());
+            assert(!block.vtx.empty() && !block.vtx[0]->Inputs().empty());
             const auto& witness_stack{block.vtx[0]->vin[0].scriptWitness.stack};
 
             if (witness_stack.size() != 1 || witness_stack[0].size() != 32) {
