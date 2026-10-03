@@ -380,7 +380,7 @@ BOOST_FIXTURE_TEST_CASE(updatecoins_simulation_test, UpdateTest)
                 if (randiter % 20 == 2 && disconnected_coins.size()) {
                     auto utxod = FindRandomFrom(disconnected_coins);
                     tx = CMutableTransaction{std::get<0>(utxod->second)};
-                    prevout = tx.vin[0].prevout;
+                    prevout = tx.GetInputPrevout(0);
                     if (!CTransaction(tx).IsCoinBase() && !utxoset.contains(prevout)) {
                         disconnected_coins.erase(utxod->first);
                         continue;
@@ -418,7 +418,7 @@ BOOST_FIXTURE_TEST_CASE(updatecoins_simulation_test, UpdateTest)
 
             }
             // Update the expected result to know about the new output coins
-            assert(tx.vout.size() == 1);
+            assert(tx.GetNumOutputs() == 1);
             const COutPoint outpoint(tx.GetHash(), 0);
             result[outpoint] = Coin{tx.vout[0], height, CTransaction{tx}.IsCoinBase()};
 
@@ -444,7 +444,7 @@ BOOST_FIXTURE_TEST_CASE(updatecoins_simulation_test, UpdateTest)
             result[utxod->first].Clear();
             // If not coinbase restore prevout
             if (!tx.IsCoinBase()) {
-                result[tx.vin[0].prevout] = orig_coin;
+                result[tx.GetInputPrevout(0)] = orig_coin;
             }
 
             // Disconnect the tx from the current UTXO
@@ -453,7 +453,7 @@ BOOST_FIXTURE_TEST_CASE(updatecoins_simulation_test, UpdateTest)
             BOOST_CHECK(stack.back()->SpendCoin(utxod->first));
             // restore inputs
             if (!tx.IsCoinBase()) {
-                const COutPoint &out = tx.vin[0].prevout;
+                const COutPoint &out = tx.GetInputPrevout(0);
                 Coin coin = undo.vprevout[0];
                 ApplyTxInUndo(std::move(coin), *(stack.back()), out);
             }
@@ -463,7 +463,7 @@ BOOST_FIXTURE_TEST_CASE(updatecoins_simulation_test, UpdateTest)
             // Update the utxoset
             utxoset.erase(utxod->first);
             if (!tx.IsCoinBase())
-                utxoset.insert(tx.vin[0].prevout);
+                utxoset.insert(tx.GetInputPrevout(0));
         }
 
         // Once every 1000 iterations and at the end, verify the full cache.

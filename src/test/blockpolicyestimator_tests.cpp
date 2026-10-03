@@ -57,7 +57,7 @@ BOOST_AUTO_TEST_CASE(BlockPolicyEstimates)
     while (blocknum < 200) {
         for (int j = 0; j < 10; j++) { // For each fee
             for (int k = 0; k < 4; k++) { // add 4 fee txs
-                tx.vin[0].prevout.n = 10000*blocknum+100*j+k; // make transaction unique
+                tx.GetInputPrevout(0).n = 10000*blocknum+100*j+k; // make transaction unique
                 // Simulate the tx being added to the mempool by calling processTransaction(tx_info)
                 mempool_txs[j].emplace_back(entry.Fee(feeV[j]).Time(Now<NodeSeconds>()).Height(blocknum).FromTx(tx));
                 const int64_t virtual_size = GetVirtualTransactionSize(*MakeTransactionRef(tx));
@@ -138,7 +138,7 @@ BOOST_AUTO_TEST_CASE(BlockPolicyEstimates)
     while (blocknum < 265) {
         for (int j = 0; j < 10; j++) { // For each fee multiple
             for (int k = 0; k < 4; k++) { // add 4 fee txs
-                tx.vin[0].prevout.n = 10000*blocknum+100*j+k;
+                tx.GetInputPrevout(0).n = 10000*blocknum+100*j+k;
                 // Simulate the tx being added to the mempool by calling processTransaction(tx_info)
                 mempool_txs[j].emplace_back(entry.Fee(feeV[j]).Time(Now<NodeSeconds>()).Height(blocknum).FromTx(tx));
                 const int64_t virtual_size = GetVirtualTransactionSize(*MakeTransactionRef(tx));
@@ -183,7 +183,7 @@ BOOST_AUTO_TEST_CASE(BlockPolicyEstimates)
     while (blocknum < 665) {
         for (int j = 0; j < 10; j++) { // For each fee multiple
             for (int k = 0; k < 4; k++) { // add 4 fee txs
-                tx.vin[0].prevout.n = 10000*blocknum+100*j+k;
+                tx.GetInputPrevout(0).n = 10000*blocknum+100*j+k;
                 // These txs are mined in the same block, so there is no need to
                 // retain them in mempool_txs; use a local entry to build block_txs.
                 const CTxMemPoolEntry tx_entry{entry.Fee(feeV[j]).Time(Now<NodeSeconds>()).Height(blocknum).FromTx(tx)};

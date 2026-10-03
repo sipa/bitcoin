@@ -29,8 +29,8 @@ static inline CTransactionRef MakeRandomTx()
     auto tx = CMutableTransaction();
     tx.vin.resize(1);
     tx.vout.resize(1);
-    tx.vin[0].prevout.hash = Txid::FromUint256(rng.rand256());
-    tx.vin[0].prevout.n = 0;
+    tx.GetInputPrevout(0).hash = Txid::FromUint256(rng.rand256());
+    tx.GetInputPrevout(0).n = 0;
     tx.vin[0].scriptSig << OP_TRUE;
     tx.vout[0].scriptPubKey = CScript() << OP_TRUE;
     tx.vout[0].nValue = COIN;

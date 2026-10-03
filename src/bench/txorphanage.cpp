@@ -54,7 +54,7 @@ static CTransactionRef MakeTransactionSpendingUpTo(const std::vector<CTxIn>& inp
         if (GetTransactionWeight(*MakeTransactionRef(tx)) + APPROX_WEIGHT_PER_INPUT >= weight_limit) break;
         tx.vin.emplace_back(inputs.at(i % inputs.size()));
     }
-    assert(tx.vin.size() > 0);
+    assert(tx.GetNumInputs() > 0);
     return MakeTransactionRef(tx);
 }
 static void OrphanageSinglePeerEviction(benchmark::Bench& bench)

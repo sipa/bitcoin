@@ -91,7 +91,7 @@ struct OutpointsUpdater final : public CValidationInterface {
         // for coins spent we always want to be able to rbf so they're not removed
 
         // outputs from this tx can now be spent
-        for (uint32_t index{0}; index < tx.info.m_tx->vout.size(); ++index) {
+        for (uint32_t index{0}; index < tx.info.m_tx->GetNumOutputs(); ++index) {
             m_mempool_outpoints.insert(COutPoint{tx.info.m_tx->GetHash(), index});
         }
     }
@@ -99,12 +99,12 @@ struct OutpointsUpdater final : public CValidationInterface {
     void TransactionRemovedFromMempool(const CTransactionRef& tx, MemPoolRemovalReason reason, uint64_t /* mempool_sequence */) override
     {
         // outpoints spent by this tx are now available
-        for (const auto& input : tx->vin) {
+        for (const CTxInView input : tx->Inputs()) {
             // Could already exist if this was a replacement
-            m_mempool_outpoints.insert(input.prevout);
+            m_mempool_outpoints.insert(input.GetPrevout());
         }
         // outpoints created by this tx no longer exist
-        for (uint32_t index{0}; index < tx->vout.size(); ++index) {
+        for (uint32_t index{0}; index < tx->GetNumOutputs(); ++index) {
             m_mempool_outpoints.erase(COutPoint{tx->GetHash(), index});
         }
     }
@@ -200,9 +200,9 @@ std::optional<COutPoint> GetChildEvictingPrevout(const CTxMemPool& tx_pool)
                 Assert(children.size() == 1);
                 // Find an input that doesn't spend from parent's txid
                 const auto& only_child = children.begin()->get().GetTx();
-                for (const auto& tx_input : only_child.vin) {
-                    if (tx_input.prevout.hash != tx_info.tx->GetHash()) {
-                        return tx_input.prevout;
+                for (const CTxInView tx_input : only_child.Inputs()) {
+                    if (tx_input.GetPrevout().hash != tx_info.tx->GetHash()) {
+                        return tx_input.GetPrevout();
                     }
                 }
             }
@@ -308,17 +308,17 @@ FUZZ_TARGET(ephemeral_package_eval, .init = initialize_tx_pool)
                 auto tx = MakeTransactionRef(tx_mut);
                 // Restore previously removed outpoints, except in-package outpoints (to allow RBF)
                 if (!last_tx) {
-                    for (const auto& in : tx->vin) {
-                        Assert(outpoints.insert(in.prevout).second);
+                    for (const CTxInView in : tx->Inputs()) {
+                        Assert(outpoints.insert(in.GetPrevout()).second);
                     }
                     // Cache the in-package outpoints being made
-                    for (size_t i = 0; i < tx->vout.size(); ++i) {
+                    for (size_t i = 0; i < tx->GetNumOutputs(); ++i) {
                         package_outpoints.emplace(tx->GetHash(), i);
                     }
                 }
                 // We need newly-created values for the duration of this run
-                for (size_t i = 0; i < tx->vout.size(); ++i) {
-                    outpoints_value[COutPoint(tx->GetHash(), i)] = tx->vout[i].nValue;
+                for (size_t i = 0; i < tx->GetNumOutputs(); ++i) {
+                    outpoints_value[COutPoint(tx->GetHash(), i)] = tx->GetOutputValue(i);
                 }
                 return tx;
             }());
@@ -473,13 +473,13 @@ FUZZ_TARGET(tx_package_eval, .init = initialize_tx_pool)
                         Assert(in == CTxIn() || outpoints.insert(in.prevout).second || dup_input);
                     }
                     // Cache the in-package outpoints being made
-                    for (size_t i = 0; i < tx->vout.size(); ++i) {
+                    for (size_t i = 0; i < tx->GetNumOutputs(); ++i) {
                         package_outpoints.emplace(tx->GetHash(), i);
                     }
                 }
                 // We need newly-created values for the duration of this run
-                for (size_t i = 0; i < tx->vout.size(); ++i) {
-                    outpoints_value[COutPoint(tx->GetHash(), i)] = tx->vout[i].nValue;
+                for (size_t i = 0; i < tx->GetNumOutputs(); ++i) {
+                    outpoints_value[COutPoint(tx->GetHash(), i)] = tx->GetOutputValue(i);
                 }
                 return tx;
             }());
