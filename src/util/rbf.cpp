@@ -10,8 +10,8 @@
 
 bool SignalsOptInRBF(const CTransaction &tx)
 {
-    for (const CTxIn &txin : tx.vin) {
-        if (txin.nSequence <= MAX_BIP125_RBF_SEQUENCE) {
+    for (const CTxInView txin : tx.Inputs()) {
+        if (txin.GetSequence() <= MAX_BIP125_RBF_SEQUENCE) {
             return true;
         }
     }

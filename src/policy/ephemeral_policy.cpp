@@ -62,7 +62,7 @@ bool CheckEphemeralSpends(const Package& package, CFeeRate dust_relay_rate, cons
             // Check for dust on parents
             if (parent_ref) {
                 for (uint32_t out_index = 0; out_index < parent_ref->GetNumOutputs(); out_index++) {
-                    const auto& tx_output = parent_ref->vout[out_index];
+                    const CTxOut tx_output{parent_ref->GetOutput(out_index).ToTxOut()};
                     if (IsDust(tx_output, dust_relay_rate)) {
                         unspent_parent_dust.insert(COutPoint(parent_txid, out_index));
                     }
