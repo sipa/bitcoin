@@ -89,7 +89,7 @@ FUZZ_TARGET(script_sign, .init = initialize_script_sign)
         const std::optional<CMutableTransaction> mutable_transaction = ConsumeDeserializable<CMutableTransaction>(fuzzed_data_provider, TX_WITH_WITNESS);
         const std::optional<CTxOut> tx_out = ConsumeDeserializable<CTxOut>(fuzzed_data_provider);
         const unsigned int n_in = fuzzed_data_provider.ConsumeIntegral<unsigned int>();
-        if (mutable_transaction && tx_out && mutable_transaction->vin.size() > n_in) {
+        if (mutable_transaction && tx_out && mutable_transaction->GetNumInputs() > n_in) {
             SignatureData signature_data_1 = DataFromTransaction(*mutable_transaction, n_in, *tx_out);
             CTxIn input;
             UpdateInput(input, signature_data_1);
@@ -106,11 +106,11 @@ FUZZ_TARGET(script_sign, .init = initialize_script_sign)
             }
             CMutableTransaction script_tx_to = tx_to;
             CMutableTransaction sign_transaction_tx_to = tx_to;
-            if (n_in < tx_to.vin.size() && tx_to.vin[n_in].prevout.n < tx_from.vout.size()) {
+            if (n_in < tx_to.GetNumInputs() && tx_to.GetInputPrevout(n_in).n < tx_from.GetNumOutputs()) {
                 SignatureData empty;
                 (void)SignSignature(provider, tx_from, tx_to, n_in, fuzzed_data_provider.ConsumeIntegral<int>(), empty);
             }
-            if (n_in < script_tx_to.vin.size()) {
+            if (n_in < script_tx_to.GetNumInputs()) {
                 SignatureData empty;
                 auto from_pub_key = ConsumeScript(fuzzed_data_provider);
                 auto amount = ConsumeMoney(fuzzed_data_provider);

@@ -14,7 +14,7 @@ CMutableTransaction BuildCreditingTransaction(const CScript& scriptPubKey, CAmou
     txCredit.nLockTime = 0;
     txCredit.vin.resize(1);
     txCredit.vout.resize(1);
-    txCredit.vin[0].prevout.SetNull();
+    txCredit.GetInputPrevout(0).SetNull();
     txCredit.vin[0].scriptSig = CScript() << CScriptNum(0) << CScriptNum(0);
     txCredit.vin[0].nSequence = CTxIn::SEQUENCE_FINAL;
     txCredit.vout[0].scriptPubKey = scriptPubKey;
@@ -31,12 +31,12 @@ CMutableTransaction BuildSpendingTransaction(const CScript& scriptSig, const CSc
     txSpend.vin.resize(1);
     txSpend.vout.resize(1);
     txSpend.vin[0].scriptWitness = scriptWitness;
-    txSpend.vin[0].prevout.hash = txCredit.GetHash();
-    txSpend.vin[0].prevout.n = 0;
+    txSpend.GetInputPrevout(0).hash = txCredit.GetHash();
+    txSpend.GetInputPrevout(0).n = 0;
     txSpend.vin[0].scriptSig = scriptSig;
     txSpend.vin[0].nSequence = CTxIn::SEQUENCE_FINAL;
     txSpend.vout[0].scriptPubKey = CScript();
-    txSpend.vout[0].nValue = txCredit.vout[0].nValue;
+    txSpend.vout[0].nValue = txCredit.GetOutputValue(0);
 
     return txSpend;
 }
@@ -93,7 +93,7 @@ void BulkTransaction(CMutableTransaction& tx, int32_t target_weight)
 
 bool SignSignature(const SigningProvider &provider, const CScript& fromPubKey, CMutableTransaction& txTo, unsigned int nIn, const CAmount& amount, int nHashType, SignatureData& sig_data)
 {
-    assert(nIn < txTo.vin.size());
+    assert(nIn < txTo.GetNumInputs());
 
     MutableTransactionSignatureCreator creator(txTo, nIn, amount, {.sighash_type = nHashType});
 
@@ -104,9 +104,9 @@ bool SignSignature(const SigningProvider &provider, const CScript& fromPubKey, C
 
 bool SignSignature(const SigningProvider &provider, const CTransaction& txFrom, CMutableTransaction& txTo, unsigned int nIn, int nHashType, SignatureData& sig_data)
 {
-    assert(nIn < txTo.vin.size());
+    assert(nIn < txTo.GetNumInputs());
     const CTxIn& txin = txTo.vin[nIn];
-    assert(txin.prevout.n < txFrom.vout.size());
+    assert(txin.prevout.n < txFrom.GetNumOutputs());
     const CTxOut& txout = txFrom.vout[txin.prevout.n];
 
     return SignSignature(provider, txout.scriptPubKey, txTo, nIn, txout.nValue, nHashType, sig_data);
