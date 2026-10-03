@@ -155,15 +155,15 @@ inline int GetWitnessCommitmentIndex(const CBlock& block)
 {
     int commitpos = NO_WITNESS_COMMITMENT;
     if (!block.vtx.empty()) {
-        for (size_t o = 0; o < block.vtx[0]->GetNumOutputs(); o++) {
-            const CTxOut& vout = block.vtx[0]->vout[o];
-            if (vout.scriptPubKey.size() >= MINIMUM_WITNESS_COMMITMENT &&
-                vout.scriptPubKey[0] == OP_RETURN &&
-                vout.scriptPubKey[1] == 0x24 &&
-                vout.scriptPubKey[2] == 0xaa &&
-                vout.scriptPubKey[3] == 0x21 &&
-                vout.scriptPubKey[4] == 0xa9 &&
-                vout.scriptPubKey[5] == 0xed) {
+        for (uint32_t o = 0; o < block.vtx[0]->GetNumOutputs(); o++) {
+            const std::span<const unsigned char> script_pub_key{block.vtx[0]->GetOutputScriptPubKey(o)};
+            if (script_pub_key.size() >= MINIMUM_WITNESS_COMMITMENT &&
+                script_pub_key[0] == OP_RETURN &&
+                script_pub_key[1] == 0x24 &&
+                script_pub_key[2] == 0xaa &&
+                script_pub_key[3] == 0x21 &&
+                script_pub_key[4] == 0xa9 &&
+                script_pub_key[5] == 0xed) {
                 commitpos = o;
             }
         }

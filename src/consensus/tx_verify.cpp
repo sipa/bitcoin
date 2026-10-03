@@ -20,11 +20,11 @@
 #include <cstddef>
 #include <string>
 
-bool IsFinalTx(const CTransaction &tx, int nBlockHeight, int64_t nBlockTime)
+bool IsFinalTx(const CTransaction& tx, int nBlockHeight, int64_t nBlockTime)
 {
-    if (tx.nLockTime == 0)
+    if (tx.GetLockTime() == 0)
         return true;
-    if ((int64_t)tx.nLockTime < ((int64_t)tx.nLockTime < LOCKTIME_THRESHOLD ? (int64_t)nBlockHeight : nBlockTime))
+    if ((int64_t)tx.GetLockTime() < ((int64_t)tx.GetLockTime() < LOCKTIME_THRESHOLD ? (int64_t)nBlockHeight : nBlockTime))
         return true;
 
     // Even if tx.nLockTime isn't satisfied by nBlockHeight/nBlockTime, a
@@ -42,7 +42,7 @@ bool IsFinalTx(const CTransaction &tx, int nBlockHeight, int64_t nBlockTime)
     return true;
 }
 
-std::pair<int, int64_t> CalculateSequenceLocks(const CTransaction &tx, int flags, std::vector<int>& prevHeights, const CBlockIndex& block)
+std::pair<int, int64_t> CalculateSequenceLocks(const CTransaction& tx, int flags, std::vector<int>& prevHeights, const CBlockIndex& block)
 {
     assert(prevHeights.size() == tx.GetNumInputs());
 
@@ -54,7 +54,7 @@ std::pair<int, int64_t> CalculateSequenceLocks(const CTransaction &tx, int flags
     int nMinHeight = -1;
     int64_t nMinTime = -1;
 
-    bool fEnforceBIP68 = tx.version >= 2 && flags & LOCKTIME_VERIFY_SEQUENCE;
+    bool fEnforceBIP68 = tx.GetVersion() >= 2 && flags & LOCKTIME_VERIFY_SEQUENCE;
 
     // Do not enforce sequence numbers as a relative lock time
     // unless we have been instructed to
@@ -63,12 +63,12 @@ std::pair<int, int64_t> CalculateSequenceLocks(const CTransaction &tx, int flags
     }
 
     for (size_t txinIndex = 0; txinIndex < tx.GetNumInputs(); txinIndex++) {
-        const CTxIn& txin = tx.vin[txinIndex];
+        const CTxInView txin{tx.GetInput(txinIndex)};
 
         // Sequence numbers with the most significant bit set are not
         // treated as relative lock-times, nor are they given any
         // consensus-enforced meaning at this point.
-        if (txin.nSequence & CTxIn::SEQUENCE_LOCKTIME_DISABLE_FLAG) {
+        if (txin.GetSequence() & CTxIn::SEQUENCE_LOCKTIME_DISABLE_FLAG) {
             // The height of this input is not relevant for sequence locks
             prevHeights[txinIndex] = 0;
             continue;
@@ -76,7 +76,7 @@ std::pair<int, int64_t> CalculateSequenceLocks(const CTransaction &tx, int flags
 
         int nCoinHeight = prevHeights[txinIndex];
 
-        if (txin.nSequence & CTxIn::SEQUENCE_LOCKTIME_TYPE_FLAG) {
+        if (txin.GetSequence() & CTxIn::SEQUENCE_LOCKTIME_TYPE_FLAG) {
             const int64_t nCoinTime{Assert(block.GetAncestor(std::max(nCoinHeight - 1, 0)))->GetMedianTimePast()};
             // NOTE: Subtract 1 to maintain nLockTime semantics
             // BIP 68 relative lock times have the semantics of calculating
@@ -91,9 +91,9 @@ std::pair<int, int64_t> CalculateSequenceLocks(const CTransaction &tx, int flags
             // smallest allowed timestamp of the block containing the
             // txout being spent, which is the median time past of the
             // block prior.
-            nMinTime = std::max(nMinTime, nCoinTime + (int64_t)((txin.nSequence & CTxIn::SEQUENCE_LOCKTIME_MASK) << CTxIn::SEQUENCE_LOCKTIME_GRANULARITY) - 1);
+            nMinTime = std::max(nMinTime, nCoinTime + (int64_t)((txin.GetSequence() & CTxIn::SEQUENCE_LOCKTIME_MASK) << CTxIn::SEQUENCE_LOCKTIME_GRANULARITY) - 1);
         } else {
-            nMinHeight = std::max(nMinHeight, nCoinHeight + (int)(txin.nSequence & CTxIn::SEQUENCE_LOCKTIME_MASK) - 1);
+            nMinHeight = std::max(nMinHeight, nCoinHeight + (int)(txin.GetSequence() & CTxIn::SEQUENCE_LOCKTIME_MASK) - 1);
         }
     }
 
@@ -110,7 +110,7 @@ bool EvaluateSequenceLocks(const CBlockIndex& block, std::pair<int, int64_t> loc
     return true;
 }
 
-bool SequenceLocks(const CTransaction &tx, int flags, std::vector<int>& prevHeights, const CBlockIndex& block)
+bool SequenceLocks(const CTransaction& tx, int flags, std::vector<int>& prevHeights, const CBlockIndex& block)
 {
     return EvaluateSequenceLocks(block, CalculateSequenceLocks(tx, flags, prevHeights, block));
 }
@@ -118,13 +118,13 @@ bool SequenceLocks(const CTransaction &tx, int flags, std::vector<int>& prevHeig
 unsigned int GetLegacySigOpCount(const CTransaction& tx)
 {
     unsigned int nSigOps = 0;
-    for (const auto& txin : tx.vin)
+    for (const CTxInView txin : tx.Inputs())
     {
-        nSigOps += txin.scriptSig.GetSigOpCount(false);
+        nSigOps += GetSigOpCount(txin.GetScriptSig(), /*fAccurate=*/false);
     }
-    for (const auto& txout : tx.vout)
+    for (const CTxOutView txout : tx.Outputs())
     {
-        nSigOps += txout.scriptPubKey.GetSigOpCount(false);
+        nSigOps += GetSigOpCount(txout.GetScriptPubKey(), /*fAccurate=*/false);
     }
     return nSigOps;
 }
@@ -141,7 +141,7 @@ unsigned int GetP2SHSigOpCount(const CTransaction& tx, const CCoinsViewCache& in
         assert(!coin.IsSpent());
         const CTxOut &prevout = coin.out;
         if (prevout.scriptPubKey.IsPayToScriptHash())
-            nSigOps += prevout.scriptPubKey.GetSigOpCount(tx.vin[i].scriptSig);
+            nSigOps += GetSigOpCount(prevout.scriptPubKey, tx.GetInputScriptSig(i));
     }
     return nSigOps;
 }
@@ -162,7 +162,7 @@ int64_t GetTransactionSigOpCost(const CTransaction& tx, const CCoinsViewCache& i
         const Coin& coin = inputs.AccessCoin(tx.GetInputPrevout(i));
         assert(!coin.IsSpent());
         const CTxOut &prevout = coin.out;
-        nSigOps += CountWitnessSigOps(tx.vin[i].scriptSig, prevout.scriptPubKey, tx.vin[i].scriptWitness, flags);
+        nSigOps += CountWitnessSigOps(tx.GetInputScriptSig(i), prevout.scriptPubKey, tx.GetInputWitness(i), flags);
     }
     return nSigOps;
 }
