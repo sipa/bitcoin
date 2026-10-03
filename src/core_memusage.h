@@ -29,7 +29,7 @@ static inline size_t RecursiveDynamicUsage(const CTxOut& out) {
     return RecursiveDynamicUsage(out.scriptPubKey);
 }
 
-static inline size_t RecursiveDynamicUsage(const CTransaction& tx) {
+static inline size_t RecursiveDynamicUsage(const Transaction& tx) {
     return tx.DynamicMemoryUsage();
 }
 

@@ -98,7 +98,7 @@ FUZZ_TARGET(script_sign, .init = initialize_script_sign)
             signature_data_1.MergeSignatureData(signature_data_2);
         }
         if (mutable_transaction) {
-            CTransaction tx_from{*mutable_transaction};
+            Transaction tx_from{*mutable_transaction};
             CMutableTransaction tx_to;
             const std::optional<CMutableTransaction> opt_tx_to = ConsumeDeserializable<CMutableTransaction>(fuzzed_data_provider, TX_WITH_WITNESS);
             if (opt_tx_to) {

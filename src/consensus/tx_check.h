@@ -12,9 +12,9 @@
  * belongs in tx_verify.h/cpp instead.
  */
 
-class CTransaction;
+class Transaction;
 class TxValidationState;
 
-bool CheckTransaction(const CTransaction& tx, TxValidationState& state);
+bool CheckTransaction(const Transaction& tx, TxValidationState& state);
 
 #endif // BITCOIN_CONSENSUS_TX_CHECK_H

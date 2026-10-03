@@ -20,7 +20,7 @@ CMutableTransaction BuildCreditingTransaction(const CScript& scriptPubKey, CAmou
 // create spending transaction
 // [1 input with referenced transaction outpoint, scriptSig, scriptWitness =>
 //  1 output with empty scriptPubKey, full value of referenced transaction]
-CMutableTransaction BuildSpendingTransaction(const CScript& scriptSig, const CScriptWitness& scriptWitness, const CTransaction& txCredit);
+CMutableTransaction BuildSpendingTransaction(const CScript& scriptSig, const CScriptWitness& scriptWitness, const Transaction& txCredit);
 
 // Helper: create two dummy transactions, each with two outputs.
 // The first has nValues[0] and nValues[1] outputs paid to a TxoutType::PUBKEY,
@@ -47,7 +47,7 @@ void BulkTransaction(CMutableTransaction& tx, int32_t target_weight);
  **/
 bool SignSignature(const SigningProvider &provider, const CScript& fromPubKey, CMutableTransaction& txTo,
                    unsigned int nIn, const CAmount& amount, int nHashType, SignatureData& sig_data);
-bool SignSignature(const SigningProvider &provider, const CTransaction& txFrom, CMutableTransaction& txTo,
+bool SignSignature(const SigningProvider &provider, const Transaction& txFrom, CMutableTransaction& txTo,
                    unsigned int nIn, int nHashType, SignatureData& sig_data);
 
 #endif // BITCOIN_TEST_UTIL_TRANSACTION_UTILS_H

@@ -130,7 +130,7 @@ void CCoinsViewCache::EmplaceCoinInternalDANGER(const COutPoint& outpoint, Coin&
     }
 }
 
-void AddCoins(CCoinsViewCache& cache, const CTransaction& tx, int nHeight, bool check_for_overwrite) {
+void AddCoins(CCoinsViewCache& cache, const Transaction& tx, int nHeight, bool check_for_overwrite) {
     bool fCoinbase = tx.IsCoinBase();
     const Txid& txid = tx.GetHash();
     for (size_t i = 0; i < tx.GetNumOutputs(); ++i) {
@@ -319,7 +319,7 @@ unsigned int CCoinsViewCache::GetCacheSize() const {
     return cacheCoins.size();
 }
 
-bool CCoinsViewCache::HaveInputs(const CTransaction& tx) const
+bool CCoinsViewCache::HaveInputs(const Transaction& tx) const
 {
     if (!tx.IsCoinBase()) {
         for (unsigned int i = 0; i < tx.GetNumInputs(); i++) {

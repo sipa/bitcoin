@@ -74,7 +74,7 @@ static void VerifyScriptBench(benchmark::Bench& bench, ScriptType script_type)
         assert(false);
     }()};
     const CMutableTransaction& txCredit = BuildCreditingTransaction(GetScriptForDestination(dest), 1);
-    CMutableTransaction txSpend = BuildSpendingTransaction(/*scriptSig=*/{}, /*scriptWitness=*/{}, CTransaction(txCredit));
+    CMutableTransaction txSpend = BuildSpendingTransaction(/*scriptSig=*/{}, /*scriptWitness=*/{}, Transaction(txCredit));
 
     // Sign spending transaction, precompute transaction data
     PrecomputedTransactionData txdata;
