@@ -324,9 +324,9 @@ QString TransactionDesc::toHTML(interfaces::Node& node, interfaces::Wallet& wall
         strHTML += "<br><b>" + tr("Inputs") + ":</b>";
         strHTML += "<ul>";
 
-        for (const CTxIn& txin : wtx.tx->vin)
+        for (const CTxInView txin : wtx.tx->Inputs())
         {
-            COutPoint prevout = txin.prevout;
+            COutPoint prevout = txin.GetPrevout();
 
             if (auto prev{node.getUnspentOutput(prevout)}) {
                 {
