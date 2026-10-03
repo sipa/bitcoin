@@ -21,7 +21,7 @@
 
 class CCoinsViewCache;
 
-static void AddTx(const CTransactionRef& tx, CTxMemPool& pool, FastRandomContext& det_rand) EXCLUSIVE_LOCKS_REQUIRED(cs_main, pool.cs)
+static void AddTx(const TransactionRef& tx, CTxMemPool& pool, FastRandomContext& det_rand) EXCLUSIVE_LOCKS_REQUIRED(cs_main, pool.cs)
 {
     int64_t nTime = 0;
     unsigned int nHeight = 1;
@@ -33,17 +33,17 @@ static void AddTx(const CTransactionRef& tx, CTxMemPool& pool, FastRandomContext
 }
 
 struct Available {
-    CTransactionRef ref;
+    TransactionRef ref;
     size_t vin_left{0};
     size_t tx_count;
-    Available(CTransactionRef& ref, size_t tx_count) : ref(ref), tx_count(tx_count){}
+    Available(TransactionRef& ref, size_t tx_count) : ref(ref), tx_count(tx_count){}
 };
 
 // Create a cluster of transactions, randomly.
-static std::vector<CTransactionRef> CreateCoinCluster(FastRandomContext& det_rand, int childTxs, int min_ancestors)
+static std::vector<TransactionRef> CreateCoinCluster(FastRandomContext& det_rand, int childTxs, int min_ancestors)
 {
     std::vector<Available> available_coins;
-    std::vector<CTransactionRef> ordered_coins;
+    std::vector<TransactionRef> ordered_coins;
     // Create some base transactions
     size_t tx_counter = 1;
     for (auto x = 0; x < 10; ++x) {
@@ -103,7 +103,7 @@ static void MemPoolAddTransactions(benchmark::Bench& bench)
     const auto testing_setup = MakeNoLogFileContext<const TestingSetup>(ChainType::MAIN);
     CTxMemPool& pool = *testing_setup.get()->m_node.mempool;
 
-    std::vector<CTransactionRef> transactions;
+    std::vector<TransactionRef> transactions;
     // Create 1000 clusters of 100 transactions each
     for (int i=0; i<100; i++) {
         auto new_txs = CreateCoinCluster(det_rand, childTxs, /*min_ancestors=*/ 1);
@@ -130,13 +130,13 @@ static void ComplexMemPool(benchmark::Bench& bench)
     const auto testing_setup = MakeNoLogFileContext<const TestingSetup>(ChainType::MAIN);
     CTxMemPool& pool = *testing_setup.get()->m_node.mempool;
 
-    std::vector<CTransactionRef> tx_remove_for_block;
+    std::vector<TransactionRef> tx_remove_for_block;
     std::vector<Txid> hashes_remove_for_block;
 
     LOCK2(cs_main, pool.cs);
 
     for (int i=0; i<1000; i++) {
-        std::vector<CTransactionRef> transactions = CreateCoinCluster(det_rand, childTxs, /*min_ancestors=*/1);
+        std::vector<TransactionRef> transactions = CreateCoinCluster(det_rand, childTxs, /*min_ancestors=*/1);
 
         // Add all transactions to the mempool.
         // Also store the first 10 transactions from each cluster as the
@@ -176,7 +176,7 @@ static void MemPoolAncestorsDescendants(benchmark::Bench& bench)
 
     LOCK2(cs_main, pool.cs);
 
-    std::vector<CTransactionRef> transactions = CreateCoinCluster(det_rand, childTxs, /*min_ancestors=*/1);
+    std::vector<TransactionRef> transactions = CreateCoinCluster(det_rand, childTxs, /*min_ancestors=*/1);
     for (auto& tx : transactions) {
         AddTx(tx, pool, det_rand);
     }

@@ -208,7 +208,7 @@ void ValidationSignals::TransactionAddedToMempool(const NewMempoolTransactionInf
     ENQUEUE_AND_LOG_EVENT(std::move(event), std::move(log_msg));
 }
 
-void ValidationSignals::TransactionRemovedFromMempool(const CTransactionRef& tx, MemPoolRemovalReason reason, uint64_t mempool_sequence) {
+void ValidationSignals::TransactionRemovedFromMempool(const TransactionRef& tx, MemPoolRemovalReason reason, uint64_t mempool_sequence) {
     auto log_msg = LOG_MSG("%s: txid=%s wtxid=%s reason=%s", __func__,
                           tx->GetHash().ToString(),
                           tx->GetWitnessHash().ToString(),

@@ -102,14 +102,14 @@ void IpcPipeTest()
     mtx.nLockTime = 3;
     mtx.vin.emplace_back(txout1);
     mtx.vout.emplace_back(COIN, CScript());
-    CTransactionRef tx1{MakeTransactionRef(mtx)};
-    CTransactionRef tx2{foo->passTransaction(tx1)};
+    TransactionRef tx1{MakeTransactionRef(mtx)};
+    TransactionRef tx2{foo->passTransaction(tx1)};
     BOOST_CHECK(Assert(tx1)->Equals(*Assert(tx2)));
 
-    std::vector<CTransactionRef> txs1;
+    std::vector<TransactionRef> txs1;
     txs1.push_back(tx1);
     txs1.push_back(nullptr);
-    std::vector<CTransactionRef> txs2(foo->passTransactions(txs1));
+    std::vector<TransactionRef> txs2(foo->passTransactions(txs1));
     BOOST_CHECK_EQUAL(txs2.size(), 2);
     BOOST_CHECK(Assert(txs1[0])->Equals(*Assert(txs2[0])));
     BOOST_CHECK(!txs2[1]);

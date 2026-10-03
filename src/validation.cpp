@@ -146,14 +146,14 @@ const CBlockIndex* Chainstate::FindForkInGlobalIndex(const CBlockLocator& locato
     return m_chain.Genesis();
 }
 
-bool CheckInputScripts(const CTransaction& tx, TxValidationState& state,
+bool CheckInputScripts(const Transaction& tx, TxValidationState& state,
                        const CCoinsViewCache& inputs, script_verify_flags flags, bool cacheSigStore,
                        bool cacheFullScriptStore, PrecomputedTransactionData& txdata,
                        ValidationCache& validation_cache,
                        std::vector<CScriptCheck>* pvChecks = nullptr)
                        EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
-bool CheckFinalTxAtTip(const CBlockIndex& active_chain_tip, const CTransaction& tx)
+bool CheckFinalTxAtTip(const CBlockIndex& active_chain_tip, const Transaction& tx)
 {
     AssertLockHeld(cs_main);
 
@@ -189,7 +189,7 @@ namespace {
 std::optional<std::vector<int>> CalculatePrevHeights(
     const CBlockIndex& tip,
     const CCoinsView& coins,
-    const CTransaction& tx)
+    const Transaction& tx)
 {
     std::vector<int> prev_heights;
     prev_heights.resize(tx.GetNumInputs());
@@ -210,7 +210,7 @@ std::optional<std::vector<int>> CalculatePrevHeights(
 std::optional<LockPoints> CalculateLockPointsAtTip(
     CBlockIndex* tip,
     const CCoinsView& coins_view,
-    const CTransaction& tx)
+    const Transaction& tx)
 {
     assert(tip);
 
@@ -351,7 +351,7 @@ void Chainstate::MaybeUpdateMempoolForReorg(
         EXCLUSIVE_LOCKS_REQUIRED(m_mempool->cs, ::cs_main) {
         AssertLockHeld(m_mempool->cs);
         AssertLockHeld(::cs_main);
-        const CTransaction& tx = it->GetTx();
+        const Transaction& tx = it->GetTx();
 
         // The transaction must be final.
         if (!CheckFinalTxAtTip(*Assert(m_chain.Tip()), tx)) return true;
@@ -401,7 +401,7 @@ void Chainstate::MaybeUpdateMempoolForReorg(
 * signature and script validity results will be reused if we validate this
 * transaction again during block validation.
 * */
-static bool CheckInputsFromMempoolAndCache(const CTransaction& tx, TxValidationState& state,
+static bool CheckInputsFromMempoolAndCache(const Transaction& tx, TxValidationState& state,
                 const CCoinsViewCache& view, const CTxMemPool& pool,
                 script_verify_flags flags, PrecomputedTransactionData& txdata, CCoinsViewCache& coins_tip,
                 ValidationCache& validation_cache)
@@ -423,7 +423,7 @@ static bool CheckInputsFromMempoolAndCache(const CTransaction& tx, TxValidationS
         // it is available in our current ChainstateActive UTXO set,
         // or it's a UTXO provided by a transaction in our mempool.
         // Ensure the scriptPubKeys in Coins from CoinsView are correct.
-        const CTransactionRef& txFrom = pool.get(txin.GetPrevout().hash);
+        const TransactionRef& txFrom = pool.get(txin.GetPrevout().hash);
         if (txFrom) {
             assert(txFrom->GetHash() == txin.GetPrevout().hash);
             assert(txFrom->GetNumOutputs() > txin.GetPrevout().n);
@@ -582,26 +582,26 @@ public:
     void CleanupTemporaryCoins() EXCLUSIVE_LOCKS_REQUIRED(cs_main, m_pool.cs);
 
     // Single transaction acceptance
-    MempoolAcceptResult AcceptSingleTransactionAndCleanup(const CTransactionRef& ptx, ATMPArgs& args) EXCLUSIVE_LOCKS_REQUIRED(cs_main) {
+    MempoolAcceptResult AcceptSingleTransactionAndCleanup(const TransactionRef& ptx, ATMPArgs& args) EXCLUSIVE_LOCKS_REQUIRED(cs_main) {
         LOCK(m_pool.cs);
         MempoolAcceptResult result = AcceptSingleTransactionInternal(ptx, args);
         ClearSubPackageState();
         return result;
     }
-    MempoolAcceptResult AcceptSingleTransactionInternal(const CTransactionRef& ptx, ATMPArgs& args) EXCLUSIVE_LOCKS_REQUIRED(cs_main, m_pool.cs);
+    MempoolAcceptResult AcceptSingleTransactionInternal(const TransactionRef& ptx, ATMPArgs& args) EXCLUSIVE_LOCKS_REQUIRED(cs_main, m_pool.cs);
 
     /**
     * Multiple transaction acceptance. Transactions may or may not be interdependent, but must not
     * conflict with each other, and the transactions cannot already be in the mempool. Parents must
     * come before children if any dependencies exist.
     */
-    PackageMempoolAcceptResult AcceptMultipleTransactionsAndCleanup(const std::vector<CTransactionRef>& txns, ATMPArgs& args) EXCLUSIVE_LOCKS_REQUIRED(cs_main) {
+    PackageMempoolAcceptResult AcceptMultipleTransactionsAndCleanup(const std::vector<TransactionRef>& txns, ATMPArgs& args) EXCLUSIVE_LOCKS_REQUIRED(cs_main) {
         LOCK(m_pool.cs);
         PackageMempoolAcceptResult result = AcceptMultipleTransactionsInternal(txns, args);
         ClearSubPackageState();
         return result;
     }
-    PackageMempoolAcceptResult AcceptMultipleTransactionsInternal(const std::vector<CTransactionRef>& txns, ATMPArgs& args) EXCLUSIVE_LOCKS_REQUIRED(cs_main, m_pool.cs);
+    PackageMempoolAcceptResult AcceptMultipleTransactionsInternal(const std::vector<TransactionRef>& txns, ATMPArgs& args) EXCLUSIVE_LOCKS_REQUIRED(cs_main, m_pool.cs);
 
     /**
      * Submission of a subpackage.
@@ -613,7 +613,7 @@ public:
      *
      * Also cleans up all non-chainstate coins from m_view at the end.
     */
-    PackageMempoolAcceptResult AcceptSubPackage(const std::vector<CTransactionRef>& subpackage, ATMPArgs& args)
+    PackageMempoolAcceptResult AcceptSubPackage(const std::vector<TransactionRef>& subpackage, ATMPArgs& args)
         EXCLUSIVE_LOCKS_REQUIRED(cs_main, m_pool.cs);
 
     /**
@@ -626,7 +626,7 @@ private:
     // All the intermediate state that gets passed between the various levels
     // of checking a given transaction.
     struct Workspace {
-        explicit Workspace(const CTransactionRef& ptx) : m_ptx(ptx), m_hash(ptx->GetHash()) {}
+        explicit Workspace(const TransactionRef& ptx) : m_ptx(ptx), m_hash(ptx->GetHash()) {}
         /** Txids of mempool transactions that this transaction directly conflicts with or may
          * replace via sibling eviction. */
         std::set<Txid> m_conflicts;
@@ -654,7 +654,7 @@ private:
          * transactions (which may include its ancestors and/or descendants). */
         CFeeRate m_package_feerate{0};
 
-        const CTransactionRef& m_ptx;
+        const TransactionRef& m_ptx;
         /** Txid. */
         const Txid& m_hash;
         TxValidationState m_state;
@@ -672,7 +672,7 @@ private:
     // Run checks for mempool replace-by-fee, only used in AcceptSingleTransaction.
     bool ReplacementChecks(Workspace& ws) EXCLUSIVE_LOCKS_REQUIRED(cs_main, m_pool.cs);
 
-    bool PackageRBFChecks(const std::vector<CTransactionRef>& txns,
+    bool PackageRBFChecks(const std::vector<TransactionRef>& txns,
                           std::vector<Workspace>& workspaces,
                           PackageValidationState& package_state) EXCLUSIVE_LOCKS_REQUIRED(cs_main, m_pool.cs);
 
@@ -754,7 +754,7 @@ private:
          * If so, RBF rules apply. */
         bool m_rbf{false};
         /** Mempool transactions that were replaced. */
-        std::list<CTransactionRef> m_replaced_transactions;
+        std::list<TransactionRef> m_replaced_transactions;
         /* Changeset representing adding transactions and removing their conflicts. */
         std::unique_ptr<CTxMemPool::ChangeSet> m_changeset;
 
@@ -780,8 +780,8 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
 {
     AssertLockHeld(cs_main);
     AssertLockHeld(m_pool.cs);
-    const CTransactionRef& ptx = ws.m_ptx;
-    const CTransaction& tx = *ws.m_ptx;
+    const TransactionRef& ptx = ws.m_ptx;
+    const Transaction& tx = *ws.m_ptx;
     const Txid& hash = ws.m_hash;
 
     // Copy/alias what we need out of args
@@ -829,7 +829,7 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     // Check for conflicts with in-memory transactions
     for (const CTxInView txin : tx.Inputs())
     {
-        const CTransaction* ptxConflicting = m_pool.GetConflictTx(txin.GetPrevout());
+        const Transaction* ptxConflicting = m_pool.GetConflictTx(txin.GetPrevout());
         if (ptxConflicting) {
             if (!args.m_allow_replacement) {
                 // Transaction conflicts with a mempool tx, but we're not allowing replacements in this context.
@@ -983,7 +983,7 @@ bool MemPoolAccept::ReplacementChecks(Workspace& ws)
     AssertLockHeld(cs_main);
     AssertLockHeld(m_pool.cs);
 
-    const CTransaction& tx = *ws.m_ptx;
+    const Transaction& tx = *ws.m_ptx;
     const Txid& hash = ws.m_hash;
     TxValidationState& state = ws.m_state;
 
@@ -1029,7 +1029,7 @@ bool MemPoolAccept::ReplacementChecks(Workspace& ws)
     return true;
 }
 
-bool MemPoolAccept::PackageRBFChecks(const std::vector<CTransactionRef>& txns,
+bool MemPoolAccept::PackageRBFChecks(const std::vector<TransactionRef>& txns,
                                      std::vector<Workspace>& workspaces,
                                      PackageValidationState& package_state)
 {
@@ -1130,7 +1130,7 @@ bool MemPoolAccept::PolicyScriptChecks(Workspace& ws)
 {
     AssertLockHeld(cs_main);
     AssertLockHeld(m_pool.cs);
-    const CTransaction& tx = *ws.m_ptx;
+    const Transaction& tx = *ws.m_ptx;
     TxValidationState& state = ws.m_state;
 
     constexpr script_verify_flags scriptVerifyFlags = STANDARD_SCRIPT_VERIFY_FLAGS;
@@ -1153,7 +1153,7 @@ bool MemPoolAccept::ConsensusScriptChecks(Workspace& ws)
 {
     AssertLockHeld(cs_main);
     AssertLockHeld(m_pool.cs);
-    const CTransaction& tx = *ws.m_ptx;
+    const Transaction& tx = *ws.m_ptx;
     const Txid& hash = ws.m_hash;
     TxValidationState& state = ws.m_state;
 
@@ -1200,7 +1200,7 @@ void MemPoolAccept::FinalizeSubpackage(const ATMPArgs& args)
         uint256 tx_or_package_hash{};
         const bool replaced_with_tx{m_subpackage.m_changeset->GetTxCount() == 1};
         if (replaced_with_tx) {
-            const CTransaction& tx = m_subpackage.m_changeset->GetAddedTxn(0);
+            const Transaction& tx = m_subpackage.m_changeset->GetAddedTxn(0);
             tx_or_package_hash = tx.GetHash().ToUint256();
             log_string += strprintf("New tx %s (wtxid=%s, fees=%s, vsize=%s)",
                                     tx.GetHash().ToString(),
@@ -1299,7 +1299,7 @@ bool MemPoolAccept::SubmitPackage(const ATMPArgs& args, std::vector<Workspace>& 
                         MempoolAcceptResult::Success(std::move(m_subpackage.m_replaced_transactions), ws.m_vsize,
                                          ws.m_base_fees, effective_feerate, effective_feerate_wtxids));
         if (!m_pool.m_opts.signals) continue;
-        const CTransaction& tx = *ws.m_ptx;
+        const Transaction& tx = *ws.m_ptx;
         const auto tx_info = NewMempoolTransactionInfo(ws.m_ptx, ws.m_base_fees,
                                                        ws.m_vsize, (*iter)->GetHeight(),
                                                        args.m_bypass_limits, args.m_package_submission,
@@ -1310,7 +1310,7 @@ bool MemPoolAccept::SubmitPackage(const ATMPArgs& args, std::vector<Workspace>& 
     return all_submitted;
 }
 
-MempoolAcceptResult MemPoolAccept::AcceptSingleTransactionInternal(const CTransactionRef& ptx, ATMPArgs& args)
+MempoolAcceptResult MemPoolAccept::AcceptSingleTransactionInternal(const TransactionRef& ptx, ATMPArgs& args)
 {
     AssertLockHeld(cs_main);
     AssertLockHeld(m_pool.cs);
@@ -1403,7 +1403,7 @@ MempoolAcceptResult MemPoolAccept::AcceptSingleTransactionInternal(const CTransa
     }
 
     if (m_pool.m_opts.signals) {
-        const CTransaction& tx = *ws.m_ptx;
+        const Transaction& tx = *ws.m_ptx;
         auto iter = m_pool.GetIter(tx.GetHash());
         Assume(iter.has_value());
         const auto tx_info = NewMempoolTransactionInfo(ws.m_ptx, ws.m_base_fees,
@@ -1425,7 +1425,7 @@ MempoolAcceptResult MemPoolAccept::AcceptSingleTransactionInternal(const CTransa
                                         effective_feerate, single_wtxid);
 }
 
-PackageMempoolAcceptResult MemPoolAccept::AcceptMultipleTransactionsInternal(const std::vector<CTransactionRef>& txns, ATMPArgs& args)
+PackageMempoolAcceptResult MemPoolAccept::AcceptMultipleTransactionsInternal(const std::vector<TransactionRef>& txns, ATMPArgs& args)
 {
     AssertLockHeld(cs_main);
     AssertLockHeld(m_pool.cs);
@@ -1589,7 +1589,7 @@ void MemPoolAccept::CleanupTemporaryCoins()
     m_viewmempool.Reset();
 }
 
-PackageMempoolAcceptResult MemPoolAccept::AcceptSubPackage(const std::vector<CTransactionRef>& subpackage, ATMPArgs& args)
+PackageMempoolAcceptResult MemPoolAccept::AcceptSubPackage(const std::vector<TransactionRef>& subpackage, ATMPArgs& args)
 {
     AssertLockHeld(::cs_main);
     AssertLockHeld(m_pool.cs);
@@ -1650,7 +1650,7 @@ PackageMempoolAcceptResult MemPoolAccept::AcceptPackage(const Package& package, 
     std::map<Wtxid, MempoolAcceptResult> individual_results_nonfinal;
     // Tracks whether we think package submission could result in successful entry to the mempool
     bool quit_early{false};
-    std::vector<CTransactionRef> txns_package_eval;
+    std::vector<TransactionRef> txns_package_eval;
     for (const auto& tx : package) {
         const auto& wtxid = tx->GetWitnessHash();
         const auto& txid = tx->GetHash();
@@ -1768,7 +1768,7 @@ PackageMempoolAcceptResult MemPoolAccept::AcceptPackage(const Package& package, 
 
 } // anon namespace
 
-MempoolAcceptResult AcceptToMemoryPool(Chainstate& active_chainstate, const CTransactionRef& tx,
+MempoolAcceptResult AcceptToMemoryPool(Chainstate& active_chainstate, const TransactionRef& tx,
                                        int64_t accept_time, bool bypass_limits, bool test_accept)
 {
     AssertLockHeld(::cs_main);
@@ -1995,7 +1995,7 @@ void Chainstate::InvalidBlockFound(CBlockIndex* pindex, const BlockValidationSta
     }
 }
 
-void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, CTxUndo &txundo, int nHeight)
+void UpdateCoins(const Transaction& tx, CCoinsViewCache& inputs, CTxUndo &txundo, int nHeight)
 {
     // mark inputs spent
     if (!tx.IsCoinBase()) {
@@ -2057,7 +2057,7 @@ ValidationCache::ValidationCache(const size_t script_execution_cache_bytes, cons
  *
  * Non-static (and redeclared) in src/test/txvalidationcache_tests.cpp
  */
-bool CheckInputScripts(const CTransaction& tx, TxValidationState& state,
+bool CheckInputScripts(const Transaction& tx, TxValidationState& state,
                        const CCoinsViewCache& inputs, script_verify_flags flags, bool cacheSigStore,
                        bool cacheFullScriptStore, PrecomputedTransactionData& txdata,
                        ValidationCache& validation_cache,
@@ -2202,7 +2202,7 @@ DisconnectResult Chainstate::DisconnectBlock(const CBlock& block, const CBlockIn
 
     // undo transactions in reverse order
     for (int i = block.vtx.size() - 1; i >= 0; i--) {
-        const CTransaction &tx = *(block.vtx[i]);
+        const Transaction &tx = *(block.vtx[i]);
         Txid hash = tx.GetHash();
         bool is_coinbase = tx.IsCoinBase();
         bool is_bip30_exception = (is_coinbase && !fEnforceBIP30);
@@ -2522,7 +2522,7 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
     for (unsigned int i = 0; i < block.vtx.size(); i++)
     {
         if (!state.IsValid()) break;
-        const CTransaction &tx = *(block.vtx[i]);
+        const Transaction &tx = *(block.vtx[i]);
 
         nInputs += tx.GetNumInputs();
 
@@ -4460,7 +4460,7 @@ bool ChainstateManager::ProcessNewBlock(const std::shared_ptr<const CBlock>& blo
     return true;
 }
 
-MempoolAcceptResult ChainstateManager::ProcessTransaction(const CTransactionRef& tx, bool test_accept)
+MempoolAcceptResult ChainstateManager::ProcessTransaction(const TransactionRef& tx, bool test_accept)
 {
     AssertLockHeld(cs_main);
     Chainstate& active_chainstate = ActiveChainstate();
@@ -4777,7 +4777,7 @@ bool Chainstate::RollforwardBlock(const CBlockIndex* pindex, CCoinsViewCache& in
         return false;
     }
 
-    for (const CTransactionRef& tx : block.vtx) {
+    for (const TransactionRef& tx : block.vtx) {
         if (!tx->IsCoinBase()) {
             for (const CTxInView txin : tx->Inputs()) {
                 inputs.SpendCoin(txin.GetPrevout());

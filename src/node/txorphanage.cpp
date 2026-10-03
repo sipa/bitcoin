@@ -36,7 +36,7 @@ class TxOrphanageImpl final : public TxOrphanage {
      * announcements for the same tx, and multiple transactions with the same txid but different wtxid are possible. */
     struct Announcement
     {
-        const CTransactionRef m_tx;
+        const TransactionRef m_tx;
         /** Which peer announced this tx */
         const NodeId m_announcer;
         /** What order this transaction entered the orphanage. */
@@ -45,7 +45,7 @@ class TxOrphanageImpl final : public TxOrphanage {
          * announcements with m_reconsider=true. */
         bool m_reconsider{false};
 
-        Announcement(const CTransactionRef& tx, NodeId peer, SequenceNumber seq) :
+        Announcement(const TransactionRef& tx, NodeId peer, SequenceNumber seq) :
             m_tx{tx}, m_announcer{peer}, m_entry_sequence{seq}
         { }
 
@@ -218,18 +218,18 @@ public:
      * not exceeded. */
     TxOrphanage::Usage MaxGlobalUsage() const override;
 
-    bool AddTx(const CTransactionRef& tx, NodeId peer) override;
+    bool AddTx(const TransactionRef& tx, NodeId peer) override;
     bool AddAnnouncer(const Wtxid& wtxid, NodeId peer) override;
-    CTransactionRef GetTx(const Wtxid& wtxid) const override;
+    TransactionRef GetTx(const Wtxid& wtxid) const override;
     bool HaveTx(const Wtxid& wtxid) const override;
     bool HaveTxFromPeer(const Wtxid& wtxid, NodeId peer) const override;
-    CTransactionRef GetTxToReconsider(NodeId peer) override;
+    TransactionRef GetTxToReconsider(NodeId peer) override;
     bool EraseTx(const Wtxid& wtxid) override;
     void EraseForPeer(NodeId peer) override;
     void EraseForBlock(const CBlock& block) override;
-    std::vector<std::pair<Wtxid, NodeId>> AddChildrenToWorkSet(const CTransaction& tx, FastRandomContext& rng) override;
+    std::vector<std::pair<Wtxid, NodeId>> AddChildrenToWorkSet(const Transaction& tx, FastRandomContext& rng) override;
     bool HaveTxToReconsider(NodeId peer) override;
-    std::vector<CTransactionRef> GetChildrenFromSamePeer(const CTransactionRef& parent, NodeId nodeid) const override;
+    std::vector<TransactionRef> GetChildrenFromSamePeer(const TransactionRef& parent, NodeId nodeid) const override;
     std::vector<OrphanInfo> GetOrphanTransactions() const override;
     TxOrphanage::Usage TotalOrphanUsage() const override;
     void SanityCheck() const override;
@@ -304,7 +304,7 @@ TxOrphanage::Count TxOrphanageImpl::LatencyScoreFromPeer(NodeId peer) const {
     return it == m_peer_orphanage_info.end() ? 0 : it->second.m_total_latency_score;
 }
 
-bool TxOrphanageImpl::AddTx(const CTransactionRef& tx, NodeId peer)
+bool TxOrphanageImpl::AddTx(const TransactionRef& tx, NodeId peer)
 {
     const auto& wtxid{tx->GetWitnessHash()};
     const auto& txid{tx->GetHash()};
@@ -362,7 +362,7 @@ bool TxOrphanageImpl::AddAnnouncer(const Wtxid& wtxid, NodeId peer)
     if (it == index_by_wtxid.end()) return false;
     if (it->m_tx->GetWitnessHash() != wtxid) return false;
 
-    // Add another announcement, copying the CTransactionRef from one that already exists.
+    // Add another announcement, copying the TransactionRef from one that already exists.
     const auto& ptx = it->m_tx;
     auto [iter, inserted] = index_by_wtxid.emplace(ptx, peer, m_current_sequence);
     // If the announcement (same wtxid, same peer) already exists, emplacement fails. Return false.
@@ -529,7 +529,7 @@ void TxOrphanageImpl::LimitOrphans()
     LogDebug(BCLog::TXPACKAGES, "orphanage overflow, removed %u tx (%u announcements)\n", original_unique_txns - remaining_unique_orphans, num_erased);
 }
 
-std::vector<std::pair<Wtxid, NodeId>> TxOrphanageImpl::AddChildrenToWorkSet(const CTransaction& tx, FastRandomContext& rng)
+std::vector<std::pair<Wtxid, NodeId>> TxOrphanageImpl::AddChildrenToWorkSet(const Transaction& tx, FastRandomContext& rng)
 {
     if (m_orphans.empty()) return {};
 
@@ -577,7 +577,7 @@ bool TxOrphanageImpl::HaveTx(const Wtxid& wtxid) const
     return it_lower != m_orphans.get<ByWtxid>().end() && it_lower->m_tx->GetWitnessHash() == wtxid;
 }
 
-CTransactionRef TxOrphanageImpl::GetTx(const Wtxid& wtxid) const
+TransactionRef TxOrphanageImpl::GetTx(const Wtxid& wtxid) const
 {
     auto it_lower = m_orphans.get<ByWtxid>().lower_bound(ByWtxidView{wtxid, MIN_PEER});
     if (it_lower != m_orphans.get<ByWtxid>().end() && it_lower->m_tx->GetWitnessHash() == wtxid) return it_lower->m_tx;
@@ -591,7 +591,7 @@ bool TxOrphanageImpl::HaveTxFromPeer(const Wtxid& wtxid, NodeId peer) const
 
 /** If there is a tx that can be reconsidered, return it and set it back to
  * non-reconsiderable. Otherwise, return a nullptr. */
-CTransactionRef TxOrphanageImpl::GetTxToReconsider(NodeId peer)
+TransactionRef TxOrphanageImpl::GetTxToReconsider(NodeId peer)
 {
     auto it = m_orphans.get<ByPeer>().lower_bound(ByPeerView{peer, true, 0});
     if (it != m_orphans.get<ByPeer>().end() && it->m_announcer == peer && it->m_reconsider) {
@@ -619,8 +619,8 @@ void TxOrphanageImpl::EraseForBlock(const CBlock& block)
     if (m_orphans.empty()) return;
 
     std::set<Wtxid> wtxids_to_erase;
-    for (const CTransactionRef& ptx : block.vtx) {
-        const CTransaction& block_tx = *ptx;
+    for (const TransactionRef& ptx : block.vtx) {
+        const Transaction& block_tx = *ptx;
 
         // Which orphan pool entries must we evict?
         for (const CTxInView input : block_tx.Inputs()) {
@@ -649,9 +649,9 @@ void TxOrphanageImpl::EraseForBlock(const CBlock& block)
     LimitOrphans();
 }
 
-std::vector<CTransactionRef> TxOrphanageImpl::GetChildrenFromSamePeer(const CTransactionRef& parent, NodeId peer) const
+std::vector<TransactionRef> TxOrphanageImpl::GetChildrenFromSamePeer(const TransactionRef& parent, NodeId peer) const
 {
-    std::vector<CTransactionRef> children_found;
+    std::vector<TransactionRef> children_found;
     const auto& parent_txid{parent->GetHash()};
 
     // Iterate through all orphans from this peer, in reverse order, so that more recent

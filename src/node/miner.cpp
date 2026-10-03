@@ -207,7 +207,7 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
     pblock->vtx[0] = MakeTransactionRef(std::move(coinbaseTx));
     m_chainstate.m_chainman.GenerateCoinbaseCommitment(*pblock, pindexPrev);
 
-    const CTransactionRef& final_coinbase{pblock->vtx[0]};
+    const TransactionRef& final_coinbase{pblock->vtx[0]};
     if (final_coinbase->HasWitness()) {
         const WitnessView witness{final_coinbase->GetInputWitness(0)};
         // Consensus requires the coinbase witness stack to have exactly one
@@ -346,7 +346,7 @@ void BlockAssembler::addChunks()
     }
 }
 
-void AddMerkleRootAndCoinbase(CBlock& block, CTransactionRef coinbase, uint32_t version, uint32_t timestamp, uint32_t nonce)
+void AddMerkleRootAndCoinbase(CBlock& block, TransactionRef coinbase, uint32_t version, uint32_t timestamp, uint32_t nonce)
 {
     if (block.vtx.size() == 0) {
         block.vtx.emplace_back(coinbase);

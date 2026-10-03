@@ -82,7 +82,7 @@ FUZZ_TARGET(utxo_total_supply)
     // Store the tx out in the txo map
     const auto StoreLastTxo = [&]() {
         // get last tx
-        const CTransaction& tx = *current_block->vtx.back();
+        const Transaction& tx = *current_block->vtx.back();
         // get last out
         const uint32_t i = tx.GetNumOutputs() - 1;
         // store it

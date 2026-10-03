@@ -807,7 +807,7 @@ RPCMethod listsinceblock()
         if (!wallet.chain().findBlock(blockId, FoundBlock().data(block)) || block.IsNull()) {
             throw JSONRPCError(RPC_INTERNAL_ERROR, "Can't read block from disk");
         }
-        for (const CTransactionRef& tx : block.vtx) {
+        for (const TransactionRef& tx : block.vtx) {
             auto it = wallet.mapWallet.find(tx->GetHash());
             if (it != wallet.mapWallet.end()) {
                 // We want all transactions regardless of confirmation count to appear here,

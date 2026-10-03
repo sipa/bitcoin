@@ -61,7 +61,7 @@ inline constexpr uint64_t POST_CHANGE_COST = 5 * ACCEPTABLE_COST;
  */
 bool TestLockPointValidity(CChain& active_chain, const LockPoints& lp) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
-// extracts a transaction hash from CTxMemPoolEntry or CTransactionRef
+// extracts a transaction hash from CTxMemPoolEntry or TransactionRef
 struct mempoolentry_txid
 {
     typedef Txid result_type;
@@ -70,13 +70,13 @@ struct mempoolentry_txid
         return entry.GetTx().GetHash();
     }
 
-    result_type operator() (const CTransactionRef& tx) const
+    result_type operator() (const TransactionRef& tx) const
     {
         return tx->GetHash();
     }
 };
 
-// extracts a transaction witness-hash from CTxMemPoolEntry or CTransactionRef
+// extracts a transaction witness-hash from CTxMemPoolEntry or TransactionRef
 struct mempoolentry_wtxid
 {
     typedef Wtxid result_type;
@@ -85,7 +85,7 @@ struct mempoolentry_wtxid
         return entry.GetTx().GetWitnessHash();
     }
 
-    result_type operator() (const CTransactionRef& tx) const
+    result_type operator() (const TransactionRef& tx) const
     {
         return tx->GetWitnessHash();
     }
@@ -110,7 +110,7 @@ struct index_by_wtxid {};
 struct TxMempoolInfo
 {
     /** The transaction itself */
-    CTransactionRef tx;
+    TransactionRef tx;
 
     /** Time the transaction entered the mempool. */
     std::chrono::seconds m_time;
@@ -289,7 +289,7 @@ private:
 
     // Helper to remove all transactions that conflict with a given
     // transaction (used for transactions appearing in a block).
-    void removeConflicts(const CTransaction& tx) EXCLUSIVE_LOCKS_REQUIRED(cs);
+    void removeConflicts(const Transaction& tx) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
 public:
     //! Map from outpoints to the in-mempool transactions spending them. The outpoints are stored by value (rather
@@ -321,7 +321,7 @@ public:
      * If the transaction is not already in the mempool, find any descendants
      * and remove them.
      */
-    void removeRecursive(const CTransaction& tx, MemPoolRemovalReason reason) EXCLUSIVE_LOCKS_REQUIRED(cs);
+    void removeRecursive(const Transaction& tx, MemPoolRemovalReason reason) EXCLUSIVE_LOCKS_REQUIRED(cs);
     /** After reorg, filter the entries that would no longer be valid in the next block, and update
      * the entries' cached LockPoints if needed.  The mempool does not have any knowledge of
      * consensus rules. It just applies the callable function and removes the ones for which it
@@ -330,7 +330,7 @@ public:
      *                                        and updates an entry's LockPoints.
      * */
     void removeForReorg(CChain& chain, std::function<bool(txiter)> filter_final_and_mature) EXCLUSIVE_LOCKS_REQUIRED(cs, cs_main);
-    std::vector<RemovedMempoolTransactionInfo> removeForBlock(const std::vector<CTransactionRef>& vtx) EXCLUSIVE_LOCKS_REQUIRED(cs);
+    std::vector<RemovedMempoolTransactionInfo> removeForBlock(const std::vector<TransactionRef>& vtx) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     /** Look up wtxids in the mempool and (partially) sort by mining score.
      *
@@ -352,7 +352,7 @@ public:
      * Check that none of this transactions inputs are in the mempool, and thus
      * the tx is not dependent on other mempool transactions to be included in a block.
      */
-    bool HasNoInputsOf(const CTransaction& tx) const EXCLUSIVE_LOCKS_REQUIRED(cs);
+    bool HasNoInputsOf(const Transaction& tx) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     /** Affect CreateNewBlock prioritisation of transactions */
     void PrioritiseTransaction(const Txid& hash, const CAmount& nFeeDelta);
@@ -373,7 +373,7 @@ public:
     std::vector<delta_info> GetPrioritisedTransactions() const EXCLUSIVE_LOCKS_REQUIRED(!cs);
 
     /** Get the transaction in the pool that spends the same prevout */
-    const CTransaction* GetConflictTx(const COutPoint& prevout) const EXCLUSIVE_LOCKS_REQUIRED(cs);
+    const Transaction* GetConflictTx(const COutPoint& prevout) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     /** Returns an iterator to the given hash, if found */
     std::optional<txiter> GetIter(const Txid& txid) const EXCLUSIVE_LOCKS_REQUIRED(cs);
@@ -531,7 +531,7 @@ public:
      * @param[in] hash      the txid
      * @returns             the tx if found, otherwise nullptr
      */
-    CTransactionRef get(const Txid& hash) const;
+    TransactionRef get(const Txid& hash) const;
 
     /**
      * Return a mempool transaction with a given witness hash.
@@ -539,7 +539,7 @@ public:
      * @param[in] hash      the wtxid
      * @returns             the tx if found, otherwise nullptr
      */
-    CTransactionRef get(const Wtxid& hash) const;
+    TransactionRef get(const Wtxid& hash) const;
 
     template <TxidOrWtxid T>
     TxMempoolInfo info(const T& id) const
@@ -572,7 +572,7 @@ public:
         if (exists(txid)) m_unbroadcast_txids.insert(txid);
     };
 
-    bool CheckPolicyLimits(const CTransactionRef& tx);
+    bool CheckPolicyLimits(const TransactionRef& tx);
 
     /** Removes a transaction from the unbroadcast set */
     void RemoveUnbroadcastTx(const Txid& txid, bool unchecked = false);
@@ -658,7 +658,7 @@ public:
 
         using TxHandle = CTxMemPool::txiter;
 
-        TxHandle StageAddition(const CTransactionRef& tx, CAmount fee, int64_t time, unsigned int entry_height, uint64_t entry_sequence, bool spends_coinbase, int64_t sigops_cost, LockPoints lp);
+        TxHandle StageAddition(const TransactionRef& tx, CAmount fee, int64_t time, unsigned int entry_height, uint64_t entry_sequence, bool spends_coinbase, int64_t sigops_cost, LockPoints lp);
 
         void StageRemoval(CTxMemPool::txiter it);
 
@@ -681,8 +681,8 @@ public:
             return ret;
         }
 
-        std::vector<CTransactionRef> GetAddedTxns() const {
-            std::vector<CTransactionRef> ret;
+        std::vector<TransactionRef> GetAddedTxns() const {
+            std::vector<TransactionRef> ret;
             ret.reserve(m_entry_vec.size());
             for (const auto& entry : m_entry_vec) {
                 ret.emplace_back(entry->GetSharedTx());
@@ -699,7 +699,7 @@ public:
         util::Result<std::pair<std::vector<FeeFrac>, std::vector<FeeFrac>>> CalculateChunksForRBF();
 
         size_t GetTxCount() const { return m_entry_vec.size(); }
-        const CTransaction& GetAddedTxn(size_t index) const { return m_entry_vec.at(index)->GetTx(); }
+        const Transaction& GetAddedTxn(size_t index) const { return m_entry_vec.at(index)->GetTx(); }
 
         void Apply() EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
@@ -797,7 +797,7 @@ public:
     std::optional<Coin> GetCoin(const COutPoint& outpoint) const override;
     /** Add the coins created by this transaction. These coins are only temporarily stored in
      * m_temp_added and cannot be flushed to the back end. Only used for package validation. */
-    void PackageAddTransaction(const CTransactionRef& tx);
+    void PackageAddTransaction(const TransactionRef& tx);
     /** Get all coins in m_non_base_coins. */
     const std::unordered_set<COutPoint, SaltedOutpointHasher>& GetNonBaseCoins() const { return m_non_base_coins; }
     /** Clear m_temp_added and m_non_base_coins. */

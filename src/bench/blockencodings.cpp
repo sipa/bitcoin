@@ -27,7 +27,7 @@
 #include <vector>
 
 
-static void AddTx(const CTransactionRef& tx, const CAmount& fee, CTxMemPool& pool) EXCLUSIVE_LOCKS_REQUIRED(cs_main, pool.cs)
+static void AddTx(const TransactionRef& tx, const CAmount& fee, CTxMemPool& pool) EXCLUSIVE_LOCKS_REQUIRED(cs_main, pool.cs)
 {
     LockPoints lp;
     TryAddToMempool(pool, CTxMemPoolEntry(tx, fee, /*time=*/0, /*entry_height=*/1, /*entry_sequence=*/0, /*spends_coinbase=*/false, /*sigops_cost=*/4, lp));
@@ -73,7 +73,7 @@ static void BlockEncodingBench(benchmark::Bench& bench, size_t n_pool, size_t n_
 
     LOCK2(cs_main, pool.cs);
 
-    std::vector<std::pair<Wtxid, CTransactionRef>> extratxn;
+    std::vector<std::pair<Wtxid, TransactionRef>> extratxn;
     extratxn.reserve(n_extra);
 
     // bump up the size of txs
@@ -81,7 +81,7 @@ static void BlockEncodingBench(benchmark::Bench& bench, size_t n_pool, size_t n_
     sigspam.fill(std::byte(42));
 
     // a reasonably large mempool of 50k txs, ~10MB total
-    std::vector<CTransactionRef> refs;
+    std::vector<TransactionRef> refs;
     refs.reserve(n_pool + n_extra);
     for (size_t i = 0; i < n_pool + n_extra; ++i) {
         CMutableTransaction tx = CMutableTransaction();

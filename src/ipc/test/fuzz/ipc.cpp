@@ -127,7 +127,7 @@ FUZZ_TARGET(ipc, .init = initialize_ipc)
             [&] {
                 const CMutableTransaction mutable_tx = ConsumeTransaction(fuzzed_data_provider, std::nullopt);
                 if (mutable_tx.Inputs().empty()) return;
-                const CTransactionRef tx = MakeTransactionRef(mutable_tx);
+                const TransactionRef tx = MakeTransactionRef(mutable_tx);
                 assert(ipc.m_client->passTransaction(tx)->Equals(*tx));
             });
     }

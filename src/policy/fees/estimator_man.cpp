@@ -81,7 +81,7 @@ void FeeRateEstimatorManager::TransactionAddedToMempool(const NewMempoolTransact
     m_block_policy_estimator->processTransaction(tx);
 }
 
-void FeeRateEstimatorManager::TransactionRemovedFromMempool(const CTransactionRef& tx, MemPoolRemovalReason /*unused*/, uint64_t /*unused*/)
+void FeeRateEstimatorManager::TransactionRemovedFromMempool(const TransactionRef& tx, MemPoolRemovalReason /*unused*/, uint64_t /*unused*/)
 {
     m_block_policy_estimator->removeTx(tx->GetHash());
 }

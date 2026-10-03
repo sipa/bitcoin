@@ -72,7 +72,7 @@ static void InitTaprootScript()
  * Given a transaction and an output index, create a CTxIn that can be
  * used to spend it.
  */
-static CTxIn GetSpendingScript(const CTransaction& tx, uint32_t vout_index)
+static CTxIn GetSpendingScript(const Transaction& tx, uint32_t vout_index)
 {
     Assert(vout_index < tx.GetNumOutputs());
     const CTxOut output{tx.GetOutput(vout_index).ToTxOut()};
@@ -96,7 +96,7 @@ static CTxIn GetSpendingScript(const CTransaction& tx, uint32_t vout_index)
 /**
  * Add a spend candidate CTxIn unless the output is unspendable.
  */
-static void MaybeAddSpendCandidate(std::vector<CTxIn>& pool, const CTransaction& tx, uint32_t vout_index)
+static void MaybeAddSpendCandidate(std::vector<CTxIn>& pool, const Transaction& tx, uint32_t vout_index)
 {
     Assert(vout_index < tx.GetNumOutputs());
     if (IsUnspendable(tx.GetOutputScriptPubKey(vout_index))) return;
@@ -192,7 +192,7 @@ void AddExtraTxsToMempool(TestingSetup& setup)
     Assert(setup.m_node.chainman->ActiveChainstate().GetMempool()->size() == 0);
     for (size_t i = 1; i <= 10; i++) {
         CMutableTransaction ctx;
-        ctx.version = CTransaction::CURRENT_VERSION;
+        ctx.version = Transaction::CURRENT_VERSION;
         ctx.vin.resize(1);
         // CTxIn is spendable as g_spend_candidate_txins comes from early blocks whose
         // coinbases are mature.
@@ -268,14 +268,14 @@ static void initialize_connect_block()
  * with various script types (P2SH, P2WSH, TAPROOT, NOSCRIPT).
  * It is exclusively used by ConsumeBlock to read transactions inside a block.
  */
-CTransactionRef ConsumeTransaction(FuzzedDataProvider& fuzzed_data_provider,
+TransactionRef ConsumeTransaction(FuzzedDataProvider& fuzzed_data_provider,
                                    std::vector<CTxIn>& additional_txins,
                                    bool coinbase = false,
                                    int target_height = 0)
 {
     CMutableTransaction tx;
     tx.version = fuzzed_data_provider.ConsumeBool() ?
-                     CTransaction::CURRENT_VERSION :
+                     Transaction::CURRENT_VERSION :
                      fuzzed_data_provider.ConsumeIntegral<uint32_t>();
     tx.nLockTime = fuzzed_data_provider.ConsumeBool() ?
                        0 :
@@ -364,7 +364,7 @@ CTransactionRef ConsumeTransaction(FuzzedDataProvider& fuzzed_data_provider,
             });
     }
 
-    // Create the shared pointer to the CTransaction object.
+    // Create the shared pointer to the Transaction object.
     auto res = MakeTransactionRef(tx);
 
     if (!coinbase) {

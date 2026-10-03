@@ -68,7 +68,7 @@ FUZZ_TARGET(partially_downloaded_block, .init = initialize_pdb)
     // The coinbase is always available
     available.insert(0);
 
-    std::vector<std::pair<Wtxid, CTransactionRef>> extra_txn;
+    std::vector<std::pair<Wtxid, TransactionRef>> extra_txn;
     for (size_t i = 1; i < block->vtx.size(); ++i) {
         auto tx{block->vtx[i]};
 
@@ -89,7 +89,7 @@ FUZZ_TARGET(partially_downloaded_block, .init = initialize_pdb)
 
     auto init_status{pdb.InitData(cmpctblock, extra_txn)};
 
-    std::vector<CTransactionRef> missing;
+    std::vector<TransactionRef> missing;
     // Whether we skipped a transaction that should be included in `missing`.
     // FillBlock should never return READ_STATUS_OK if that is the case.
     bool skipped_missing{false};

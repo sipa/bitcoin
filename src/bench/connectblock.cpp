@@ -55,7 +55,7 @@ CBlock CreateTestBlock(
 
     std::vector<CMutableTransaction> txs;
     txs.reserve(num_txs);
-    CTransactionRef tx_to_spend{MakeTransactionRef(first_tx)};
+    TransactionRef tx_to_spend{MakeTransactionRef(first_tx)};
     for (int i{0}; i < num_txs; i++) {
         std::vector<COutPoint> inputs;
         inputs.reserve(outputs.size());

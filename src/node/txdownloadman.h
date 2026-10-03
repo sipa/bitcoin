@@ -54,8 +54,8 @@ struct PackageToValidate {
     Package m_txns;
     std::vector<NodeId> m_senders;
     /** Construct a 1-parent-1-child package. */
-    explicit PackageToValidate(const CTransactionRef& parent,
-                               const CTransactionRef& child,
+    explicit PackageToValidate(const TransactionRef& parent,
+                               const TransactionRef& child,
                                NodeId parent_sender,
                                NodeId child_sender) :
         m_txns{parent, child},
@@ -142,10 +142,10 @@ public:
     void ReceivedNotFound(NodeId nodeid, const std::vector<GenTxid>& gtxids);
 
     /** Respond to successful transaction submission to mempool */
-    void MempoolAcceptedTx(const CTransactionRef& tx);
+    void MempoolAcceptedTx(const TransactionRef& tx);
 
     /** Respond to transaction rejected from mempool */
-    RejectedTxTodo MempoolRejectedTx(const CTransactionRef& ptx, const TxValidationState& state, NodeId nodeid, bool first_time_failure);
+    RejectedTxTodo MempoolRejectedTx(const TransactionRef& ptx, const TxValidationState& state, NodeId nodeid, bool first_time_failure);
 
     /** Respond to package rejected from mempool */
     void MempoolRejectedPackage(const Package& package);
@@ -153,13 +153,13 @@ public:
     /** Marks a tx as ReceivedResponse in txrequest and checks whether AlreadyHaveTx.
      * Return a bool indicating whether this tx should be validated. If false, optionally, a
      * PackageToValidate. */
-    std::pair<bool, std::optional<PackageToValidate>> ReceivedTx(NodeId nodeid, const CTransactionRef& ptx);
+    std::pair<bool, std::optional<PackageToValidate>> ReceivedTx(NodeId nodeid, const TransactionRef& ptx);
 
     /** Whether there are any orphans to reconsider for this peer. */
     bool HaveMoreWork(NodeId nodeid) const;
 
     /** Returns next orphan tx to consider, or nullptr if none exist. */
-    CTransactionRef GetTxToReconsider(NodeId nodeid);
+    TransactionRef GetTxToReconsider(NodeId nodeid);
 
     /** Check that all data structures are empty. */
     void CheckIsEmpty() const;

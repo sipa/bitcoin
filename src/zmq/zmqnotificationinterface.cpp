@@ -160,17 +160,17 @@ void CZMQNotificationInterface::UpdatedBlockTip(const CBlockIndex *pindexNew, co
 
 void CZMQNotificationInterface::TransactionAddedToMempool(const NewMempoolTransactionInfo& ptx, uint64_t mempool_sequence)
 {
-    const CTransaction& tx = *(ptx.info.m_tx);
+    const Transaction& tx = *(ptx.info.m_tx);
 
     TryForEachAndRemoveFailed(notifiers, [&tx, mempool_sequence](CZMQAbstractNotifier* notifier) {
         return notifier->NotifyTransaction(tx) && notifier->NotifyTransactionAcceptance(tx, mempool_sequence);
     });
 }
 
-void CZMQNotificationInterface::TransactionRemovedFromMempool(const CTransactionRef& ptx, MemPoolRemovalReason reason, uint64_t mempool_sequence)
+void CZMQNotificationInterface::TransactionRemovedFromMempool(const TransactionRef& ptx, MemPoolRemovalReason reason, uint64_t mempool_sequence)
 {
     // Called for all non-block inclusion reasons
-    const CTransaction& tx = *ptx;
+    const Transaction& tx = *ptx;
 
     TryForEachAndRemoveFailed(notifiers, [&tx, mempool_sequence](CZMQAbstractNotifier* notifier) {
         return notifier->NotifyTransactionRemoval(tx, mempool_sequence);
@@ -182,8 +182,8 @@ void CZMQNotificationInterface::BlockConnected(const ChainstateRole& role, const
     if (role.historical) {
         return;
     }
-    for (const CTransactionRef& ptx : pblock->vtx) {
-        const CTransaction& tx = *ptx;
+    for (const TransactionRef& ptx : pblock->vtx) {
+        const Transaction& tx = *ptx;
         TryForEachAndRemoveFailed(notifiers, [&tx](CZMQAbstractNotifier* notifier) {
             return notifier->NotifyTransaction(tx);
         });
@@ -197,8 +197,8 @@ void CZMQNotificationInterface::BlockConnected(const ChainstateRole& role, const
 
 void CZMQNotificationInterface::BlockDisconnected(const std::shared_ptr<const CBlock>& pblock, const CBlockIndex* pindexDisconnected)
 {
-    for (const CTransactionRef& ptx : pblock->vtx) {
-        const CTransaction& tx = *ptx;
+    for (const TransactionRef& ptx : pblock->vtx) {
+        const Transaction& tx = *ptx;
         TryForEachAndRemoveFailed(notifiers, [&tx](CZMQAbstractNotifier* notifier) {
             return notifier->NotifyTransaction(tx);
         });

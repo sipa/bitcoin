@@ -24,7 +24,7 @@ std::ostream& operator<<(std::ostream& os, PrivateBroadcast::AddResult r)
 
 BOOST_FIXTURE_TEST_SUITE(private_broadcast_tests, BasicTestingSetup)
 
-static CTransactionRef MakeDummyTx(uint32_t id, size_t num_witness)
+static TransactionRef MakeDummyTx(uint32_t id, size_t num_witness)
 {
     CMutableTransaction mtx;
     mtx.vin.resize(1);
@@ -64,7 +64,7 @@ BOOST_AUTO_TEST_CASE(basic)
     BOOST_REQUIRE(tx1->GetWitnessHash() != tx2->GetWitnessHash());
 
     BOOST_CHECK_EQUAL(pb.Add(tx2), PrivateBroadcast::AddResult::Added);
-    const auto find_tx_info{[](auto& infos, const CTransactionRef& tx) -> const PrivateBroadcast::TxBroadcastInfo& {
+    const auto find_tx_info{[](auto& infos, const TransactionRef& tx) -> const PrivateBroadcast::TxBroadcastInfo& {
         const auto it{std::ranges::find(infos, tx->GetWitnessHash(), [](const auto& info) { return info.tx->GetWitnessHash(); })};
         BOOST_REQUIRE(it != infos.end());
         return *it;
@@ -236,7 +236,7 @@ BOOST_AUTO_TEST_CASE(reset_with_equivalent_transaction_reference)
     BOOST_CHECK(pb.DidNodeConfirmReception(/*nodeid=*/0));
     BOOST_CHECK(!pb.HavePendingTransactions());
 
-    // A distinct CTransactionRef with the same WTXID must reset the exhausted
+    // A distinct TransactionRef with the same WTXID must reset the exhausted
     // transaction, including its send and confirmation history.
     BOOST_REQUIRE_EQUAL(pb.Add(equivalent_tx), PrivateBroadcast::AddResult::Added);
     BOOST_CHECK(pb.HavePendingTransactions());
@@ -256,7 +256,7 @@ BOOST_AUTO_TEST_CASE(rejection_at_cap)
     constexpr size_t num_over{5};
 
     // Fill the queue exactly to the cap; every distinct Add() succeeds.
-    std::vector<CTransactionRef> txs;
+    std::vector<TransactionRef> txs;
     txs.reserve(num_cap);
     for (size_t i{0}; i < num_cap; ++i) {
         auto tx{MakeDummyTx(/*id=*/static_cast<uint32_t>(i), /*num_witness=*/0)};

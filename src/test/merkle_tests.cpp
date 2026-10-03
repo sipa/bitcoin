@@ -29,7 +29,7 @@ static uint256 BlockBuildMerkleTree(const CBlock& block, bool* fMutated, std::ve
 {
     vMerkleTree.clear();
     vMerkleTree.reserve(block.vtx.size() * 2 + 16); // Safe upper bound for the number of total nodes.
-    for (std::vector<CTransactionRef>::const_iterator it(block.vtx.begin()); it != block.vtx.end(); ++it)
+    for (std::vector<TransactionRef>::const_iterator it(block.vtx.begin()); it != block.vtx.end(); ++it)
         vMerkleTree.push_back((*it)->GetHash().ToUint256());
     int j = 0;
     bool mutated = false;

@@ -70,7 +70,7 @@ public:
 private:
     CTxMemPoolEntry(const CTxMemPoolEntry&) = delete;
 
-    const CTransactionRef tx;
+    const TransactionRef tx;
     const CAmount nFee;             //!< Cached to avoid expensive parent-transaction lookups
     const int32_t nTxWeight;         //!< ... and avoid recomputing tx weight (also used for GetTxSize())
     const size_t nUsageSize;        //!< ... and total memory usage
@@ -84,7 +84,7 @@ private:
 
 public:
     virtual ~CTxMemPoolEntry() = default;
-    CTxMemPoolEntry(const CTransactionRef& tx, CAmount fee,
+    CTxMemPoolEntry(const TransactionRef& tx, CAmount fee,
                     int64_t time, unsigned int entry_height, uint64_t entry_sequence,
                     bool spends_coinbase,
                     int64_t sigops_cost, LockPoints lp)
@@ -104,8 +104,8 @@ public:
     CTxMemPoolEntry(CTxMemPoolEntry&&) = default;
     CTxMemPoolEntry& operator=(CTxMemPoolEntry&&) = delete;
 
-    const CTransaction& GetTx() const { return *this->tx; }
-    CTransactionRef GetSharedTx() const { return this->tx; }
+    const Transaction& GetTx() const { return *this->tx; }
+    TransactionRef GetSharedTx() const { return this->tx; }
     const CAmount& GetFee() const { return nFee; }
     int32_t GetTxSize() const
     {
@@ -141,7 +141,7 @@ public:
 using CTxMemPoolEntryRef = CTxMemPoolEntry::CTxMemPoolEntryRef;
 
 struct TransactionInfo {
-    const CTransactionRef m_tx;
+    const TransactionRef m_tx;
     /* The fee the transaction paid */
     const CAmount m_fee;
     /**
@@ -157,7 +157,7 @@ struct TransactionInfo {
     /* The block height the transaction entered the mempool */
     const unsigned int txHeight;
 
-    TransactionInfo(const CTransactionRef& tx, const CAmount& fee, const int64_t vsize, const unsigned int height)
+    TransactionInfo(const TransactionRef& tx, const CAmount& fee, const int64_t vsize, const unsigned int height)
         : m_tx{tx},
           m_fee{fee},
           m_virtual_transaction_size{vsize},
@@ -187,7 +187,7 @@ struct NewMempoolTransactionInfo {
     /* Indicates whether the transaction has unconfirmed parents. */
     const bool m_has_no_mempool_parents;
 
-    explicit NewMempoolTransactionInfo(const CTransactionRef& tx, const CAmount& fee,
+    explicit NewMempoolTransactionInfo(const TransactionRef& tx, const CAmount& fee,
                                        const int64_t vsize, const unsigned int height,
                                        const bool mempool_limit_bypassed, const bool submitted_in_package,
                                        const bool chainstate_is_current,

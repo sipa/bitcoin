@@ -155,7 +155,7 @@ public:
         std::optional<unsigned int> change_pos) = 0;
 
     //! Commit transaction.
-    virtual void commitTransaction(CTransactionRef tx, const std::vector<std::string>& messages) = 0;
+    virtual void commitTransaction(TransactionRef tx, const std::vector<std::string>& messages) = 0;
 
     //! Return whether transaction can be abandoned.
     virtual bool transactionCanBeAbandoned(const Txid& txid) = 0;
@@ -184,7 +184,7 @@ public:
         Txid& bumped_txid) = 0;
 
     //! Get a transaction.
-    virtual CTransactionRef getTx(const Txid& txid) = 0;
+    virtual TransactionRef getTx(const Txid& txid) = 0;
 
     //! Get transaction information.
     virtual WalletTx getWalletTx(const Txid& txid) = 0;
@@ -392,7 +392,7 @@ struct WalletBalances
 // Wallet transaction information.
 struct WalletTx
 {
-    CTransactionRef tx;
+    TransactionRef tx;
     std::vector<bool> txin_is_mine;
     std::vector<bool> txout_is_mine;
     std::vector<bool> txout_is_change;

@@ -62,7 +62,7 @@ public:
     };
 
     struct TxBroadcastInfo {
-        CTransactionRef tx;
+        TransactionRef tx;
         NodeClock::time_point time_added;
         /// Number of additional send attempts allowed for this transaction (0 if exhausted).
         size_t attempts_remaining;
@@ -87,7 +87,7 @@ public:
      * present with send attempts remaining, or was rejected because the queue is
      * full (see AddResult).
      */
-    [[nodiscard]] AddResult Add(const CTransactionRef& tx)
+    [[nodiscard]] AddResult Add(const TransactionRef& tx)
         EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
 
     /**
@@ -97,7 +97,7 @@ public:
      * by the recipient (if the transaction existed and was removed).
      * @retval nullopt The transaction was not in the storage.
      */
-    std::optional<size_t> Remove(const CTransactionRef& tx)
+    std::optional<size_t> Remove(const TransactionRef& tx)
         EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
 
     /**
@@ -112,7 +112,7 @@ public:
      * @return Most urgent transaction or nullopt if there are no transactions
      * with send attempts remaining.
      */
-    std::optional<CTransactionRef> PickTxForSend(const NodeId& will_send_to_nodeid, const CService& will_send_to_address)
+    std::optional<TransactionRef> PickTxForSend(const NodeId& will_send_to_nodeid, const CService& will_send_to_address)
         EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
 
     /**
@@ -120,7 +120,7 @@ public:
      * @param[in] nodeid Node to which a transaction is being (or was) sent.
      * @return Transaction or nullopt if the nodeid is unknown.
      */
-    std::optional<CTransactionRef> GetTxForNode(const NodeId& nodeid)
+    std::optional<TransactionRef> GetTxForNode(const NodeId& nodeid)
         EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
 
     /**
@@ -149,7 +149,7 @@ public:
      * Get the transactions that have not been broadcast recently and have send
      * attempts remaining.
      */
-    std::vector<CTransactionRef> GetStale() const
+    std::vector<TransactionRef> GetStale() const
         EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
 
     /**
@@ -192,21 +192,21 @@ private:
 
     /// A pair of a transaction and a sent status for a given node. Convenience return type of GetSendStatusByNode().
     struct TxAndSendStatusForNode {
-        const CTransactionRef& tx;
+        const TransactionRef& tx;
         SendStatus& send_status;
     };
 
     // No need for salted hasher because we are going to store just a bunch of locally originating transactions.
 
-    struct CTransactionRefHash {
-        size_t operator()(const CTransactionRef& tx) const
+    struct TransactionRefHash {
+        size_t operator()(const TransactionRef& tx) const
         {
             return static_cast<size_t>(tx->GetWitnessHash().ToUint256().GetUint64(0));
         }
     };
 
-    struct CTransactionRefComp {
-        bool operator()(const CTransactionRef& a, const CTransactionRef& b) const
+    struct TransactionRefComp {
+        bool operator()(const TransactionRef& a, const TransactionRef& b) const
         {
             return a->GetWitnessHash() == b->GetWitnessHash(); // If wtxid equals, then txid also equals.
         }
@@ -235,7 +235,7 @@ private:
     /// Cap on the number of send attempts per transaction (see PickTxForSend()).
     const size_t m_max_send_attempts;
     mutable Mutex m_mutex;
-    std::unordered_map<CTransactionRef, TxSendStatus, CTransactionRefHash, CTransactionRefComp>
+    std::unordered_map<TransactionRef, TxSendStatus, TransactionRefHash, TransactionRefComp>
         m_transactions GUARDED_BY(m_mutex);
 };
 

@@ -19,12 +19,12 @@
 #include <boost/test/unit_test.hpp>
 
 // Helpers:
-static bool IsStandardTx(const CTransaction& tx, bool permit_bare_multisig, std::string& reason)
+static bool IsStandardTx(const Transaction& tx, bool permit_bare_multisig, std::string& reason)
 {
     return IsStandardTx(tx, std::nullopt, permit_bare_multisig, CFeeRate{DUST_RELAY_TX_FEE}, reason);
 }
 
-static bool IsStandardTx(const CTransaction& tx, std::string& reason)
+static bool IsStandardTx(const Transaction& tx, std::string& reason)
 {
     return IsStandardTx(tx, std::nullopt, /*permit_bare_multisig=*/true, CFeeRate{DUST_RELAY_TX_FEE}, reason) &&
            IsStandardTx(tx, std::nullopt, /*permit_bare_multisig=*/false, CFeeRate{DUST_RELAY_TX_FEE}, reason);
@@ -96,7 +96,7 @@ BOOST_AUTO_TEST_CASE(sign)
         txFrom.vout[i+4].scriptPubKey = standardScripts[i];
         txFrom.vout[i+4].nValue = COIN;
     }
-    BOOST_CHECK(IsStandardTx(CTransaction(txFrom), reason));
+    BOOST_CHECK(IsStandardTx(Transaction(txFrom), reason));
 
     CMutableTransaction txTo[8]; // Spending transactions
     for (int i = 0; i < 8; i++)
@@ -110,7 +110,7 @@ BOOST_AUTO_TEST_CASE(sign)
     for (int i = 0; i < 8; i++)
     {
         SignatureData empty;
-        BOOST_CHECK_MESSAGE(SignSignature(keystore, CTransaction(txFrom), txTo[i], 0, SIGHASH_ALL, empty), strprintf("SignSignature %d", i));
+        BOOST_CHECK_MESSAGE(SignSignature(keystore, Transaction(txFrom), txTo[i], 0, SIGHASH_ALL, empty), strprintf("SignSignature %d", i));
     }
     // All of the above should be OK, and the txTos have valid signatures
     // Check to make sure signature verification fails if we use the wrong ScriptSig:
@@ -121,7 +121,7 @@ BOOST_AUTO_TEST_CASE(sign)
         {
             CScript sigSave = txTo[i].vin[0].scriptSig;
             txTo[i].vin[0].scriptSig = txTo[j].vin[0].scriptSig;
-            bool sigOK = !CScriptCheck(txFrom.vout[txTo[i].GetInputPrevout(0).n], CTransaction(txTo[i]), signature_cache, 0, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_STRICTENC, false, &txdata)().has_value();
+            bool sigOK = !CScriptCheck(txFrom.vout[txTo[i].GetInputPrevout(0).n], Transaction(txTo[i]), signature_cache, 0, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_STRICTENC, false, &txdata)().has_value();
             if (i == j)
                 BOOST_CHECK_MESSAGE(sigOK, strprintf("VerifySignature %d %d", i, j));
             else
@@ -193,7 +193,7 @@ BOOST_AUTO_TEST_CASE(set)
         txFrom.vout[i].scriptPubKey = outer[i];
         txFrom.vout[i].nValue = CENT;
     }
-    BOOST_CHECK(IsStandardTx(CTransaction(txFrom), reason));
+    BOOST_CHECK(IsStandardTx(Transaction(txFrom), reason));
 
     CMutableTransaction txTo[4]; // Spending transactions
     for (int i = 0; i < 4; i++)
@@ -208,9 +208,9 @@ BOOST_AUTO_TEST_CASE(set)
     for (int i = 0; i < 4; i++)
     {
         SignatureData empty;
-        BOOST_CHECK_MESSAGE(SignSignature(keystore, CTransaction(txFrom), txTo[i], 0, SIGHASH_ALL, empty), strprintf("SignSignature %d", i));
-        BOOST_CHECK_MESSAGE(IsStandardTx(CTransaction(txTo[i]), /*permit_bare_multisig=*/true, reason), strprintf("txTo[%d].IsStandard", i));
-        bool no_pbms_is_std = IsStandardTx(CTransaction(txTo[i]), /*permit_bare_multisig=*/false, reason);
+        BOOST_CHECK_MESSAGE(SignSignature(keystore, Transaction(txFrom), txTo[i], 0, SIGHASH_ALL, empty), strprintf("SignSignature %d", i));
+        BOOST_CHECK_MESSAGE(IsStandardTx(Transaction(txTo[i]), /*permit_bare_multisig=*/true, reason), strprintf("txTo[%d].IsStandard", i));
+        bool no_pbms_is_std = IsStandardTx(Transaction(txTo[i]), /*permit_bare_multisig=*/false, reason);
         BOOST_CHECK_MESSAGE((i == 0 ? no_pbms_is_std : !no_pbms_is_std), strprintf("txTo[%d].IsStandard(permbaremulti=false)", i));
     }
 }
@@ -352,7 +352,7 @@ BOOST_AUTO_TEST_CASE(ValidateInputsStandardness)
     txFrom.vout[9].scriptPubKey = witnessUnknown;
     txFrom.vout[9].nValue = 1000;
 
-    AddCoins(coins, CTransaction(txFrom), 0);
+    AddCoins(coins, Transaction(txFrom), 0);
 
     {
         CMutableTransaction txTo;
@@ -366,26 +366,26 @@ BOOST_AUTO_TEST_CASE(ValidateInputsStandardness)
             txTo.GetInputPrevout(i).hash = txFrom.GetHash();
         }
         SignatureData empty;
-        BOOST_CHECK(SignSignature(keystore, CTransaction(txFrom), txTo, 0, SIGHASH_ALL, empty));
+        BOOST_CHECK(SignSignature(keystore, Transaction(txFrom), txTo, 0, SIGHASH_ALL, empty));
         SignatureData empty_b;
-        BOOST_CHECK(SignSignature(keystore, CTransaction(txFrom), txTo, 1, SIGHASH_ALL, empty_b));
+        BOOST_CHECK(SignSignature(keystore, Transaction(txFrom), txTo, 1, SIGHASH_ALL, empty_b));
         SignatureData empty_c;
-        BOOST_CHECK(SignSignature(keystore, CTransaction(txFrom), txTo, 2, SIGHASH_ALL, empty_c));
+        BOOST_CHECK(SignSignature(keystore, Transaction(txFrom), txTo, 2, SIGHASH_ALL, empty_c));
         // SignSignature doesn't know how to sign these. We're
         // not testing validating signatures, so just create
         // dummy signatures that DO include the correct P2SH scripts:
         txTo.vin[3].scriptSig << OP_11 << OP_11 << std::vector<unsigned char>(oneAndTwo.begin(), oneAndTwo.end());
         txTo.vin[4].scriptSig << std::vector<unsigned char>(fifteenSigops.begin(), fifteenSigops.end());
 
-        BOOST_CHECK(::ValidateInputsStandardness(CTransaction(txTo), coins).IsValid());
+        BOOST_CHECK(::ValidateInputsStandardness(Transaction(txTo), coins).IsValid());
         // 22 P2SH sigops for all inputs (1 for vin[0], 6 for vin[3], 15 for vin[4]
-        BOOST_CHECK_EQUAL(GetP2SHSigOpCount(CTransaction(txTo), coins), 22U);
+        BOOST_CHECK_EQUAL(GetP2SHSigOpCount(Transaction(txTo), coins), 22U);
     }
 
     {
         CMutableTransaction coinbase_tx_mut;
         coinbase_tx_mut.vin.resize(1);
-        CTransaction coinbase_tx{coinbase_tx_mut};
+        Transaction coinbase_tx{coinbase_tx_mut};
         BOOST_CHECK(coinbase_tx.IsCoinBase());
         BOOST_CHECK_EQUAL(GetP2SHSigOpCount(coinbase_tx, coins), 0U);
     }
@@ -401,12 +401,12 @@ BOOST_AUTO_TEST_CASE(ValidateInputsStandardness)
         txToNonStd1.GetInputPrevout(0).hash = txFrom.GetHash();
         txToNonStd1.vin[0].scriptSig << std::vector<unsigned char>(sixteenSigops.begin(), sixteenSigops.end());
 
-        const auto txToNonStd1_res = ::ValidateInputsStandardness(CTransaction(txToNonStd1), coins);
+        const auto txToNonStd1_res = ::ValidateInputsStandardness(Transaction(txToNonStd1), coins);
         BOOST_CHECK(txToNonStd1_res.IsInvalid());
         BOOST_CHECK_EQUAL(txToNonStd1_res.GetRejectReason(), "bad-txns-nonstandard-inputs");
         BOOST_CHECK_EQUAL(txToNonStd1_res.GetDebugMessage(), "p2sh redeemscript sigops exceed limit (input 0: 16 > 15)");
 
-        BOOST_CHECK_EQUAL(GetP2SHSigOpCount(CTransaction(txToNonStd1), coins), 16U);
+        BOOST_CHECK_EQUAL(GetP2SHSigOpCount(Transaction(txToNonStd1), coins), 16U);
     }
 
     {
@@ -419,11 +419,11 @@ BOOST_AUTO_TEST_CASE(ValidateInputsStandardness)
         txToNonStd2.GetInputPrevout(0).hash = txFrom.GetHash();
         txToNonStd2.vin[0].scriptSig << std::vector<unsigned char>(twentySigops.begin(), twentySigops.end());
 
-        const auto txToNonStd2_res = ::ValidateInputsStandardness(CTransaction(txToNonStd2), coins);
+        const auto txToNonStd2_res = ::ValidateInputsStandardness(Transaction(txToNonStd2), coins);
         BOOST_CHECK(txToNonStd2_res.IsInvalid());
         BOOST_CHECK_EQUAL(txToNonStd2_res.GetRejectReason(), "bad-txns-nonstandard-inputs");
         BOOST_CHECK_EQUAL(txToNonStd2_res.GetDebugMessage(), "p2sh redeemscript sigops exceed limit (input 0: 20 > 15)");
-        BOOST_CHECK_EQUAL(GetP2SHSigOpCount(CTransaction(txToNonStd2), coins), 20U);
+        BOOST_CHECK_EQUAL(GetP2SHSigOpCount(Transaction(txToNonStd2), coins), 20U);
     }
 
     {
@@ -435,11 +435,11 @@ BOOST_AUTO_TEST_CASE(ValidateInputsStandardness)
         txToNonStd2_no_scriptSig.GetInputPrevout(0).n = 6;
         txToNonStd2_no_scriptSig.GetInputPrevout(0).hash = txFrom.GetHash();
 
-        const auto txToNonStd2_no_scriptSig_res = ::ValidateInputsStandardness(CTransaction(txToNonStd2_no_scriptSig), coins);
+        const auto txToNonStd2_no_scriptSig_res = ::ValidateInputsStandardness(Transaction(txToNonStd2_no_scriptSig), coins);
         BOOST_CHECK(txToNonStd2_no_scriptSig_res.IsInvalid());
         BOOST_CHECK_EQUAL(txToNonStd2_no_scriptSig_res.GetRejectReason(), "bad-txns-nonstandard-inputs");
         BOOST_CHECK_EQUAL(txToNonStd2_no_scriptSig_res.GetDebugMessage(), "input 0 P2SH redeemscript missing");
-        BOOST_CHECK_EQUAL(GetP2SHSigOpCount(CTransaction(txToNonStd2_no_scriptSig), coins), 0U);
+        BOOST_CHECK_EQUAL(GetP2SHSigOpCount(Transaction(txToNonStd2_no_scriptSig), coins), 0U);
     }
 
     // TxoutType::NONSTANDARD
@@ -452,7 +452,7 @@ BOOST_AUTO_TEST_CASE(ValidateInputsStandardness)
         txToNonStd3.GetInputPrevout(0).n = 7;
         txToNonStd3.GetInputPrevout(0).hash = txFrom.GetHash();
 
-        const auto txToNonStd3_res = ::ValidateInputsStandardness(CTransaction(txToNonStd3), coins);
+        const auto txToNonStd3_res = ::ValidateInputsStandardness(Transaction(txToNonStd3), coins);
         BOOST_CHECK(txToNonStd3_res.IsInvalid());
         BOOST_CHECK_EQUAL(txToNonStd3_res.GetRejectReason(), "bad-txns-nonstandard-inputs");
         BOOST_CHECK_EQUAL(txToNonStd3_res.GetDebugMessage(), "input 0 script unknown");
@@ -469,7 +469,7 @@ BOOST_AUTO_TEST_CASE(ValidateInputsStandardness)
         txToNonStd4.GetInputPrevout(0).hash = txFrom.GetHash();
         txToNonStd4.vin[0].scriptSig = op_return_script;
 
-        const auto txToNonStd4_res = ::ValidateInputsStandardness(CTransaction(txToNonStd4), coins);
+        const auto txToNonStd4_res = ::ValidateInputsStandardness(Transaction(txToNonStd4), coins);
         BOOST_CHECK(txToNonStd4_res.IsInvalid());
         BOOST_CHECK_EQUAL(txToNonStd4_res.GetRejectReason(), "bad-txns-nonstandard-inputs");
         BOOST_CHECK_EQUAL(txToNonStd4_res.GetDebugMessage(), "p2sh scriptsig malformed (input 0: OP_RETURN was encountered)");
@@ -484,7 +484,7 @@ BOOST_AUTO_TEST_CASE(ValidateInputsStandardness)
         txWitnessUnknown.vin.resize(1);
         txWitnessUnknown.GetInputPrevout(0).n = 9;
         txWitnessUnknown.GetInputPrevout(0).hash = txFrom.GetHash();
-        const auto txWitnessUnknown_res = ::ValidateInputsStandardness(CTransaction(txWitnessUnknown), coins);
+        const auto txWitnessUnknown_res = ::ValidateInputsStandardness(Transaction(txWitnessUnknown), coins);
         BOOST_CHECK(txWitnessUnknown_res.IsInvalid());
         BOOST_CHECK_EQUAL(txWitnessUnknown_res.GetRejectReason(), "bad-txns-nonstandard-inputs");
         BOOST_CHECK_EQUAL(txWitnessUnknown_res.GetDebugMessage(), "input 0 witness program is undefined");

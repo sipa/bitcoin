@@ -42,7 +42,7 @@ enum class PackageValidationResult {
 
 /** A package is an ordered list of transactions. The transactions cannot conflict with (spend the
  * same inputs as) one another. */
-using Package = std::vector<CTransactionRef>;
+using Package = std::vector<TransactionRef>;
 
 class PackageValidationState : public ValidationState<PackageValidationResult> {};
 
@@ -87,6 +87,6 @@ bool IsChildWithParentsTree(const Package& package);
 /** Get the hash of the concatenated wtxids of transactions, with wtxids
  * treated as a little-endian numbers and sorted in ascending numeric order.
  */
-uint256 GetPackageHash(const std::vector<CTransactionRef>& transactions);
+uint256 GetPackageHash(const std::vector<TransactionRef>& transactions);
 
 #endif // BITCOIN_POLICY_PACKAGES_H

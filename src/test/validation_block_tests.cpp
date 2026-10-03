@@ -142,7 +142,7 @@ std::shared_ptr<const CBlock> MinerTestingSetup::BadBlock(const uint256& prev_ha
     coinbase_spend.vin.emplace_back(COutPoint(pblock->vtx[0]->GetHash(), 0), CScript(), 0);
     coinbase_spend.vout.push_back(pblock->vtx[0]->GetOutput(0).ToTxOut());
 
-    CTransactionRef tx = MakeTransactionRef(coinbase_spend);
+    TransactionRef tx = MakeTransactionRef(coinbase_spend);
     pblock->vtx.push_back(tx);
 
     auto ret = FinalizeBlock(pblock);
@@ -265,7 +265,7 @@ BOOST_AUTO_TEST_CASE(mempool_locks_reorg)
 
         // Create a bunch of transactions to spend the miner rewards of the
         // most recent blocks
-        std::vector<CTransactionRef> txs;
+        std::vector<TransactionRef> txs;
         for (int num_txs = 22; num_txs > 0; --num_txs) {
             CMutableTransaction mtx;
             mtx.vin.emplace_back(COutPoint{last_mined->vtx[0]->GetHash(), 1}, CScript{});

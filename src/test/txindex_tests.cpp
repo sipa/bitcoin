@@ -164,7 +164,7 @@ BOOST_FIXTURE_TEST_CASE(txindex_initial_sync, TestChain100Setup)
         CScript coinbase_script_pub_key = GetScriptForDestination(PKHash(coinbaseKey.GetPubKey()));
         std::vector<CMutableTransaction> no_txns;
         const CBlock& block = CreateAndProcessBlock(no_txns, coinbase_script_pub_key);
-        const CTransaction& txn = *block.vtx[0];
+        const Transaction& txn = *block.vtx[0];
 
         BOOST_CHECK(txindex.BlockUntilSyncedToCurrentChain());
         LookupTx(txindex, txn.GetHash());

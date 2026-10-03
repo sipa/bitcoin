@@ -700,7 +700,7 @@ std::set<Txid> CWallet::GetConflicts(const Txid& txid) const
     return result;
 }
 
-bool CWallet::HasWalletSpend(const CTransactionRef& tx) const
+bool CWallet::HasWalletSpend(const TransactionRef& tx) const
 {
     AssertLockHeld(cs_wallet);
     const Txid& txid = tx->GetHash();
@@ -1046,7 +1046,7 @@ bool CWallet::IsSpentKey(const CScript& scriptPubKey) const
     return false;
 }
 
-CWalletTx* CWallet::AddToWallet(CTransactionRef tx, const TxState& state, const UpdateWalletTxFn& update_wtx, bool rescanning_old_block)
+CWalletTx* CWallet::AddToWallet(TransactionRef tx, const TxState& state, const UpdateWalletTxFn& update_wtx, bool rescanning_old_block)
 {
     LOCK(cs_wallet);
 
@@ -1203,9 +1203,9 @@ bool CWallet::LoadToWallet(CWalletTx&& wtx_in)
     return true;
 }
 
-bool CWallet::AddToWalletIfInvolvingMe(const CTransactionRef& ptx, const SyncTxState& state, bool rescanning_old_block)
+bool CWallet::AddToWalletIfInvolvingMe(const TransactionRef& ptx, const SyncTxState& state, bool rescanning_old_block)
 {
-    const CTransaction& tx = *ptx;
+    const Transaction& tx = *ptx;
     {
         AssertLockHeld(cs_wallet);
 
@@ -1293,7 +1293,7 @@ void CWallet::UpdateTrucSiblingConflicts(const CWalletTx& parent_wtx, const Txid
     }
 }
 
-void CWallet::MarkInputsDirty(const CTransactionRef& tx)
+void CWallet::MarkInputsDirty(const TransactionRef& tx)
 {
     for (const CTxInView txin : tx->Inputs()) {
         auto it = mapWallet.find(txin.GetPrevout().hash);
@@ -1415,7 +1415,7 @@ void CWallet::RecursiveUpdateTxState(WalletBatch* batch, const Txid& tx_hash, co
     }
 }
 
-bool CWallet::SyncTransaction(const CTransactionRef& ptx, const SyncTxState& state, bool rescanning_old_block)
+bool CWallet::SyncTransaction(const TransactionRef& ptx, const SyncTxState& state, bool rescanning_old_block)
 {
     if (!AddToWalletIfInvolvingMe(ptx, state, rescanning_old_block))
         return false; // Not one of ours
@@ -1427,7 +1427,7 @@ bool CWallet::SyncTransaction(const CTransactionRef& ptx, const SyncTxState& sta
     return true;
 }
 
-void CWallet::transactionAddedToMempool(const CTransactionRef& tx) {
+void CWallet::transactionAddedToMempool(const TransactionRef& tx) {
     LOCK(cs_wallet);
     SyncTransaction(tx, TxStateInMempool{});
 
@@ -1470,7 +1470,7 @@ void CWallet::transactionAddedToMempool(const CTransactionRef& tx) {
     }
 }
 
-void CWallet::transactionRemovedFromMempool(const CTransactionRef& tx, MemPoolRemovalReason reason) {
+void CWallet::transactionRemovedFromMempool(const TransactionRef& tx, MemPoolRemovalReason reason) {
     LOCK(cs_wallet);
     auto it = mapWallet.find(tx->GetHash());
     if (it != mapWallet.end()) {
@@ -1580,7 +1580,7 @@ void CWallet::blockDisconnected(const interfaces::BlockInfo& block)
     int disconnect_height = block.height;
 
     for (size_t index = 0; index < block.data->vtx.size(); index++) {
-        const CTransactionRef& ptx = block.data->vtx[index];
+        const TransactionRef& ptx = block.data->vtx[index];
         // Coinbase transactions are not only inactive but also abandoned,
         // meaning they should never be relayed standalone via the p2p protocol.
         SyncTransaction(ptx, TxStateInactive{/*abandoned=*/index == 0});
@@ -1672,7 +1672,7 @@ bool CWallet::IsMine(const CScript& script) const
     return false;
 }
 
-bool CWallet::IsMine(const CTransaction& tx) const
+bool CWallet::IsMine(const Transaction& tx) const
 {
     AssertLockHeld(cs_wallet);
     for (const CTxOutView txout : tx.Outputs())
@@ -1694,7 +1694,7 @@ bool CWallet::IsMine(const COutPoint& outpoint) const
     return IsMine(wtx->GetTx()->GetOutput(outpoint.n));
 }
 
-bool CWallet::IsFromMe(const CTransaction& tx) const
+bool CWallet::IsFromMe(const Transaction& tx) const
 {
     LOCK(cs_wallet);
     for (const CTxInView txin : tx.Inputs()) {
@@ -1703,7 +1703,7 @@ bool CWallet::IsFromMe(const CTransaction& tx) const
     return false;
 }
 
-CAmount CWallet::GetDebit(const CTransaction& tx) const
+CAmount CWallet::GetDebit(const Transaction& tx) const
 {
     CAmount nDebit = 0;
     for (const CTxInView txin : tx.Inputs())
@@ -2126,7 +2126,7 @@ OutputType CWallet::TransactionChangeType(const std::optional<OutputType>& chang
 }
 
 void CWallet::CommitTransaction(
-    CTransactionRef tx,
+    TransactionRef tx,
     std::optional<Txid> replaces_txid,
     std::optional<std::string> comment,
     std::optional<std::string> comment_to,

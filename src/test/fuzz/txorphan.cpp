@@ -52,13 +52,13 @@ FUZZ_TARGET(txorphan, .init = initialize_orphanage)
         outpoints.emplace_back(Txid::FromUint256(uint256{i}), 0);
     }
 
-    CTransactionRef ptx_potential_parent = nullptr;
+    TransactionRef ptx_potential_parent = nullptr;
 
-    std::vector<CTransactionRef> tx_history;
+    std::vector<TransactionRef> tx_history;
 
     LIMITED_WHILE (outpoints.size() < 200'000 && fuzzed_data_provider.ConsumeBool(), 1000) {
         // construct transaction
-        const CTransactionRef tx = [&] {
+        const TransactionRef tx = [&] {
             CMutableTransaction tx_mut;
             const auto num_in = fuzzed_data_provider.ConsumeIntegralInRange<uint32_t>(1, outpoints.size());
             const auto num_out = fuzzed_data_provider.ConsumeIntegralInRange<uint32_t>(1, 256);
@@ -113,7 +113,7 @@ FUZZ_TARGET(txorphan, .init = initialize_orphanage)
                 fuzzed_data_provider,
                 [&] {
                     {
-                        CTransactionRef ref = orphanage->GetTxToReconsider(peer_id);
+                        TransactionRef ref = orphanage->GetTxToReconsider(peer_id);
                         if (ref) {
                             Assert(orphanage->HaveTx(ref->GetWitnessHash()));
                         }
@@ -269,7 +269,7 @@ FUZZ_TARGET(txorphan_protected, .init = initialize_orphanage)
 
     LIMITED_WHILE (outpoints.size() < 400 && fuzzed_data_provider.ConsumeBool(), 1000) {
         // construct transaction
-        const CTransactionRef tx = [&] {
+        const TransactionRef tx = [&] {
             CMutableTransaction tx_mut;
             const auto num_in = fuzzed_data_provider.ConsumeIntegralInRange<uint32_t>(1, outpoints.size());
             const auto num_out = fuzzed_data_provider.ConsumeIntegralInRange<uint32_t>(1, 256);
@@ -415,7 +415,7 @@ FUZZ_TARGET(txorphanage_sim)
     deps.resize(provider.ConsumeIntegralInRange<unsigned>(0, NUM_TX * 4 - 1));
     // - Construct the actual transactions.
     std::set<Wtxid> wtxids;
-    std::vector<CTransactionRef> txn(NUM_TX);
+    std::vector<TransactionRef> txn(NUM_TX);
     node::TxOrphanage::Usage total_usage{0};
     for (unsigned t = 0; t < NUM_TX; ++t) {
         CMutableTransaction tx;
@@ -452,7 +452,7 @@ FUZZ_TARGET(txorphanage_sim)
         }
         // Optionally modify the witness (allowing wtxid != txid), and certainly when the wtxid
         // already exists.
-        while (wtxids.contains(CTransaction(tx).GetWitnessHash()) || rng.randrange(4) == 0) {
+        while (wtxids.contains(Transaction(tx).GetWitnessHash()) || rng.randrange(4) == 0) {
             auto& input = tx.vin[rng.randrange(tx.GetNumInputs())];
             if (rng.randbool()) {
                 input.scriptWitness.stack.resize(1);
@@ -461,7 +461,7 @@ FUZZ_TARGET(txorphanage_sim)
                 input.scriptWitness.stack.resize(0);
             }
         }
-        // Convert to CTransactionRef.
+        // Convert to TransactionRef.
         txn[txorder[t]] = MakeTransactionRef(std::move(tx));
         wtxids.insert(txn[txorder[t]]->GetWitnessHash());
         auto weight = GetTransactionWeight(*txn[txorder[t]]);

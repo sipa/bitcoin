@@ -357,7 +357,7 @@ private:
     void RecursiveUpdateTxState(WalletBatch* batch, const Txid& tx_hash, const TryUpdatingStateFn& try_updating_state) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 
     /** Mark a transaction's inputs dirty, thus forcing the outputs to be recomputed */
-    void MarkInputsDirty(const CTransactionRef& tx) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    void MarkInputsDirty(const TransactionRef& tx) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 
     /** Collects all wallet txs that differ from wtx only in their scriptSigs (i.e. different tx id malleated variants)
      *  plus wtx itself. Sorted by the order in which they were inserted in the wallet (CWalletTx::nOrderPos) */
@@ -365,7 +365,7 @@ private:
 
     void SyncMalleatedTxMetadata(WalletBatch& batch, const CWalletTx& wtx) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 
-    bool SyncTransaction(const CTransactionRef& tx, const SyncTxState& state, bool rescanning_old_block = false) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    bool SyncTransaction(const TransactionRef& tx, const SyncTxState& state, bool rescanning_old_block = false) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 
     /** WalletFlags set on this wallet. */
     std::atomic<uint64_t> m_wallet_flags{0};
@@ -604,7 +604,7 @@ public:
      * Add the transaction to the wallet, wrapping it up inside a CWalletTx
      * @return the recently added wtx pointer or nullptr if there was a db write error.
      */
-    CWalletTx* AddToWallet(CTransactionRef tx, const TxState& state, const UpdateWalletTxFn& update_wtx=nullptr, bool rescanning_old_block = false);
+    CWalletTx* AddToWallet(TransactionRef tx, const TxState& state, const UpdateWalletTxFn& update_wtx=nullptr, bool rescanning_old_block = false);
 
     /**
      * Add a transaction to the wallet, or update it.  confirm.block_* should
@@ -621,13 +621,13 @@ public:
      * Should be called with rescanning_old_block set to true, if the transaction is
      * not discovered in real time, but during a rescan of old blocks.
      */
-    bool AddToWalletIfInvolvingMe(const CTransactionRef& tx, const SyncTxState& state, bool rescanning_old_block) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    bool AddToWalletIfInvolvingMe(const TransactionRef& tx, const SyncTxState& state, bool rescanning_old_block) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     bool LoadToWallet(CWalletTx&& wtx) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
-    void transactionAddedToMempool(const CTransactionRef& tx) override;
+    void transactionAddedToMempool(const TransactionRef& tx) override;
     void blockConnected(const kernel::ChainstateRole& role, const interfaces::BlockInfo& block) override;
     void blockDisconnected(const interfaces::BlockInfo& block) override;
     void updatedBlockTip() override;
-    void transactionRemovedFromMempool(const CTransactionRef& tx, MemPoolRemovalReason reason) override;
+    void transactionRemovedFromMempool(const TransactionRef& tx, MemPoolRemovalReason reason) override;
     /** Set the next time this wallet should resend transactions to 12-36 hours from now, ~1 day on average. */
     void SetNextResend() { m_next_resend = GetDefaultNextResend(); }
     /** Return true if all conditions for periodically resending transactions are met. */
@@ -671,7 +671,7 @@ public:
      * @param[in] messages The BIP 21 URI messages to attach to this transaction
      */
     void CommitTransaction(
-        CTransactionRef tx,
+        TransactionRef tx,
         std::optional<Txid> replaces_txid = std::nullopt,
         std::optional<std::string> comment = std::nullopt,
         std::optional<std::string> comment_to = std::nullopt,
@@ -775,11 +775,11 @@ public:
     CAmount GetDebit(const CTxInView& txin) const { return GetDebit(txin.ToTxIn()); }
     bool IsMine(const CTxOut& txout) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     bool IsMine(const CTxOutView& txout) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet) { return IsMine(txout.ToTxOut()); }
-    bool IsMine(const CTransaction& tx) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    bool IsMine(const Transaction& tx) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     bool IsMine(const COutPoint& outpoint) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     /** should probably be renamed to IsRelevantToMe */
-    bool IsFromMe(const CTransaction& tx) const;
-    CAmount GetDebit(const CTransaction& tx) const;
+    bool IsFromMe(const Transaction& tx) const;
+    CAmount GetDebit(const Transaction& tx) const;
 
     DBErrors PopulateWalletFromDB(bilingual_str& error, std::vector<bilingual_str>& warnings);
 
@@ -805,7 +805,7 @@ public:
     std::set<Txid> GetConflicts(const Txid& txid) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 
     //! Check if a given transaction has any of its outputs spent by another transaction in the wallet
-    bool HasWalletSpend(const CTransactionRef& tx) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    bool HasWalletSpend(const TransactionRef& tx) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 
     //! Close wallet database
     void Close();

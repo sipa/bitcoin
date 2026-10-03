@@ -185,7 +185,7 @@ public:
     virtual bool hasBlocks(const uint256& block_hash, int min_height = 0, std::optional<int> max_height = {}) = 0;
 
     //! Check if transaction is RBF opt in.
-    virtual RBFTransactionState isRBFOptIn(const CTransaction& tx) = 0;
+    virtual RBFTransactionState isRBFOptIn(const Transaction& tx) = 0;
 
     //! Check if transaction is in mempool.
     virtual bool isInMempool(const Txid& txid) = 0;
@@ -203,7 +203,7 @@ public:
     //! mempool and how/whether to broadcast it.
     //! @param[out] err_string Set if an error occurs.
     //! @return False if the transaction could not be added due to the fee or for another reason.
-    virtual bool broadcastTransaction(const CTransactionRef& tx,
+    virtual bool broadcastTransaction(const TransactionRef& tx,
                                       const CAmount& max_tx_fee,
                                       const CFeeRate& max_tx_fee_rate,
                                       node::TxBroadcast broadcast_method,
@@ -255,7 +255,7 @@ public:
     virtual void getPackageLimits(unsigned int& limit_ancestor_count, unsigned int& limit_descendant_count) = 0;
 
     //! Check if transaction will pass the mempool's chain limits.
-    virtual util::Result<void> checkChainLimits(const CTransactionRef& tx) = 0;
+    virtual util::Result<void> checkChainLimits(const TransactionRef& tx) = 0;
 
     //! Estimate a fee rate.
     virtual util::Expected<FeeRateEstimation, FeeRateEstimationError> getFeeRateEstimate(int num_blocks, bool conservative) const = 0;
@@ -307,8 +307,8 @@ public:
     {
     public:
         virtual ~Notifications() = default;
-        virtual void transactionAddedToMempool(const CTransactionRef& tx) {}
-        virtual void transactionRemovedFromMempool(const CTransactionRef& tx, MemPoolRemovalReason reason) {}
+        virtual void transactionAddedToMempool(const TransactionRef& tx) {}
+        virtual void transactionRemovedFromMempool(const TransactionRef& tx, MemPoolRemovalReason reason) {}
         virtual void blockConnected(const kernel::ChainstateRole& role, const BlockInfo& block) {}
         virtual void blockDisconnected(const BlockInfo& block) {}
         virtual void updatedBlockTip() {}

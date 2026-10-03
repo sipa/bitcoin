@@ -58,7 +58,7 @@ class BlockTransactions {
 public:
     // A BlockTransactions message
     uint256 blockhash;
-    std::vector<CTransactionRef> txn;
+    std::vector<TransactionRef> txn;
 
     BlockTransactions() = default;
     explicit BlockTransactions(const BlockTransactionsRequest& req) :
@@ -75,7 +75,7 @@ struct PrefilledTransaction {
     // Used as an offset since last prefilled tx in CBlockHeaderAndShortTxIDs,
     // as a proper transaction-in-block-index in PartiallyDownloadedBlock
     uint16_t index;
-    CTransactionRef tx;
+    TransactionRef tx;
 
     SERIALIZE_METHODS(PrefilledTransaction, obj) { READWRITE(COMPACTSIZE(obj.index), TX_WITH_WITNESS(Using<TransactionCompression>(obj.tx))); }
 };
@@ -132,7 +132,7 @@ public:
 
 class PartiallyDownloadedBlock {
 protected:
-    std::vector<CTransactionRef> txn_available;
+    std::vector<TransactionRef> txn_available;
     size_t prefilled_count = 0, mempool_count = 0, extra_count = 0;
     const CTxMemPool* pool;
 public:
@@ -145,10 +145,10 @@ public:
     explicit PartiallyDownloadedBlock(CTxMemPool* poolIn) : pool(poolIn) {}
 
     // extra_txn is a list of extra transactions to look at, in <witness hash, reference> form
-    ReadStatus InitData(const CBlockHeaderAndShortTxIDs& cmpctblock, const std::vector<std::pair<Wtxid, CTransactionRef>>& extra_txn);
+    ReadStatus InitData(const CBlockHeaderAndShortTxIDs& cmpctblock, const std::vector<std::pair<Wtxid, TransactionRef>>& extra_txn);
     bool IsTxAvailable(size_t index) const;
     // segwit_active enforces witness mutation checks just before reporting a healthy status
-    ReadStatus FillBlock(CBlock& block, const std::vector<CTransactionRef>& vtx_missing, bool segwit_active);
+    ReadStatus FillBlock(CBlock& block, const std::vector<TransactionRef>& vtx_missing, bool segwit_active);
 };
 
 #endif // BITCOIN_BLOCKENCODINGS_H
