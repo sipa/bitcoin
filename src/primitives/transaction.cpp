@@ -139,14 +139,26 @@ void Transaction::Finalize()
     Scratch& scratch{GetScratch()};
     if (data.capacity() <= (1 << 20)) scratch.data.swap(data);
     if (offsets.capacity() <= (1 << 18)) scratch.offsets.swap(offsets);
-    assert(m_offsets.size() == 2 * size_t{m_num_inputs} + m_num_outputs);
 
+    assert(m_offsets.size() == 2 * size_t{m_num_inputs} + m_num_outputs);
+    // The serialized sizes: the data, plus the framing that is left out of it.
+    uint64_t stripped_size{4 + GetSizeOfCompactSize(m_num_inputs) + GetSizeOfCompactSize(m_num_outputs) + OutputsEnd() + 4};
+    for (uint32_t i = 0; i < m_num_inputs; ++i) stripped_size += GetSizeOfCompactSize(GetInputScriptSig(i).size());
+    for (uint32_t i = 0; i < m_num_outputs; ++i) stripped_size += GetSizeOfCompactSize(GetOutputScriptPubKey(i).size());
+    uint64_t total_size{stripped_size};
+    if (HasWitness()) {
+        total_size += 2 + (m_data.size() - OutputsEnd());
+        for (uint32_t i = 0; i < m_num_inputs; ++i) total_size += GetSizeOfCompactSize(GetInputWitness(i).size());
+    }
+    if (total_size > std::numeric_limits<uint32_t>::max()) throw std::ios_base::failure("Transaction too large");
+    m_stripped_size = stripped_size;
+    m_total_size = total_size;
     HashWriter txid_hasher{};
-    SerializeWithoutWitness(txid_hasher);
+    SerializeImpl(txid_hasher, /*with_witness=*/false);
     m_txid = Txid::FromUint256(txid_hasher.GetHash());
     if (HasWitness()) {
         HashWriter wtxid_hasher{};
-        wtxid_hasher.write(std::as_bytes(GetSerialization()));
+        SerializeImpl(wtxid_hasher, /*with_witness=*/true);
         m_wtxid = Wtxid::FromUint256(wtxid_hasher.GetHash());
     } else {
         m_wtxid = Wtxid::FromUint256(m_txid.ToUint256());
@@ -154,33 +166,30 @@ void Transaction::Finalize()
 }
 
 Transaction::Transaction(const CMutableTransaction& tx)
+    : m_version{tx.version}, m_lock_time{tx.nLockTime}, m_num_inputs(tx.vin.size()), m_num_outputs(tx.vout.size())
 {
     UseScratchBuffers();
     VectorWriter writer{m_data, 0};
-    const bool witness{tx.HasWitness()};
-    writer << tx.version;
-    if (witness) writer << uint8_t{0} << uint8_t{1}; // Extended format marker and flags.
-    writer << COMPACTSIZE(tx.vin.size());
     for (const CTxIn& txin : tx.vin) {
+        writer << txin.prevout;
+        writer.write(std::as_bytes(std::span{txin.scriptSig}));
+        writer << txin.nSequence;
         m_offsets.push_back(CurrentOffset());
-        m_offsets.push_back(0);
-        writer << txin.prevout << txin.scriptSig << txin.nSequence;
+        m_offsets.push_back(0); // end of the witness stack (filled in below)
     }
-    writer << COMPACTSIZE(tx.vout.size());
     for (const CTxOut& txout : tx.vout) {
+        writer << txout.nValue;
+        writer.write(std::as_bytes(std::span{txout.scriptPubKey}));
         m_offsets.push_back(CurrentOffset());
-        writer << txout.nValue << txout.scriptPubKey;
     }
-    if (witness) {
-        for (size_t i = 0; i < tx.vin.size(); ++i) {
-            m_offsets[2 * i + 1] = CurrentOffset();
-            writer << tx.vin[i].scriptWitness.stack;
+    const bool witness{tx.HasWitness()};
+    const uint32_t outputs_end{CurrentOffset()};
+    for (size_t i = 0; i < tx.vin.size(); ++i) {
+        if (witness) {
+            for (const auto& element : tx.vin[i].scriptWitness.stack) writer << element;
         }
+        m_offsets[2 * i + 1] = witness ? CurrentOffset() : outputs_end;
     }
-    writer << tx.nLockTime;
-    CurrentOffset();
-    m_num_inputs = tx.vin.size();
-    m_num_outputs = tx.vout.size();
     Finalize();
 }
 
@@ -202,13 +211,14 @@ bool Transaction::Equals(const Transaction& other, const EqualsOptions opts) con
     if (GetLockTime() != other.GetLockTime() || GetVersion() != other.GetVersion()) return false;
     if (GetNumInputs() != other.GetNumInputs() || GetNumOutputs() != other.GetNumOutputs()) return false;
     for (uint32_t i = 0; i < GetNumOutputs(); ++i) {
-        if (!std::ranges::equal(GetOutputSerialization(i), other.GetOutputSerialization(i))) return false;
+        if (GetOutputValue(i) != other.GetOutputValue(i)) return false;
+        if (!std::ranges::equal(GetOutputScriptPubKey(i), other.GetOutputScriptPubKey(i))) return false;
     }
     for (uint32_t i = 0; i < GetNumInputs(); ++i) {
         if (!std::ranges::equal(GetInputPrevoutSerialization(i), other.GetInputPrevoutSerialization(i))) return false;
         if (GetInputSequence(i) != other.GetInputSequence(i)) return false;
         if (opts.include_script_sig && !std::ranges::equal(GetInputScriptSig(i), other.GetInputScriptSig(i))) return false;
-        if (opts.include_witness_data && !std::ranges::equal(GetInputWitness(i).Serialized(), other.GetInputWitness(i).Serialized())) return false;
+        if (opts.include_witness_data && !std::ranges::equal(GetInputWitness(i).Elements(), other.GetInputWitness(i).Elements())) return false;
     }
     return true;
 }

@@ -319,6 +319,19 @@ inline std::span<const uint8_t> DecodeBytes(std::span<const uint8_t>& data) noex
     return ret;
 }
 
+/** If s is a SizeComputer (possibly wrapped in ParamsStreams), return it; otherwise return nullptr. */
+template <typename Stream>
+SizeComputer* GetSizeComputer(Stream& s) noexcept
+{
+    if constexpr (std::is_same_v<Stream, SizeComputer>) {
+        return &s;
+    } else if constexpr (requires { s.GetStream(); }) {
+        return GetSizeComputer(s.GetStream());
+    } else {
+        return nullptr;
+    }
+}
+
 /** Append the (canonical) CompactSize encoding of n to data. */
 inline void AppendCompactSize(std::vector<uint8_t>& data, uint64_t n)
 {
@@ -347,13 +360,13 @@ inline void AppendCompactSize(std::vector<uint8_t>& data, uint64_t n)
 
 /** A view of the witness stack of a transaction input.
  *
- * The stack is not decoded up front; it is backed by its serialization (a CompactSize element count, followed by
- * the CompactSize-prefixed elements). Only forward iteration (and access to the first element) is supported, as
- * other elements can only be found by scanning. Code that needs random access must materialize the stack
- * (ToStack(), ToSpans()) explicitly. */
+ * The stack is not decoded up front; it is backed by the serialization of its elements (each with a CompactSize
+ * length prefix, but without the element count). Only forward iteration (and access to the first element) is
+ * supported, as other elements can only be found by scanning. Code that needs random access must materialize the
+ * stack (ToStack(), ToSpans()) explicitly. size() and GetSerializeSize() also need a scan. */
 class WitnessView
 {
-    std::span<const uint8_t> m_serialized;
+    std::span<const uint8_t> m_elements;
 
 public:
     /** Forward iterator over the stack elements (bottom to top). */
@@ -361,7 +374,7 @@ public:
     {
         std::span<const uint8_t> m_rest; //!< Serialization of the elements after the current one.
         std::span<const uint8_t> m_cur;  //!< Current element.
-        uint64_t m_left{0};              //!< Number of elements left, including the current one.
+        bool m_end{true};                //!< Whether this is the end iterator.
 
     public:
         using iterator_category = std::forward_iterator_tag;
@@ -370,46 +383,45 @@ public:
         using difference_type = std::ptrdiff_t;
 
         iterator() noexcept = default;
-        iterator(std::span<const uint8_t> elements, uint64_t count) noexcept : m_rest(elements), m_left(count)
+        explicit iterator(std::span<const uint8_t> elements) noexcept : m_rest(elements), m_end(elements.empty())
         {
-            if (m_left) m_cur = transaction_detail::DecodeBytes(m_rest);
+            if (!m_end) m_cur = transaction_detail::DecodeBytes(m_rest);
         }
         std::span<const unsigned char> operator*() const noexcept { return m_cur; }
         iterator& operator++() noexcept
         {
-            if (--m_left) m_cur = transaction_detail::DecodeBytes(m_rest);
+            if (m_rest.empty()) {
+                m_end = true;
+            } else {
+                m_cur = transaction_detail::DecodeBytes(m_rest);
+            }
             return *this;
         }
         iterator operator++(int) noexcept { auto ret{*this}; ++*this; return ret; }
-        friend bool operator==(const iterator& a, const iterator& b) noexcept { return a.m_left == b.m_left; }
+        friend bool operator==(const iterator& a, const iterator& b) noexcept
+        {
+            return a.m_end == b.m_end && (a.m_end || a.m_rest.data() == b.m_rest.data());
+        }
     };
 
-    /** Construct from the serialization of a witness stack (which must be valid). */
-    explicit WitnessView(std::span<const uint8_t> serialized LIFETIMEBOUND) noexcept : m_serialized(serialized) {}
+    /** Construct from the serialization of the elements of a witness stack (which must be valid). */
+    explicit WitnessView(std::span<const uint8_t> elements LIFETIMEBOUND) noexcept : m_elements(elements) {}
 
-    /** Number of elements on the stack. */
-    size_t size() const noexcept
-    {
-        auto data{m_serialized};
-        return transaction_detail::DecodeCompactSize(data);
-    }
-    bool empty() const noexcept { return m_serialized[0] == 0; }
+    /** Number of elements on the stack. Linear in the size of the stack. */
+    size_t size() const noexcept { return std::distance(begin(), end()); }
+    bool empty() const noexcept { return m_elements.empty(); }
     /** Equivalent to CScriptWitness::IsNull(). */
     bool IsNull() const noexcept { return empty(); }
-    iterator begin() const noexcept
-    {
-        auto data{m_serialized};
-        const uint64_t count{transaction_detail::DecodeCompactSize(data)};
-        return {data, count};
-    }
+    iterator begin() const noexcept { return iterator{m_elements}; }
     iterator end() const noexcept { return {}; }
     /** The first (bottom) element. Requires !empty(). */
     std::span<const unsigned char> front() const noexcept { return *begin(); }
 
-    /** The serialization of the stack (as in CScriptWitness::stack). */
-    std::span<const uint8_t> Serialized() const noexcept { return m_serialized; }
-    /** The size of the serialization of the stack (equal to ::GetSerializeSize(CScriptWitness::stack)). */
-    size_t GetSerializeSize() const noexcept { return m_serialized.size(); }
+    /** The serialization of the elements (each prefixed with its CompactSize length; without the element count). */
+    std::span<const uint8_t> Elements() const noexcept { return m_elements; }
+    /** The size of the serialization of the stack (equal to ::GetSerializeSize(CScriptWitness::stack)). Linear in
+     *  the size of the stack. */
+    size_t GetSerializeSize() const noexcept { return GetSizeOfCompactSize(size()) + m_elements.size(); }
     /** Decode the stack into spans. */
     std::vector<std::span<const unsigned char>> ToSpans() const;
     /** Decode the stack into owned elements, as in CScriptWitness::stack. */
@@ -417,7 +429,11 @@ public:
 
     /** Serialize like CScriptWitness::stack. */
     template <typename Stream>
-    void Serialize(Stream& s) const { s.write(std::as_bytes(m_serialized)); }
+    void Serialize(Stream& s) const
+    {
+        WriteCompactSize(s, size());
+        s.write(std::as_bytes(m_elements));
+    }
 };
 
 /** A view of a transaction input in a Transaction. */
@@ -528,21 +544,22 @@ public:
 /** The basic transaction that is broadcasted on the network and contained in
  * blocks.  A transaction can contain multiple inputs and outputs.
  *
- * Transactions are immutable, and have a compact memory representation: all their data is stored in two
- * vectors:
- * - m_data: the serialization of the transaction with witness data (i.e., using the extended format if and only
- *   if some input has a non-empty witness).
- * - m_offsets: offsets into m_data: for each input, the offset of its prevout and (only meaningful if the
- *   transaction has witness data) the offset of its witness stack, followed by, for each output, the offset of
- *   its value.
+ * Transactions are immutable, and have a compact memory representation. Apart from the version and lock time, all
+ * of a transaction's data is stored in two vectors:
+ * - m_data:
+ *   - For each input: its prevout (32-byte txid and 4-byte output index), scriptSig, and 4-byte nSequence.
+ *   - For each output: its 8-byte value and scriptPubKey.
+ *   - Only if the transaction has witness data: for each input, the elements of its witness stack, each prefixed
+ *     by its CompactSize length.
+ * - m_offsets: offsets into m_data: for each input, where it ends and where its witness stack elements end
+ *   (without witness data, all witness stacks are empty, and end at the end of m_data), followed by, for each
+ *   output, where it ends.
  *
- * Together with the cached txid and wtxid, this makes accessing any input or output field O(1), while witness
- * stack elements are found by scanning the (serialized) witness stack of their input. There is no
- * per-element memory overhead: the memory usage is the serialized size plus 8 bytes per input and 4 bytes per
- * output.
- *
- * Whether the transaction has witness data is not stored separately: it does if and only if it has inputs and
- * the byte after the version (which would be the input count otherwise) is 0 (the extended format's marker).
+ * So, compared to the serialization, the framing (the extended format's marker and flag, input and output counts,
+ * scriptSig and scriptPubKey lengths, and witness stack element counts) is left out, as it can be derived from the
+ * offsets. This makes accessing any input or output field O(1), while witness stack elements are found by scanning
+ * the elements of their input's stack. There is no per-element memory overhead: the memory usage is at most the
+ * serialized size plus 8 bytes per input and 4 bytes per output.
  *
  * Its contents are only accessible through accessor functions and views.
  */
@@ -553,8 +570,12 @@ public:
     static constexpr uint32_t CURRENT_VERSION{2};
 
 private:
+    uint32_t m_version{0};
+    uint32_t m_lock_time{0};
     uint32_t m_num_inputs{0};
     uint32_t m_num_outputs{0};
+    uint32_t m_total_size{0};    //!< Cached serialized size, with witness data.
+    uint32_t m_stripped_size{0}; //!< Cached serialized size, without witness data.
     Txid m_txid;
     Wtxid m_wtxid;
     std::vector<uint8_t> m_data;
@@ -570,7 +591,7 @@ private:
     /** Start constructing this object: let m_data and m_offsets use the (cleared) per-thread scratch buffers. */
     void UseScratchBuffers();
     /** Finish constructing this object, after m_data and m_offsets have been filled in: copy them into
-     *  exactly-sized vectors (handing the scratch buffers back), and compute the hashes. */
+     *  exactly-sized vectors (handing the scratch buffers back), and compute the cached sizes and hashes. */
     void Finalize();
 
     /** Read n bytes from s, appending them to m_data (allocating in chunks, as vector deserialization does). */
@@ -585,12 +606,6 @@ private:
             n -= chunk;
         }
     }
-    /** Read a CompactSize from s (range checked, as in vector deserialization), appending it to m_data. */
-    template <typename Stream>
-    uint64_t ReadCompactSizeInto(Stream& s);
-    /** Read a CompactSize-prefixed byte string from s, appending it to m_data. */
-    template <typename Stream>
-    void ReadBytesInto(Stream& s) { ReadBytes(s, ReadCompactSizeInto(s)); }
     /** The current size of m_data, as an offset. */
     uint32_t CurrentOffset() const
     {
@@ -599,26 +614,18 @@ private:
     }
 
     std::span<const uint8_t> Data() const noexcept LIFETIMEBOUND { return m_data; }
-    uint32_t InputOffset(uint32_t idx) const noexcept { return m_offsets[2 * size_t{idx}]; }
-    uint32_t WitnessOffset(uint32_t idx) const noexcept { return m_offsets[2 * size_t{idx} + 1]; }
-    uint32_t OutputOffset(uint32_t idx) const noexcept { return m_offsets[2 * size_t{m_num_inputs} + idx]; }
-    /** Offset of the CompactSize-prefixed scriptSig of input idx. */
-    uint32_t ScriptSigOffset(uint32_t idx) const noexcept { return InputOffset(idx) + 36; }
-    /** Offset of the start of the input count (after the version, and the marker and flag if present). */
-    uint32_t InputsStart() const noexcept { return HasWitness() ? 6 : 4; }
-    /** Offset of the end of the outputs (start of the witness data, or of the lock time). */
-    uint32_t OutputsEnd() const noexcept { return HasWitness() ? WitnessOffset(0) : LockTimeOffset(); }
-    uint32_t LockTimeOffset() const noexcept { return GetTotalSize() - 4; }
+    uint32_t InputEnd(uint32_t idx) const noexcept { return m_offsets[2 * size_t{idx}]; }
+    uint32_t InputStart(uint32_t idx) const noexcept { return idx ? InputEnd(idx - 1) : 0; }
+    uint32_t InputsEnd() const noexcept { return m_num_inputs ? InputEnd(m_num_inputs - 1) : 0; }
+    uint32_t OutputEnd(uint32_t idx) const noexcept { return m_offsets[2 * size_t{m_num_inputs} + idx]; }
+    uint32_t OutputStart(uint32_t idx) const noexcept { return idx ? OutputEnd(idx - 1) : InputsEnd(); }
+    uint32_t OutputsEnd() const noexcept { return m_num_outputs ? OutputEnd(m_num_outputs - 1) : InputsEnd(); }
+    uint32_t WitnessEnd(uint32_t idx) const noexcept { return m_offsets[2 * size_t{idx} + 1]; }
+    uint32_t WitnessStart(uint32_t idx) const noexcept { return idx ? WitnessEnd(idx - 1) : OutputsEnd(); }
 
-    /** Write the serialization without witness data to s. */
+    /** Write the serialization (with or without witness data) to s. */
     template <typename Stream>
-    void SerializeWithoutWitness(Stream& s) const
-    {
-        const auto data{Data()};
-        s.write(std::as_bytes(data.subspan(0, 4)));
-        s.write(std::as_bytes(data.subspan(InputsStart(), OutputsEnd() - InputsStart())));
-        s.write(std::as_bytes(data.subspan(LockTimeOffset(), 4)));
-    }
+    void SerializeImpl(Stream& s, bool with_witness) const;
 
 public:
     using InputRange = transaction_detail::ViewRange<CTxInView>;
@@ -630,10 +637,12 @@ public:
     template <typename Stream>
     void Serialize(Stream& s) const
     {
-        if (s.template GetParams<TransactionSerParams>().allow_witness) {
-            s.write(std::as_bytes(GetSerialization()));
+        const bool with_witness{s.template GetParams<TransactionSerParams>().allow_witness && HasWitness()};
+        if (SizeComputer* size_computer{transaction_detail::GetSizeComputer(s)}) {
+            // Only computing the serialized size: use the cached sizes.
+            size_computer->seek(with_witness ? m_total_size : m_stripped_size);
         } else {
-            SerializeWithoutWitness(s);
+            SerializeImpl(s, with_witness);
         }
     }
 
@@ -665,58 +674,44 @@ public:
 
     std::string ToString() const;
 
-    bool HasWitness() const noexcept { return m_num_inputs > 0 && m_data[4] == 0; }
+    /** Whether the transaction has witness data (i.e., some input has a non-empty witness stack). */
+    bool HasWitness() const noexcept { return m_data.size() > OutputsEnd(); }
 
     uint32_t GetNumInputs() const noexcept { return m_num_inputs; }
     uint32_t GetNumOutputs() const noexcept { return m_num_outputs; }
-    uint32_t GetVersion() const noexcept { return ReadLE32(m_data.data()); }
-    uint32_t GetLockTime() const noexcept { return ReadLE32(m_data.data() + LockTimeOffset()); }
+    uint32_t GetVersion() const noexcept { return m_version; }
+    uint32_t GetLockTime() const noexcept { return m_lock_time; }
 
     COutPoint GetInputPrevout(uint32_t input_idx) const noexcept
     {
-        const uint8_t* ptr{m_data.data() + InputOffset(input_idx)};
+        const uint8_t* ptr{m_data.data() + InputStart(input_idx)};
         return COutPoint{Txid::FromUint256(uint256{std::span{ptr, 32}}), ReadLE32(ptr + 32)};
     }
     /** The serialization of an input's prevout (32-byte txid and 4-byte output index). */
     std::span<const uint8_t> GetInputPrevoutSerialization(uint32_t input_idx) const noexcept LIFETIMEBOUND
     {
-        return Data().subspan(InputOffset(input_idx), 36);
+        return Data().subspan(InputStart(input_idx), 36);
     }
     std::span<const unsigned char> GetInputScriptSig(uint32_t input_idx) const noexcept LIFETIMEBOUND
     {
-        auto data{Data().subspan(ScriptSigOffset(input_idx))};
-        return transaction_detail::DecodeBytes(data);
+        const uint32_t start{InputStart(input_idx) + 36}, end{InputEnd(input_idx) - 4};
+        return Data().subspan(start, end - start);
     }
-    uint32_t GetInputSequence(uint32_t input_idx) const noexcept
-    {
-        auto data{Data().subspan(ScriptSigOffset(input_idx))};
-        transaction_detail::DecodeBytes(data);
-        return ReadLE32(data.data());
-    }
+    uint32_t GetInputSequence(uint32_t input_idx) const noexcept { return ReadLE32(m_data.data() + InputEnd(input_idx) - 4); }
     /** Get a view of the witness stack of an input (empty if the transaction has no witness data). */
     WitnessView GetInputWitness(uint32_t input_idx) const noexcept LIFETIMEBOUND
     {
-        static constexpr uint8_t EMPTY_STACK[1] = {0};
-        if (!HasWitness()) return WitnessView{EMPTY_STACK};
-        const uint32_t start{WitnessOffset(input_idx)};
-        const uint32_t end{input_idx + 1 < m_num_inputs ? WitnessOffset(input_idx + 1) : LockTimeOffset()};
+        const uint32_t start{WitnessStart(input_idx)}, end{WitnessEnd(input_idx)};
         return WitnessView{Data().subspan(start, end - start)};
     }
     CAmount GetOutputValue(uint32_t output_idx) const noexcept
     {
-        return static_cast<int64_t>(ReadLE64(m_data.data() + OutputOffset(output_idx)));
-    }
-    /** The serialization of an output (value and CompactSize-prefixed scriptPubKey). */
-    std::span<const uint8_t> GetOutputSerialization(uint32_t output_idx) const noexcept LIFETIMEBOUND
-    {
-        const uint32_t start{OutputOffset(output_idx)};
-        const uint32_t end{output_idx + 1 < m_num_outputs ? OutputOffset(output_idx + 1) : OutputsEnd()};
-        return Data().subspan(start, end - start);
+        return static_cast<int64_t>(ReadLE64(m_data.data() + OutputStart(output_idx)));
     }
     std::span<const unsigned char> GetOutputScriptPubKey(uint32_t output_idx) const noexcept LIFETIMEBOUND
     {
-        auto data{Data().subspan(OutputOffset(output_idx) + 8)};
-        return transaction_detail::DecodeBytes(data);
+        const uint32_t start{OutputStart(output_idx) + 8}, end{OutputEnd(output_idx)};
+        return Data().subspan(start, end - start);
     }
 
     CTxInView GetInput(uint32_t input_idx) const noexcept LIFETIMEBOUND { return {*this, input_idx}; }
@@ -725,11 +720,9 @@ public:
     OutputRange Outputs() const noexcept LIFETIMEBOUND { return {*this, GetNumOutputs()}; }
 
     /** Serialized size including witness data ("total size" in BIP141). */
-    uint32_t GetTotalSize() const noexcept { return m_data.size(); }
+    uint32_t GetTotalSize() const noexcept { return m_total_size; }
     /** Serialized size without witness data. */
-    uint32_t GetStrippedSize() const noexcept { return HasWitness() ? 4 + (OutputsEnd() - InputsStart()) + 4 : GetTotalSize(); }
-    /** The serialization including witness data. */
-    std::span<const uint8_t> GetSerialization() const noexcept LIFETIMEBOUND { return Data(); }
+    uint32_t GetStrippedSize() const noexcept { return m_stripped_size; }
 
     /** Heap memory used by this object (see RecursiveDynamicUsage). */
     size_t DynamicMemoryUsage() const;
@@ -742,80 +735,98 @@ WitnessView CTxInView::GetWitness() const noexcept { return m_tx->GetInputWitnes
 CAmount CTxOutView::GetValue() const noexcept { return m_tx->GetOutputValue(m_idx); }
 std::span<const unsigned char> CTxOutView::GetScriptPubKey() const noexcept { return m_tx->GetOutputScriptPubKey(m_idx); }
 template <typename Stream>
-void CTxOutView::Serialize(Stream& s) const { s.write(std::as_bytes(m_tx->GetOutputSerialization(m_idx))); }
+void CTxOutView::Serialize(Stream& s) const
+{
+    const auto script_pub_key{GetScriptPubKey()};
+    s << GetValue() << CompactSizeWriter(script_pub_key.size()) << script_pub_key;
+}
 
 template <typename Stream>
-uint64_t Transaction::ReadCompactSizeInto(Stream& s)
+void Transaction::SerializeImpl(Stream& s, bool with_witness) const
 {
-    const uint64_t ret{ReadCompactSize(s)};
-    transaction_detail::AppendCompactSize(m_data, ret);
-    return ret;
+    s << m_version;
+    if (with_witness) s << uint8_t{0} << uint8_t{1}; // Extended format marker and flags.
+    WriteCompactSize(s, m_num_inputs);
+    for (uint32_t i = 0; i < m_num_inputs; ++i) {
+        const auto script_sig{GetInputScriptSig(i)};
+        s.write(std::as_bytes(GetInputPrevoutSerialization(i)));
+        s << CompactSizeWriter(script_sig.size()) << script_sig << GetInputSequence(i);
+    }
+    WriteCompactSize(s, m_num_outputs);
+    for (uint32_t i = 0; i < m_num_outputs; ++i) s << GetOutput(i);
+    if (with_witness) {
+        for (uint32_t i = 0; i < m_num_inputs; ++i) s << GetInputWitness(i);
+    }
+    s << m_lock_time;
 }
 
 template <typename Stream>
 Transaction::Transaction(deserialize_type, const TransactionSerParams& params, Stream& s)
 {
     UseScratchBuffers();
-    // This mirrors UnserializeTransaction, but appends the bytes read to m_data, and records offsets in m_offsets.
+    // This mirrors UnserializeTransaction, but appends the bytes read (except for the framing) to m_data, and
+    // records where inputs, outputs and witness stacks end in m_offsets.
     const auto read_inputs = [&](uint64_t count) {
         for (uint64_t i = 0; i < count; ++i) {
-            m_offsets.push_back(CurrentOffset()); // prevout
-            m_offsets.push_back(0);               // witness stack (filled in below, if present)
-            ReadBytes(s, 36);                     // prevout
-            ReadBytesInto(s);                     // scriptSig
-            ReadBytes(s, 4);                      // nSequence
+            ReadBytes(s, 36);                 // prevout
+            ReadBytes(s, ReadCompactSize(s)); // scriptSig
+            ReadBytes(s, 4);                  // nSequence
+            m_offsets.push_back(CurrentOffset());
+            m_offsets.push_back(0); // end of the witness stack (filled in below)
         }
     };
     const auto read_outputs = [&](uint64_t count) {
         for (uint64_t i = 0; i < count; ++i) {
+            ReadBytes(s, 8);                  // nValue
+            ReadBytes(s, ReadCompactSize(s)); // scriptPubKey
             m_offsets.push_back(CurrentOffset());
-            ReadBytes(s, 8);  // nValue
-            ReadBytesInto(s); // scriptPubKey
         }
     };
 
-    ReadBytes(s, 4); // version
+    s >> m_version;
     uint8_t flags{0};
     // Try to read the inputs. In case the dummy is there, this will read an input count of 0.
-    uint64_t num_inputs{ReadCompactSizeInto(s)};
+    uint64_t num_inputs{ReadCompactSize(s)};
     if (num_inputs == 0 && params.allow_witness) {
         // We read a dummy or an empty input vector.
         s >> flags;
-        // If flags is 0, there are no inputs and no outputs, and this byte is the (empty) output count.
-        m_data.push_back(flags);
         if (flags != 0) {
-            num_inputs = ReadCompactSizeInto(s);
+            num_inputs = ReadCompactSize(s);
             read_inputs(num_inputs);
-            read_outputs(ReadCompactSizeInto(s));
+            read_outputs(ReadCompactSize(s));
         }
     } else {
         // We read a non-empty input vector. Assume a normal output vector follows.
         read_inputs(num_inputs);
-        read_outputs(ReadCompactSizeInto(s));
+        read_outputs(ReadCompactSize(s));
     }
     m_num_inputs = num_inputs;
     m_num_outputs = m_offsets.size() - 2 * num_inputs;
+    const uint32_t outputs_end{CurrentOffset()};
     if ((flags & 1) && params.allow_witness) {
         // The witness flag is present, and we support witnesses.
         flags ^= 1;
-        bool any_witness{false};
         for (uint64_t i = 0; i < num_inputs; ++i) {
+            for (uint64_t n = ReadCompactSize(s); n > 0; --n) {
+                const uint64_t size{ReadCompactSize(s)};
+                transaction_detail::AppendCompactSize(m_data, size);
+                ReadBytes(s, size);
+            }
             m_offsets[2 * i + 1] = CurrentOffset();
-            const uint64_t num_elements{ReadCompactSizeInto(s)};
-            any_witness |= num_elements != 0;
-            for (uint64_t j = 0; j < num_elements; ++j) ReadBytesInto(s);
         }
-        if (!any_witness) {
+        // Every witness stack element has a length prefix, so all stacks are empty iff nothing was appended.
+        if (m_data.size() == outputs_end) {
             // It's illegal to encode witnesses when all witness stacks are empty.
             throw std::ios_base::failure("Superfluous witness record");
         }
+    } else {
+        for (uint64_t i = 0; i < num_inputs; ++i) m_offsets[2 * i + 1] = outputs_end;
     }
     if (flags) {
         // Unknown flag in the serialization.
         throw std::ios_base::failure("Unknown transaction optional data");
     }
-    ReadBytes(s, 4); // nLockTime
-    CurrentOffset();
+    s >> m_lock_time;
     Finalize();
 }
 

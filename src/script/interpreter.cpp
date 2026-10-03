@@ -2224,8 +2224,8 @@ size_t CountWitnessSigOps(std::span<const unsigned char> scriptSig, std::span<co
 
 size_t CountWitnessSigOps(std::span<const unsigned char> scriptSig, std::span<const unsigned char> scriptPubKey, const CScriptWitness& witness, script_verify_flags flags)
 {
+    // Serialize the elements (each with its length), as backing for a WitnessView.
     std::vector<unsigned char> serialized;
-    transaction_detail::AppendCompactSize(serialized, witness.stack.size());
     for (const auto& element : witness.stack) {
         transaction_detail::AppendCompactSize(serialized, element.size());
         serialized.insert(serialized.end(), element.begin(), element.end());
