@@ -132,8 +132,7 @@ bool CoinStatsIndex::CustomAppend(const interfaces::BlockInfo& block)
             }
 
             for (uint32_t j = 0; j < tx->GetNumOutputs(); ++j) {
-                const CTxOut& out{tx->vout[j]};
-                const Coin coin{out, block.height, is_coinbase};
+                const Coin coin{tx->GetOutput(j).ToTxOut(), block.height, is_coinbase};
                 const COutPoint outpoint{tx->GetHash(), j};
 
                 // Skip unspendable coins
@@ -359,9 +358,8 @@ bool CoinStatsIndex::RevertBlock(const interfaces::BlockInfo& block)
         }
 
         for (uint32_t j = 0; j < tx->GetNumOutputs(); ++j) {
-            const CTxOut& out{tx->vout[j]};
             const COutPoint outpoint{tx->GetHash(), j};
-            const Coin coin{out, block.height, is_coinbase};
+            const Coin coin{tx->GetOutput(j).ToTxOut(), block.height, is_coinbase};
 
             if (!coin.out.scriptPubKey.IsUnspendable()) {
                 RemoveCoinHash(m_muhash, outpoint, coin);
