@@ -29,7 +29,7 @@ FUZZ_TARGET(script_flags)
     if (buffer.size() > 100'000) return;
     SpanReader ds{buffer};
     try {
-        const CTransaction tx(deserialize, TX_WITH_WITNESS, ds);
+        const Transaction tx(deserialize, TX_WITH_WITNESS, ds);
 
         script_verify_flags verify_flags;
         ds >> verify_flags;

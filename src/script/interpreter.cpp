@@ -1280,7 +1280,7 @@ bool EvalScript(std::vector<std::vector<unsigned char>>& stack, std::span<const 
 namespace {
 
 /**
- * Wrapper that serializes like CTransaction, but with the modifications
+ * Wrapper that serializes like Transaction, but with the modifications
  *  required for the signature hash done in-place
  */
 template <class T>
@@ -1862,7 +1862,7 @@ bool GenericTransactionSignatureChecker<T>::CheckSequence(const CScriptNum& nSeq
 }
 
 // explicit instantiation
-template class GenericTransactionSignatureChecker<CTransaction>;
+template class GenericTransactionSignatureChecker<Transaction>;
 template class GenericTransactionSignatureChecker<CMutableTransaction>;
 
 // Explicit instantiations of the signature hash functions (also used outside the checkers).

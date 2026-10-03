@@ -23,7 +23,7 @@ FUZZ_TARGET(script_interpreter)
         const CScript script_code = ConsumeScript(fuzzed_data_provider);
         const std::optional<CMutableTransaction> mtx = ConsumeDeserializable<CMutableTransaction>(fuzzed_data_provider, TX_WITH_WITNESS);
         if (mtx) {
-            const CTransaction tx_to{*mtx};
+            const Transaction tx_to{*mtx};
             const unsigned int in = fuzzed_data_provider.ConsumeIntegral<unsigned int>();
             if (in < tx_to.GetNumInputs()) {
                 auto n_hash_type = fuzzed_data_provider.ConsumeIntegral<int>();
@@ -32,7 +32,7 @@ FUZZ_TARGET(script_interpreter)
                 (void)SignatureHash(script_code, tx_to, in, n_hash_type, amount, sigversion, nullptr);
                 const std::optional<CMutableTransaction> mtx_precomputed = ConsumeDeserializable<CMutableTransaction>(fuzzed_data_provider, TX_WITH_WITNESS);
                 if (mtx_precomputed) {
-                    const CTransaction tx_precomputed{*mtx_precomputed};
+                    const Transaction tx_precomputed{*mtx_precomputed};
                     const PrecomputedTransactionData precomputed_transaction_data{tx_precomputed};
                     n_hash_type = fuzzed_data_provider.ConsumeIntegral<int>();
                     amount = ConsumeMoney(fuzzed_data_provider);
