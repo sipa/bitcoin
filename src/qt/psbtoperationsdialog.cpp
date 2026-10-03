@@ -118,7 +118,7 @@ void PSBTOperationsDialog::broadcastTransaction()
         return;
     }
 
-    CTransactionRef tx = MakeTransactionRef(mtx);
+    TransactionRef tx = MakeTransactionRef(mtx);
     std::string err_string;
     const auto max_raw_tx_fee_rate{DEFAULT_MAX_RAW_TX_FEE_RATE};
     // TODO: do not use default values for maxtxfee and maxfeerate.

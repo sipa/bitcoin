@@ -20,7 +20,7 @@ public:
     std::vector<uint8_t> passVectorUint8(std::vector<uint8_t> v) { std::reverse(v.begin(), v.end()); return v; }
     CScript passScript(CScript s) { s << OP_NOP; return s; }
     UniValue passUniValue(UniValue v) { return v; }
-    CTransactionRef passTransaction(CTransactionRef t) { return t; }
+    TransactionRef passTransaction(TransactionRef t) { return t; }
 };
 
 #endif // BITCOIN_IPC_TEST_FUZZ_IPC_FUZZ_H

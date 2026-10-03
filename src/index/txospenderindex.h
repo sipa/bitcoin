@@ -24,7 +24,7 @@ struct CDiskTxPos;
 inline constexpr bool DEFAULT_TXOSPENDERINDEX{false};
 
 struct TxoSpender {
-    CTransactionRef tx;
+    TransactionRef tx;
     uint256 block_hash;
 };
 

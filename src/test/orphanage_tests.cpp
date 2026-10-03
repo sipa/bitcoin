@@ -32,7 +32,7 @@ static void MakeNewKeyWithFastRandomContext(CKey& key, FastRandomContext& rand_c
 }
 
 // Creates a transaction with 2 outputs. Spends all outpoints. If outpoints is empty, spends a random one.
-static CTransactionRef MakeTransactionSpending(const std::vector<COutPoint>& outpoints, FastRandomContext& det_rand)
+static TransactionRef MakeTransactionSpending(const std::vector<COutPoint>& outpoints, FastRandomContext& det_rand)
 {
     CKey key;
     MakeNewKeyWithFastRandomContext(key, det_rand);
@@ -56,7 +56,7 @@ static CTransactionRef MakeTransactionSpending(const std::vector<COutPoint>& out
 }
 
 // Make another (not necessarily valid) tx with the same txid but different wtxid.
-static CTransactionRef MakeMutation(const CTransactionRef& ptx)
+static TransactionRef MakeMutation(const TransactionRef& ptx)
 {
     CMutableTransaction tx(*ptx);
     tx.vin[0].scriptWitness.stack.push_back({5});
@@ -65,7 +65,7 @@ static CTransactionRef MakeMutation(const CTransactionRef& ptx)
     return mutated_tx;
 }
 
-static bool EqualTxns(const std::set<CTransactionRef>& set_txns, const std::vector<CTransactionRef>& vec_txns)
+static bool EqualTxns(const std::set<TransactionRef>& set_txns, const std::vector<TransactionRef>& vec_txns)
 {
     if (vec_txns.size() != set_txns.size()) return false;
     for (const auto& tx : vec_txns) {
@@ -83,7 +83,7 @@ BOOST_AUTO_TEST_CASE(peer_dos_limits)
     static constexpr int64_t TX_SIZE{469};
     static constexpr int64_t TOTAL_SIZE = NUM_TXNS_CREATED * TX_SIZE;
 
-    std::vector<CTransactionRef> txns;
+    std::vector<TransactionRef> txns;
     txns.reserve(NUM_TXNS_CREATED);
     // All transactions are the same size.
     for (unsigned int i{0}; i < NUM_TXNS_CREATED; ++i) {
@@ -144,11 +144,11 @@ BOOST_AUTO_TEST_CASE(peer_dos_limits)
     // Single peer: eviction order is FIFO on non-reconsiderable, then reconsiderable orphans.
     {
         // Construct parent + child pairs
-        std::vector<CTransactionRef> parents;
-        std::vector<CTransactionRef> children;
+        std::vector<TransactionRef> parents;
+        std::vector<TransactionRef> children;
         for (unsigned int i{0}; i < 10; ++i) {
-            CTransactionRef parent = MakeTransactionSpending({}, det_rand);
-            CTransactionRef child = MakeTransactionSpending({{parent->GetHash(), 0}}, det_rand);
+            TransactionRef parent = MakeTransactionSpending({}, det_rand);
+            TransactionRef child = MakeTransactionSpending({{parent->GetHash(), 0}}, det_rand);
             parents.emplace_back(parent);
             children.emplace_back(child);
         }
@@ -434,7 +434,7 @@ BOOST_AUTO_TEST_CASE(DoS_mapOrphans)
 
     FakeNodeClock clock{};
 
-    std::vector<CTransactionRef> orphans_added;
+    std::vector<TransactionRef> orphans_added;
 
     // 50 orphan transactions:
     for (int i = 0; i < 50; i++)
@@ -545,7 +545,7 @@ BOOST_AUTO_TEST_CASE(same_txid_diff_witness)
     BOOST_CHECK(orphanage->HaveTx(mutated_wtxid));
 
     // Outpoints map should track all entries: check that both are returned as children of the parent.
-    std::set<CTransactionRef> expected_children{child_normal, child_mutated};
+    std::set<TransactionRef> expected_children{child_normal, child_mutated};
     BOOST_CHECK(EqualTxns(expected_children, orphanage->GetChildrenFromSamePeer(parent, peer)));
 
     // Erase by wtxid: mutated first
@@ -599,8 +599,8 @@ BOOST_AUTO_TEST_CASE(get_children)
         BOOST_CHECK(!orphanage->AddTx(child_p1n0, node3));
 
 
-        std::vector<CTransactionRef> expected_parent1_children{child_p1n0_p2n0, child_p1n0_p1n1, child_p1n0};
-        std::vector<CTransactionRef> expected_parent2_children{child_p1n0_p2n0, child_p2n1};
+        std::vector<TransactionRef> expected_parent1_children{child_p1n0_p2n0, child_p1n0_p1n1, child_p1n0};
+        std::vector<TransactionRef> expected_parent2_children{child_p1n0_p2n0, child_p2n1};
 
         BOOST_CHECK(expected_parent1_children == orphanage->GetChildrenFromSamePeer(parent1, node1));
         BOOST_CHECK(expected_parent2_children == orphanage->GetChildrenFromSamePeer(parent2, node1));
@@ -631,7 +631,7 @@ BOOST_AUTO_TEST_CASE(get_children)
 
         // Children of parent1 from node1:
         {
-            std::set<CTransactionRef> expected_parent1_node1{child_p1n0};
+            std::set<TransactionRef> expected_parent1_node1{child_p1n0};
 
             BOOST_CHECK_EQUAL(orphanage->GetChildrenFromSamePeer(parent1, node1).size(), 1);
             BOOST_CHECK(orphanage->HaveTxFromPeer(child_p1n0->GetWitnessHash(), node1));
@@ -640,14 +640,14 @@ BOOST_AUTO_TEST_CASE(get_children)
 
         // Children of parent2 from node1:
         {
-            std::set<CTransactionRef> expected_parent2_node1{child_p2n1};
+            std::set<TransactionRef> expected_parent2_node1{child_p2n1};
 
             BOOST_CHECK(EqualTxns(expected_parent2_node1, orphanage->GetChildrenFromSamePeer(parent2, node1)));
         }
 
         // Children of parent1 from node2: newest returned first.
         {
-            std::vector<CTransactionRef> expected_parent1_node2{child_p1n0_p2n0, child_p1n0_p1n1};
+            std::vector<TransactionRef> expected_parent1_node2{child_p1n0_p2n0, child_p1n0_p1n1};
             BOOST_CHECK(orphanage->HaveTxFromPeer(child_p1n0_p1n1->GetWitnessHash(), node2));
             BOOST_CHECK(orphanage->HaveTxFromPeer(child_p1n0_p2n0->GetWitnessHash(), node2));
             BOOST_CHECK(expected_parent1_node2 == orphanage->GetChildrenFromSamePeer(parent1, node2));
@@ -655,7 +655,7 @@ BOOST_AUTO_TEST_CASE(get_children)
 
         // Children of parent2 from node2:
         {
-            std::set<CTransactionRef> expected_parent2_node2{child_p1n0_p2n0};
+            std::set<TransactionRef> expected_parent2_node2{child_p1n0_p2n0};
 
             BOOST_CHECK_EQUAL(1, orphanage->GetChildrenFromSamePeer(parent2, node2).size());
             BOOST_CHECK(orphanage->HaveTxFromPeer(child_p1n0_p2n0->GetWitnessHash(), node2));
@@ -672,12 +672,12 @@ BOOST_AUTO_TEST_CASE(too_large_orphan_tx)
 
     // check that txs larger than MAX_STANDARD_TX_WEIGHT are not added to the orphanage
     BulkTransaction(tx, MAX_STANDARD_TX_WEIGHT + 4);
-    BOOST_CHECK_EQUAL(GetTransactionWeight(CTransaction(tx)), MAX_STANDARD_TX_WEIGHT + 4);
+    BOOST_CHECK_EQUAL(GetTransactionWeight(Transaction(tx)), MAX_STANDARD_TX_WEIGHT + 4);
     BOOST_CHECK(!orphanage->AddTx(MakeTransactionRef(tx), 0));
 
     tx.vout.clear();
     BulkTransaction(tx, MAX_STANDARD_TX_WEIGHT);
-    BOOST_CHECK_EQUAL(GetTransactionWeight(CTransaction(tx)), MAX_STANDARD_TX_WEIGHT);
+    BOOST_CHECK_EQUAL(GetTransactionWeight(Transaction(tx)), MAX_STANDARD_TX_WEIGHT);
     BOOST_CHECK(orphanage->AddTx(MakeTransactionRef(tx), 0));
 }
 

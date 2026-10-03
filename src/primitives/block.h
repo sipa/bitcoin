@@ -74,7 +74,7 @@ class CBlock : public CBlockHeader
 {
 public:
     // network and disk
-    std::vector<CTransactionRef> vtx;
+    std::vector<TransactionRef> vtx;
 
     // Memory-only flags for caching expensive checks
     mutable bool fChecked;                            // CheckBlock()

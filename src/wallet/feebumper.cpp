@@ -184,7 +184,7 @@ Result CreateRateBumpTransaction(CWallet& wallet, const Txid& txid, const CCoinC
         return Result::INVALID_ADDRESS_OR_KEY;
     }
     const CWalletTx& wtx = it->second;
-    const CTransactionRef& tx = wtx.GetTx();
+    const TransactionRef& tx = wtx.GetTx();
 
     // Make sure that original_change_index is valid
     if (original_change_index.has_value() && original_change_index.value() >= tx->GetNumOutputs()) {
@@ -295,7 +295,7 @@ Result CreateRateBumpTransaction(CWallet& wallet, const Txid& txid, const CCoinC
             txin.scriptWitness.SetNull();
         }
         temp_mtx.vout = txouts;
-        const int64_t maxTxSize{CalculateMaximumSignedTxSize(CTransaction(temp_mtx), &wallet, &new_coin_control).vsize};
+        const int64_t maxTxSize{CalculateMaximumSignedTxSize(Transaction(temp_mtx), &wallet, &new_coin_control).vsize};
         Result res = CheckFeeRate(wallet, temp_mtx, *new_coin_control.m_feerate, maxTxSize, old_fee, errors);
         if (res != Result::OK) {
             return res;
@@ -376,7 +376,7 @@ Result CommitTransaction(CWallet& wallet, const Txid& txid, CMutableTransaction&
     }
 
     // commit/broadcast the tx
-    CTransactionRef tx = MakeTransactionRef(std::move(mtx));
+    TransactionRef tx = MakeTransactionRef(std::move(mtx));
     wallet.CommitTransaction(tx, oldWtx.GetHash(), oldWtx.m_comment, oldWtx.m_comment_to, oldWtx.m_messages, oldWtx.m_payment_requests);
 
     // mark the original tx as bumped

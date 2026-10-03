@@ -177,7 +177,7 @@ public:
     template<typename Stream>
     void Unserialize(Stream& s)
     {
-        CTransactionRef tx;
+        TransactionRef tx;
         uint256 hashBlock;
         std::vector<uint256> vMerkleBranch;
         int nIndex;
@@ -236,7 +236,7 @@ public:
     mutable bool fChangeCached;
     mutable CAmount nChangeCached;
 
-    CWalletTx(CTransactionRef tx, const TxState& state) : m_state(state)
+    CWalletTx(TransactionRef tx, const TxState& state) : m_state(state)
     {
         Assert(tx);
         m_canonical_wtxid = tx->GetWitnessHash();
@@ -245,7 +245,7 @@ public:
     }
 
     template <typename Stream>
-    CWalletTx(deserialize_type, Stream& s, const std::map<Wtxid, CTransactionRef>& variants) : m_state(TxStateInactive{})
+    CWalletTx(deserialize_type, Stream& s, const std::map<Wtxid, TransactionRef>& variants) : m_state(TxStateInactive{})
     {
         Unserialize(s);
         const Txid& canonical_txid = GetHash();
@@ -316,7 +316,7 @@ public:
         int serializedIndex;
         std::map<std::string, std::string> string_values;
         std::vector<std::pair<std::string, std::string>> msgs_reqs;
-        CTransactionRef canonical_tx;
+        TransactionRef canonical_tx;
         s >> TX_WITH_WITNESS(canonical_tx) >> serialized_block_hash >> dummy_vector1 >> serializedIndex >> dummy_vector2 >> string_values >> msgs_reqs >> dummy_int >> nTimeReceived >> dummy_bool >> dummy_bool;
         m_canonical_wtxid = canonical_tx->GetWitnessHash();
         m_txs.emplace(m_canonical_wtxid, std::move(canonical_tx));
@@ -348,13 +348,13 @@ public:
         }
     }
 
-    CTransactionRef GetTx() const { return m_txs.at(m_canonical_wtxid); }
+    TransactionRef GetTx() const { return m_txs.at(m_canonical_wtxid); }
 
     // Update the state of this wallet transaction along with a transaction that may have a different wtxid.
     // If the given transaction has a different wtxid, the transaction is stored if it has not been seen before.
     // The canonical wtxid is also updated. The tx that is confirmed becomes canonical. For unconfirmed txs,
     // those with witnesses are preferred, followed by least weight.
-    bool Update(CTransactionRef tx, const TxState& new_state, WalletBatch& batch, bool metadata_changed);
+    bool Update(TransactionRef tx, const TxState& new_state, WalletBatch& batch, bool metadata_changed);
 
     //! make sure balances are recalculated
     void MarkDirty()
@@ -391,7 +391,7 @@ public:
     const Wtxid& GetWitnessHash() const LIFETIMEBOUND { return GetTx()->GetWitnessHash(); }
     bool IsCoinBase() const { return GetTx()->IsCoinBase(); }
 
-    const std::map<Wtxid, CTransactionRef>& GetTxs() const { return m_txs; }
+    const std::map<Wtxid, TransactionRef>& GetTxs() const { return m_txs; }
 
     // Disable copying of CWalletTx objects to prevent bugs where instances get
     // copied in and out of the mapWallet map, and fields are updated in the
@@ -420,7 +420,7 @@ private:
     }
 
     Wtxid m_canonical_wtxid;
-    std::map<Wtxid, CTransactionRef> m_txs;
+    std::map<Wtxid, TransactionRef> m_txs;
 
     //! Set m_canonical_wtxid to the best variant under the unconfirmed rule
     //! (witnessed preferred, then least weight). Ignores state.

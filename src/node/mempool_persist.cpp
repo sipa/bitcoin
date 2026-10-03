@@ -85,7 +85,7 @@ bool LoadMempool(CTxMemPool& pool, const fs::path& load_path, Chainstate& active
             }
             ++txns_tried;
 
-            CTransactionRef tx;
+            TransactionRef tx;
             int64_t nTime;
             int64_t nFeeDelta;
             file >> TX_WITH_WITNESS(tx);

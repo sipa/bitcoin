@@ -28,7 +28,7 @@
 using namespace util::hex_literals;
 
 int ApplyTxInUndo(Coin&& undo, CCoinsViewCache& view, const COutPoint& out);
-void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, CTxUndo &txundo, int nHeight);
+void UpdateCoins(const Transaction& tx, CCoinsViewCache& inputs, CTxUndo &txundo, int nHeight);
 
 namespace
 {
@@ -301,7 +301,7 @@ BOOST_FIXTURE_TEST_SUITE(coins_tests, BasicTestingSetup)
 
 struct UpdateTest : BasicTestingSetup {
 // Store of all necessary tx and undo data for next test
-typedef std::map<COutPoint, std::tuple<CTransaction,CTxUndo,Coin>> UtxoData;
+typedef std::map<COutPoint, std::tuple<Transaction,CTxUndo,Coin>> UtxoData;
 UtxoData utxoData;
 
 UtxoData::iterator FindRandomFrom(const std::set<COutPoint> &utxoSet) {
@@ -369,7 +369,7 @@ BOOST_FIXTURE_TEST_CASE(updatecoins_simulation_test, UpdateTest)
                 else {
                     coinbase_coins.insert(COutPoint(tx.GetHash(), 0));
                 }
-                assert(CTransaction(tx).IsCoinBase());
+                assert(Transaction(tx).IsCoinBase());
             }
 
             // 17/20 times reconnect previous or add a regular tx
@@ -381,14 +381,14 @@ BOOST_FIXTURE_TEST_CASE(updatecoins_simulation_test, UpdateTest)
                     auto utxod = FindRandomFrom(disconnected_coins);
                     tx = CMutableTransaction{std::get<0>(utxod->second)};
                     prevout = tx.GetInputPrevout(0);
-                    if (!CTransaction(tx).IsCoinBase() && !utxoset.contains(prevout)) {
+                    if (!Transaction(tx).IsCoinBase() && !utxoset.contains(prevout)) {
                         disconnected_coins.erase(utxod->first);
                         continue;
                     }
 
                     // If this tx is already IN the UTXO, then it must be a coinbase, and it must be a duplicate
                     if (utxoset.contains(utxod->first)) {
-                        assert(CTransaction(tx).IsCoinBase());
+                        assert(Transaction(tx).IsCoinBase());
                         assert(duplicate_coins.contains(utxod->first));
                     }
                     disconnected_coins.erase(utxod->first);
@@ -401,7 +401,7 @@ BOOST_FIXTURE_TEST_CASE(updatecoins_simulation_test, UpdateTest)
 
                     // Construct the tx to spend the coins of prevouthash
                     tx.vin[0].prevout = prevout;
-                    assert(!CTransaction(tx).IsCoinBase());
+                    assert(!Transaction(tx).IsCoinBase());
                 }
                 // In this simple test coins only have two states, spent or unspent, save the unspent state to restore
                 old_coin = result[prevout];
@@ -420,11 +420,11 @@ BOOST_FIXTURE_TEST_CASE(updatecoins_simulation_test, UpdateTest)
             // Update the expected result to know about the new output coins
             assert(tx.GetNumOutputs() == 1);
             const COutPoint outpoint(tx.GetHash(), 0);
-            result[outpoint] = Coin{tx.vout[0], height, CTransaction{tx}.IsCoinBase()};
+            result[outpoint] = Coin{tx.vout[0], height, Transaction{tx}.IsCoinBase()};
 
             // Call UpdateCoins on the top cache
             CTxUndo undo;
-            UpdateCoins(CTransaction{tx}, *(stack.back()), undo, height);
+            UpdateCoins(Transaction{tx}, *(stack.back()), undo, height);
 
             // Update the utxo set for future spends
             utxoset.insert(outpoint);
@@ -435,7 +435,7 @@ BOOST_FIXTURE_TEST_CASE(updatecoins_simulation_test, UpdateTest)
             //1/20 times undo a previous transaction
             auto utxod = FindRandomFrom(utxoset);
 
-            CTransaction &tx = std::get<0>(utxod->second);
+            Transaction &tx = std::get<0>(utxod->second);
             CTxUndo &undo = std::get<1>(utxod->second);
             Coin &orig_coin = std::get<2>(utxod->second);
 

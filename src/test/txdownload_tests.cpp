@@ -72,7 +72,7 @@ static std::map<TxValidationResult, Behaviors> expected_behaviors{
     {TxValidationResult::TX_UNKNOWN,                 {                0,                 1,              0,               0,        1,            0,             1}},
 };
 
-static bool CheckOrphanBehavior(node::TxDownloadManagerImpl& txdownload_impl, const CTransactionRef& tx, const node::RejectedTxTodo& ret, std::string& err_msg,
+static bool CheckOrphanBehavior(node::TxDownloadManagerImpl& txdownload_impl, const TransactionRef& tx, const node::RejectedTxTodo& ret, std::string& err_msg,
                                 bool expect_orphan, bool expect_keep, unsigned int expected_parents)
 {
     // Missing inputs can never result in a PackageToValidate.
@@ -96,7 +96,7 @@ static bool CheckOrphanBehavior(node::TxDownloadManagerImpl& txdownload_impl, co
     return true;
 }
 
-static CTransactionRef CreatePlaceholderTx(bool segwit)
+static TransactionRef CreatePlaceholderTx(bool segwit)
 {
     // Each tx returned from here spends the previous one.
     static Txid prevout_hash{};
@@ -243,7 +243,7 @@ BOOST_FIXTURE_TEST_CASE(handle_missing_inputs, TestChain100Setup)
 
     // Orphan with multiple parents
     {
-        std::vector<CTransactionRef> parents;
+        std::vector<TransactionRef> parents;
         std::vector<COutPoint> outpoints;
         int32_t num_parents{24};
         for (int32_t i = 0; i < num_parents; ++i) {

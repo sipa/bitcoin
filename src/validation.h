@@ -146,7 +146,7 @@ struct MempoolAcceptResult {
     const TxValidationState m_state;
 
     /** Mempool transactions replaced by the tx. */
-    const std::list<CTransactionRef> m_replaced_transactions;
+    const std::list<TransactionRef> m_replaced_transactions;
     /** Virtual size as used by the mempool, calculated using serialized size and sigops. */
     const std::optional<int64_t> m_vsize;
     /** Raw base fees in satoshis. */
@@ -177,7 +177,7 @@ struct MempoolAcceptResult {
         return MempoolAcceptResult(state, effective_feerate, wtxids_fee_calculations);
     }
 
-    static MempoolAcceptResult Success(std::list<CTransactionRef>&& replaced_txns,
+    static MempoolAcceptResult Success(std::list<TransactionRef>&& replaced_txns,
                                        int64_t vsize,
                                        CAmount fees,
                                        CFeeRate effective_feerate,
@@ -203,7 +203,7 @@ private:
         }
 
     /** Constructor for success case */
-    explicit MempoolAcceptResult(std::list<CTransactionRef>&& replaced_txns,
+    explicit MempoolAcceptResult(std::list<TransactionRef>&& replaced_txns,
                                  int64_t vsize,
                                  CAmount fees,
                                  CFeeRate effective_feerate,
@@ -270,7 +270,7 @@ struct PackageMempoolAcceptResult
  *
  * @returns a MempoolAcceptResult indicating whether the transaction was accepted/rejected with reason.
  */
-MempoolAcceptResult AcceptToMemoryPool(Chainstate& active_chainstate, const CTransactionRef& tx,
+MempoolAcceptResult AcceptToMemoryPool(Chainstate& active_chainstate, const TransactionRef& tx,
                                        int64_t accept_time, bool bypass_limits, bool test_accept)
     EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
@@ -293,7 +293,7 @@ PackageMempoolAcceptResult ProcessNewPackage(Chainstate& active_chainstate, CTxM
 /**
  * Check if transaction will be final in the next block to be created.
  */
-bool CheckFinalTxAtTip(const CBlockIndex& active_chain_tip, const CTransaction& tx) EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
+bool CheckFinalTxAtTip(const CBlockIndex& active_chain_tip, const Transaction& tx) EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
 
 /**
  * Calculate LockPoints required to check if transaction will be BIP68 final in the next block
@@ -316,7 +316,7 @@ bool CheckFinalTxAtTip(const CBlockIndex& active_chain_tip, const CTransaction& 
 std::optional<LockPoints> CalculateLockPointsAtTip(
     CBlockIndex* tip,
     const CCoinsView& coins_view,
-    const CTransaction& tx);
+    const Transaction& tx);
 
 /**
  * Check if transaction will be BIP68 final in the next block to be created on top of tip.
@@ -338,7 +338,7 @@ class CScriptCheck
 {
 private:
     CTxOut m_tx_out;
-    const CTransaction *ptxTo;
+    const Transaction *ptxTo;
     unsigned int nIn;
     script_verify_flags m_flags;
     bool cacheStore;
@@ -346,7 +346,7 @@ private:
     SignatureCache* m_signature_cache;
 
 public:
-    CScriptCheck(const CTxOut& outIn, const CTransaction& txToIn, SignatureCache& signature_cache, unsigned int nInIn, script_verify_flags flags, bool cacheIn, PrecomputedTransactionData* txdataIn) :
+    CScriptCheck(const CTxOut& outIn, const Transaction& txToIn, SignatureCache& signature_cache, unsigned int nInIn, script_verify_flags flags, bool cacheIn, PrecomputedTransactionData* txdataIn) :
         m_tx_out(outIn), ptxTo(&txToIn), nIn(nInIn), m_flags(flags), cacheStore(cacheIn), txdata(txdataIn), m_signature_cache(&signature_cache) { }
 
     CScriptCheck(const CScriptCheck&) = delete;
@@ -1316,7 +1316,7 @@ public:
      * @param[in]  tx              The transaction to submit for mempool acceptance.
      * @param[in]  test_accept     When true, run validation checks but don't submit to mempool.
      */
-    [[nodiscard]] MempoolAcceptResult ProcessTransaction(const CTransactionRef& tx, bool test_accept=false)
+    [[nodiscard]] MempoolAcceptResult ProcessTransaction(const TransactionRef& tx, bool test_accept=false)
         EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
     //! Load the block tree and coins database from disk, initializing state if we're running with -reindex

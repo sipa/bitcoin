@@ -189,7 +189,7 @@ static GCSFilter::ElementSet BasicFilterElements(const CBlock& block,
 {
     GCSFilter::ElementSet elements;
 
-    for (const CTransactionRef& tx : block.vtx) {
+    for (const TransactionRef& tx : block.vtx) {
         for (const CTxOutView txout : tx->Outputs()) {
             const std::span<const unsigned char> script{txout.GetScriptPubKey()};
             if (script.empty() || script[0] == OP_RETURN) continue;

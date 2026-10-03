@@ -484,7 +484,7 @@ CBlock TestChain100Setup::CreateAndProcessBlock(
     return block;
 }
 
-std::pair<CMutableTransaction, CAmount> TestChain100Setup::CreateValidTransaction(const std::vector<CTransactionRef>& input_transactions,
+std::pair<CMutableTransaction, CAmount> TestChain100Setup::CreateValidTransaction(const std::vector<TransactionRef>& input_transactions,
                                                                                   const std::vector<COutPoint>& inputs,
                                                                                   int input_height,
                                                                                   const std::vector<CKey>& input_signing_keys,
@@ -532,7 +532,7 @@ std::pair<CMutableTransaction, CAmount> TestChain100Setup::CreateValidTransactio
     if (feerate.has_value()) {
         assert(fee_output.has_value());
         assert(fee_output.value() < mempool_txn.GetNumOutputs());
-        CAmount target_fee = feerate.value().GetFee(GetVirtualTransactionSize(CTransaction{mempool_txn}));
+        CAmount target_fee = feerate.value().GetFee(GetVirtualTransactionSize(Transaction{mempool_txn}));
         CAmount deduction = target_fee - current_fee;
         if (deduction > 0) {
             // Only deduct fee if there's anything to deduct. If the caller has put more fees than
@@ -547,7 +547,7 @@ std::pair<CMutableTransaction, CAmount> TestChain100Setup::CreateValidTransactio
     return {mempool_txn, current_fee};
 }
 
-CMutableTransaction TestChain100Setup::CreateValidMempoolTransaction(const std::vector<CTransactionRef>& input_transactions,
+CMutableTransaction TestChain100Setup::CreateValidMempoolTransaction(const std::vector<TransactionRef>& input_transactions,
                                                                      const std::vector<COutPoint>& inputs,
                                                                      int input_height,
                                                                      const std::vector<CKey>& input_signing_keys,
@@ -564,7 +564,7 @@ CMutableTransaction TestChain100Setup::CreateValidMempoolTransaction(const std::
     return mempool_txn;
 }
 
-CMutableTransaction TestChain100Setup::CreateValidMempoolTransaction(CTransactionRef input_transaction,
+CMutableTransaction TestChain100Setup::CreateValidMempoolTransaction(TransactionRef input_transaction,
                                                                      uint32_t input_vout,
                                                                      int input_height,
                                                                      CKey input_signing_key,
@@ -582,9 +582,9 @@ CMutableTransaction TestChain100Setup::CreateValidMempoolTransaction(CTransactio
                                          /*submit=*/submit);
 }
 
-std::vector<CTransactionRef> TestChain100Setup::PopulateMempool(FastRandomContext& det_rand, size_t num_transactions, bool submit)
+std::vector<TransactionRef> TestChain100Setup::PopulateMempool(FastRandomContext& det_rand, size_t num_transactions, bool submit)
 {
-    std::vector<CTransactionRef> mempool_transactions;
+    std::vector<TransactionRef> mempool_transactions;
     std::deque<std::pair<COutPoint, CAmount>> unspent_prevouts, undo_info;
     std::transform(m_coinbase_txns.begin(), m_coinbase_txns.end(), std::back_inserter(unspent_prevouts),
         [](const auto& tx){ return std::make_pair(COutPoint(tx->GetHash(), 0), tx->GetOutputValue(0)); });
@@ -609,7 +609,7 @@ std::vector<CTransactionRef> TestChain100Setup::PopulateMempool(FastRandomContex
             CScript spk = CScript() << CScriptNum(num_transactions + n);
             mtx.vout.emplace_back(amount_per_output, spk);
         }
-        CTransactionRef ptx = MakeTransactionRef(mtx);
+        TransactionRef ptx = MakeTransactionRef(mtx);
         bool success{true};
         if (submit) {
             LOCK2(cs_main, m_node.mempool->cs);

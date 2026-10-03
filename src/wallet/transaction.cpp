@@ -52,7 +52,7 @@ void CWalletTx::updateState(interfaces::Chain& chain)
     if (!isConfirmed()) RecomputeCanonical();
 }
 
-bool CWalletTx::Update(CTransactionRef new_tx, const TxState& new_state, WalletBatch& batch, bool metadata_changed)
+bool CWalletTx::Update(TransactionRef new_tx, const TxState& new_state, WalletBatch& batch, bool metadata_changed)
 {
     Assert(new_tx);
     if (!Assume(GetHash() == new_tx->GetHash())) {

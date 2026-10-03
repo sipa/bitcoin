@@ -19,7 +19,7 @@
 #include <vector>
 
 
-static void AddTx(const CTransactionRef& tx, const CAmount& nFee, CTxMemPool& pool) EXCLUSIVE_LOCKS_REQUIRED(cs_main, pool.cs)
+static void AddTx(const TransactionRef& tx, const CAmount& nFee, CTxMemPool& pool) EXCLUSIVE_LOCKS_REQUIRED(cs_main, pool.cs)
 {
     int64_t nTime = 0;
     unsigned int nHeight = 1;
@@ -123,13 +123,13 @@ static void MempoolEviction(benchmark::Bench& bench)
     CTxMemPool& pool = *Assert(testing_setup->m_node.mempool);
     LOCK2(cs_main, pool.cs);
     // Create transaction references outside the "hot loop"
-    const CTransactionRef tx1_r{MakeTransactionRef(tx1)};
-    const CTransactionRef tx2_r{MakeTransactionRef(tx2)};
-    const CTransactionRef tx3_r{MakeTransactionRef(tx3)};
-    const CTransactionRef tx4_r{MakeTransactionRef(tx4)};
-    const CTransactionRef tx5_r{MakeTransactionRef(tx5)};
-    const CTransactionRef tx6_r{MakeTransactionRef(tx6)};
-    const CTransactionRef tx7_r{MakeTransactionRef(tx7)};
+    const TransactionRef tx1_r{MakeTransactionRef(tx1)};
+    const TransactionRef tx2_r{MakeTransactionRef(tx2)};
+    const TransactionRef tx3_r{MakeTransactionRef(tx3)};
+    const TransactionRef tx4_r{MakeTransactionRef(tx4)};
+    const TransactionRef tx5_r{MakeTransactionRef(tx5)};
+    const TransactionRef tx6_r{MakeTransactionRef(tx6)};
+    const TransactionRef tx7_r{MakeTransactionRef(tx7)};
 
     bench.run([&]() NO_THREAD_SAFETY_ANALYSIS {
         AddTx(tx1_r, 10000LL, pool);

@@ -181,16 +181,16 @@ public:
     /** Look for a child of this transaction in the orphanage to form a 1-parent-1-child package,
      * skipping any combinations that have already been tried. Return the resulting package along with
      * the senders of its respective transactions, or std::nullopt if no package is found. */
-    std::optional<PackageToValidate> Find1P1CPackage(const CTransactionRef& ptx, NodeId nodeid);
+    std::optional<PackageToValidate> Find1P1CPackage(const TransactionRef& ptx, NodeId nodeid);
 
-    void MempoolAcceptedTx(const CTransactionRef& tx);
-    RejectedTxTodo MempoolRejectedTx(const CTransactionRef& ptx, const TxValidationState& state, NodeId nodeid, bool first_time_failure);
+    void MempoolAcceptedTx(const TransactionRef& tx);
+    RejectedTxTodo MempoolRejectedTx(const TransactionRef& ptx, const TxValidationState& state, NodeId nodeid, bool first_time_failure);
     void MempoolRejectedPackage(const Package& package);
 
-    std::pair<bool, std::optional<PackageToValidate>> ReceivedTx(NodeId nodeid, const CTransactionRef& ptx);
+    std::pair<bool, std::optional<PackageToValidate>> ReceivedTx(NodeId nodeid, const TransactionRef& ptx);
 
     bool HaveMoreWork(NodeId nodeid);
-    CTransactionRef GetTxToReconsider(NodeId nodeid);
+    TransactionRef GetTxToReconsider(NodeId nodeid);
 
     void CheckIsEmpty();
     void CheckIsEmpty(NodeId nodeid);
@@ -199,7 +199,7 @@ public:
 
 protected:
     /** Helper for getting deduplicated vector of Txids in vin. */
-    std::vector<Txid> GetUniqueParents(const CTransaction& tx);
+    std::vector<Txid> GetUniqueParents(const Transaction& tx);
 
     /** If this peer is an orphan resolution candidate for this transaction, treat the unique_parents as announced by
      * this peer; add them as new invs to m_txrequest.

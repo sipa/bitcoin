@@ -96,7 +96,7 @@ struct OutpointsUpdater final : public CValidationInterface {
         }
     }
 
-    void TransactionRemovedFromMempool(const CTransactionRef& tx, MemPoolRemovalReason reason, uint64_t /* mempool_sequence */) override
+    void TransactionRemovedFromMempool(const TransactionRef& tx, MemPoolRemovalReason reason, uint64_t /* mempool_sequence */) override
     {
         // outpoints spent by this tx are now available
         for (const CTxInView input : tx->Inputs()) {
@@ -111,9 +111,9 @@ struct OutpointsUpdater final : public CValidationInterface {
 };
 
 struct TransactionsDelta final : public CValidationInterface {
-    std::set<CTransactionRef>& m_added;
+    std::set<TransactionRef>& m_added;
 
-    explicit TransactionsDelta(std::set<CTransactionRef>& a)
+    explicit TransactionsDelta(std::set<TransactionRef>& a)
         : m_added{a} {}
 
     void TransactionAddedToMempool(const NewMempoolTransactionInfo& tx, uint64_t /* mempool_sequence */) override
@@ -122,7 +122,7 @@ struct TransactionsDelta final : public CValidationInterface {
         m_added.insert(tx.info.m_tx);
     }
 
-    void TransactionRemovedFromMempool(const CTransactionRef& tx, MemPoolRemovalReason reason, uint64_t /* mempool_sequence */) override
+    void TransactionRemovedFromMempool(const TransactionRef& tx, MemPoolRemovalReason reason, uint64_t /* mempool_sequence */) override
     {
         // Transactions may be entered and booted any number of times
          m_added.erase(tx);
@@ -240,7 +240,7 @@ FUZZ_TARGET(ephemeral_package_eval, .init = initialize_tx_pool)
     LIMITED_WHILE (fuzzed_data_provider.remaining_bytes() > 0, 300) {
         Assert(!mempool_outpoints.empty());
 
-        std::vector<CTransactionRef> txs;
+        std::vector<TransactionRef> txs;
 
         // Find something we may want to double-spend with two input single tx
         std::optional<COutPoint> outpoint_to_rbf{fuzzed_data_provider.ConsumeBool() ? GetChildEvictingPrevout(tx_pool) : std::nullopt};
@@ -253,7 +253,7 @@ FUZZ_TARGET(ephemeral_package_eval, .init = initialize_tx_pool)
             // Create transaction to add to the mempool
             txs.emplace_back([&] {
                 CMutableTransaction tx_mut;
-                tx_mut.version = CTransaction::CURRENT_VERSION;
+                tx_mut.version = Transaction::CURRENT_VERSION;
                 tx_mut.nLockTime = 0;
                 // Last transaction in a package needs to be a child of parents to get further in validation
                 // so the last transaction to be generated(in a >1 package) must spend all package-made outputs
@@ -394,7 +394,7 @@ FUZZ_TARGET(tx_package_eval, .init = initialize_tx_pool)
     LIMITED_WHILE (fuzzed_data_provider.remaining_bytes() > 0, 300) {
         Assert(!mempool_outpoints.empty());
 
-        std::vector<CTransactionRef> txs;
+        std::vector<TransactionRef> txs;
 
         // Make packages of 1-to-26 transactions
         const auto num_txs = fuzzed_data_provider.ConsumeIntegralInRange<size_t>(1, 26);
@@ -403,7 +403,7 @@ FUZZ_TARGET(tx_package_eval, .init = initialize_tx_pool)
             // Create transaction to add to the mempool
             txs.emplace_back([&] {
                 CMutableTransaction tx_mut;
-                tx_mut.version = fuzzed_data_provider.ConsumeBool() ? TRUC_VERSION : CTransaction::CURRENT_VERSION;
+                tx_mut.version = fuzzed_data_provider.ConsumeBool() ? TRUC_VERSION : Transaction::CURRENT_VERSION;
                 tx_mut.nLockTime = fuzzed_data_provider.ConsumeBool() ? 0 : fuzzed_data_provider.ConsumeIntegral<uint32_t>();
                 // Last transaction in a package needs to be a child of parents to get further in validation
                 // so the last transaction to be generated(in a >1 package) must spend all package-made outputs
@@ -500,7 +500,7 @@ FUZZ_TARGET(tx_package_eval, .init = initialize_tx_pool)
         }
 
         // Remember all added transactions
-        std::set<CTransactionRef> added;
+        std::set<TransactionRef> added;
         auto txr = std::make_shared<TransactionsDelta>(added);
         node.validation_signals->RegisterSharedValidationInterface(txr);
 

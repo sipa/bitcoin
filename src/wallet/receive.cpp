@@ -20,7 +20,7 @@ bool InputIsMine(const CWallet& wallet, const CTxIn& txin)
     return false;
 }
 
-bool AllInputsMine(const CWallet& wallet, const CTransaction& tx)
+bool AllInputsMine(const CWallet& wallet, const Transaction& tx)
 {
     LOCK(wallet.cs_wallet);
     for (const CTxInView txin : tx.Inputs()) {
@@ -37,7 +37,7 @@ CAmount OutputGetCredit(const CWallet& wallet, const CTxOut& txout)
     return (wallet.IsMine(txout) ? txout.nValue : 0);
 }
 
-CAmount TxGetCredit(const CWallet& wallet, const CTransaction& tx)
+CAmount TxGetCredit(const CWallet& wallet, const Transaction& tx)
 {
     CAmount nCredit = 0;
     for (const CTxOutView txout : tx.Outputs())
@@ -84,7 +84,7 @@ CAmount OutputGetChange(const CWallet& wallet, const CTxOut& txout)
     return (OutputIsChange(wallet, txout) ? txout.nValue : 0);
 }
 
-CAmount TxGetChange(const CWallet& wallet, const CTransaction& tx)
+CAmount TxGetChange(const CWallet& wallet, const Transaction& tx)
 {
     LOCK(wallet.cs_wallet);
     CAmount nChange = 0;

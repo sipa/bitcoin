@@ -51,11 +51,11 @@ void TxDownloadManager::ReceivedNotFound(NodeId nodeid, const std::vector<GenTxi
 {
     m_impl->ReceivedNotFound(nodeid, gtxids);
 }
-void TxDownloadManager::MempoolAcceptedTx(const CTransactionRef& tx)
+void TxDownloadManager::MempoolAcceptedTx(const TransactionRef& tx)
 {
     m_impl->MempoolAcceptedTx(tx);
 }
-RejectedTxTodo TxDownloadManager::MempoolRejectedTx(const CTransactionRef& ptx, const TxValidationState& state, NodeId nodeid, bool first_time_failure)
+RejectedTxTodo TxDownloadManager::MempoolRejectedTx(const TransactionRef& ptx, const TxValidationState& state, NodeId nodeid, bool first_time_failure)
 {
     return m_impl->MempoolRejectedTx(ptx, state, nodeid, first_time_failure);
 }
@@ -63,7 +63,7 @@ void TxDownloadManager::MempoolRejectedPackage(const Package& package)
 {
     m_impl->MempoolRejectedPackage(package);
 }
-std::pair<bool, std::optional<PackageToValidate>> TxDownloadManager::ReceivedTx(NodeId nodeid, const CTransactionRef& ptx)
+std::pair<bool, std::optional<PackageToValidate>> TxDownloadManager::ReceivedTx(NodeId nodeid, const TransactionRef& ptx)
 {
     return m_impl->ReceivedTx(nodeid, ptx);
 }
@@ -71,7 +71,7 @@ bool TxDownloadManager::HaveMoreWork(NodeId nodeid) const
 {
     return m_impl->HaveMoreWork(nodeid);
 }
-CTransactionRef TxDownloadManager::GetTxToReconsider(NodeId nodeid)
+TransactionRef TxDownloadManager::GetTxToReconsider(NodeId nodeid)
 {
     return m_impl->GetTxToReconsider(nodeid);
 }
@@ -297,7 +297,7 @@ void TxDownloadManagerImpl::ReceivedNotFound(NodeId nodeid, const std::vector<Ge
     }
 }
 
-std::optional<PackageToValidate> TxDownloadManagerImpl::Find1P1CPackage(const CTransactionRef& ptx, NodeId nodeid)
+std::optional<PackageToValidate> TxDownloadManagerImpl::Find1P1CPackage(const TransactionRef& ptx, NodeId nodeid)
 {
     const auto& parent_wtxid{ptx->GetWitnessHash()};
 
@@ -323,7 +323,7 @@ std::optional<PackageToValidate> TxDownloadManagerImpl::Find1P1CPackage(const CT
     return std::nullopt;
 }
 
-void TxDownloadManagerImpl::MempoolAcceptedTx(const CTransactionRef& tx)
+void TxDownloadManagerImpl::MempoolAcceptedTx(const TransactionRef& tx)
 {
     // As this version of the transaction was acceptable, we can forget about any requests for it.
     // No-op if the tx is not in txrequest.
@@ -335,7 +335,7 @@ void TxDownloadManagerImpl::MempoolAcceptedTx(const CTransactionRef& tx)
     m_orphanage->EraseTx(tx->GetWitnessHash());
 }
 
-std::vector<Txid> TxDownloadManagerImpl::GetUniqueParents(const CTransaction& tx)
+std::vector<Txid> TxDownloadManagerImpl::GetUniqueParents(const Transaction& tx)
 {
     std::vector<Txid> unique_parents;
     unique_parents.reserve(tx.GetNumInputs());
@@ -350,9 +350,9 @@ std::vector<Txid> TxDownloadManagerImpl::GetUniqueParents(const CTransaction& tx
     return unique_parents;
 }
 
-node::RejectedTxTodo TxDownloadManagerImpl::MempoolRejectedTx(const CTransactionRef& ptx, const TxValidationState& state, NodeId nodeid, bool first_time_failure)
+node::RejectedTxTodo TxDownloadManagerImpl::MempoolRejectedTx(const TransactionRef& ptx, const TxValidationState& state, NodeId nodeid, bool first_time_failure)
 {
-    const CTransaction& tx{*ptx};
+    const Transaction& tx{*ptx};
     // Results returned to caller
     // Whether we should call AddToCompactExtraTransactions at the end
     bool add_extra_compact_tx{first_time_failure};
@@ -505,7 +505,7 @@ void TxDownloadManagerImpl::MempoolRejectedPackage(const Package& package)
     RecentRejectsReconsiderableFilter().insert(GetPackageHash(package));
 }
 
-std::pair<bool, std::optional<PackageToValidate>> TxDownloadManagerImpl::ReceivedTx(NodeId nodeid, const CTransactionRef& ptx)
+std::pair<bool, std::optional<PackageToValidate>> TxDownloadManagerImpl::ReceivedTx(NodeId nodeid, const TransactionRef& ptx)
 {
     const Txid& txid = ptx->GetHash();
     const Wtxid& wtxid = ptx->GetWitnessHash();
@@ -562,7 +562,7 @@ bool TxDownloadManagerImpl::HaveMoreWork(NodeId nodeid)
     return m_orphanage->HaveTxToReconsider(nodeid);
 }
 
-CTransactionRef TxDownloadManagerImpl::GetTxToReconsider(NodeId nodeid)
+TransactionRef TxDownloadManagerImpl::GetTxToReconsider(NodeId nodeid)
 {
     return m_orphanage->GetTxToReconsider(nodeid);
 }

@@ -135,8 +135,8 @@ static UniValue FinishTransaction(const std::shared_ptr<CWallet> pwallet, const 
     }
 
     if (complete) {
-        std::string hex{EncodeHexTx(CTransaction(mtx))};
-        CTransactionRef tx(MakeTransactionRef(std::move(mtx)));
+        std::string hex{EncodeHexTx(Transaction(mtx))};
+        TransactionRef tx(MakeTransactionRef(std::move(mtx)));
         result.pushKV("txid", tx->GetHash().GetHex());
         if (add_to_wallet && !psbt_opt_in) {
             pwallet->CommitTransaction(tx);
@@ -190,7 +190,7 @@ UniValue SendMoney(CWallet& wallet, const CCoinControl &coin_control, std::vecto
     if (!res) {
         throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS, util::ErrorString(res).original);
     }
-    const CTransactionRef& tx = res->tx;
+    const TransactionRef& tx = res->tx;
     wallet.CommitTransaction(tx, /*replaces_txid=*/std::nullopt, comment, comment_to);
     if (verbose) {
         UniValue entry(UniValue::VOBJ);
@@ -1513,7 +1513,7 @@ RPCMethod sendall()
             }
 
             // estimate final size of tx
-            const TxSize tx_size{CalculateMaximumSignedTxSize(CTransaction(rawTx), pwallet.get())};
+            const TxSize tx_size{CalculateMaximumSignedTxSize(Transaction(rawTx), pwallet.get())};
             if (tx_size.vsize == -1) {
                 throw JSONRPCError(RPC_WALLET_ERROR, "Unable to determine the size of the transaction, the wallet contains unsolvable descriptors");
             }

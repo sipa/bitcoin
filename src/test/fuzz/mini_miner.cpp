@@ -69,7 +69,7 @@ FUZZ_TARGET(mini_miner, .init = initialize_miner)
         for (uint32_t n{0}; n < num_outputs; ++n) {
             mtx.vout.emplace_back(100, P2WSH_OP_TRUE);
         }
-        CTransactionRef tx = MakeTransactionRef(mtx);
+        TransactionRef tx = MakeTransactionRef(mtx);
         TestMemPoolEntryHelper entry;
         const CAmount fee{ConsumeMoney(fuzzed_data_provider, /*max=*/MAX_MONEY/100000)};
         assert(MoneyRange(fee));

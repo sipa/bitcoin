@@ -28,9 +28,9 @@ DisconnectedBlockTransactions::~DisconnectedBlockTransactions()
     assert(cachedInnerUsage == 0);
 }
 
-std::vector<CTransactionRef> DisconnectedBlockTransactions::LimitMemoryUsage()
+std::vector<TransactionRef> DisconnectedBlockTransactions::LimitMemoryUsage()
 {
-    std::vector<CTransactionRef> evicted;
+    std::vector<TransactionRef> evicted;
 
     while (!queuedTx.empty() && DynamicMemoryUsage() > m_max_mem_usage) {
         evicted.emplace_back(queuedTx.front());
@@ -46,7 +46,7 @@ size_t DisconnectedBlockTransactions::DynamicMemoryUsage() const
     return cachedInnerUsage + memusage::DynamicUsage(iters_by_txid) + memusage::DynamicUsage(queuedTx);
 }
 
-[[nodiscard]] std::vector<CTransactionRef> DisconnectedBlockTransactions::AddTransactionsFromBlock(const std::vector<CTransactionRef>& vtx)
+[[nodiscard]] std::vector<TransactionRef> DisconnectedBlockTransactions::AddTransactionsFromBlock(const std::vector<TransactionRef>& vtx)
 {
     iters_by_txid.reserve(iters_by_txid.size() + vtx.size());
     for (auto block_it = vtx.rbegin(); block_it != vtx.rend(); ++block_it) {
@@ -58,7 +58,7 @@ size_t DisconnectedBlockTransactions::DynamicMemoryUsage() const
     return LimitMemoryUsage();
 }
 
-void DisconnectedBlockTransactions::removeForBlock(const std::vector<CTransactionRef>& vtx)
+void DisconnectedBlockTransactions::removeForBlock(const std::vector<TransactionRef>& vtx)
 {
     // Short-circuit in the common case of a block being added to the tip
     if (queuedTx.empty()) {
@@ -82,9 +82,9 @@ void DisconnectedBlockTransactions::clear()
     queuedTx.clear();
 }
 
-std::list<CTransactionRef> DisconnectedBlockTransactions::take()
+std::list<TransactionRef> DisconnectedBlockTransactions::take()
 {
-    std::list<CTransactionRef> ret = std::move(queuedTx);
+    std::list<TransactionRef> ret = std::move(queuedTx);
     clear();
     return ret;
 }

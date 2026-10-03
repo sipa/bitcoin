@@ -64,7 +64,7 @@ static_assert(WALLET_INCREMENTAL_RELAY_FEE >= DEFAULT_INCREMENTAL_RELAY_FEE, "wa
 
 BOOST_FIXTURE_TEST_SUITE(wallet_tests, WalletTestingSetup)
 
-static CMutableTransaction TestSimpleSpend(const CTransaction& from, uint32_t index, const CKey& key, const CScript& pubkey)
+static CMutableTransaction TestSimpleSpend(const Transaction& from, uint32_t index, const CKey& key, const CScript& pubkey)
 {
     CMutableTransaction mtx;
     mtx.vout.emplace_back(from.GetOutputValue(index) - DEFAULT_TRANSACTION_MAXFEE, pubkey);
@@ -1046,7 +1046,7 @@ public:
 
     CWalletTx& AddTx(CRecipient recipient)
     {
-        CTransactionRef tx;
+        TransactionRef tx;
         CCoinControl dummy;
         {
             auto res = CreateTransaction(*wallet, {recipient}, /*change_pos=*/std::nullopt, dummy);

@@ -47,7 +47,7 @@ auto Wrap(S& s)
 }
 
 //! Detect if type has a deserialize_type constructor, which is
-//! used to deserialize types like CTransaction that can't be unserialized into
+//! used to deserialize types like Transaction that can't be unserialized into
 //! existing objects because they are immutable.
 template <typename T>
 concept Deserializable = std::is_constructible_v<T, ::deserialize_type, ::DataStream&>;
@@ -130,15 +130,15 @@ decltype(auto) CustomReadField(TypeList<UniValue>, Priority<1>, InvokeContext& i
     });
 }
 
-//! Interpret empty Data fields as null CTransactionRef values. This is safe to
-//! do because no CTransaction is ever serialized as empty Data, and it is
-//! convenient because this allows std::vector<CTransactionRef> to be passed as
+//! Interpret empty Data fields as null TransactionRef values. This is safe to
+//! do because no Transaction is ever serialized as empty Data, and it is
+//! convenient because this allows std::vector<TransactionRef> to be passed as
 //! List(Data) even if the vector contains null values, and even though Cap'n
 //! Proto does not (currently) allow distinguishing between null and empty Data
-//! values in a List. Interpreting empty Data values as null CTransactionRef
+//! values in a List. Interpreting empty Data values as null TransactionRef
 //! values works well for this purpose.
 template <typename Input>
-bool CustomHasField(TypeList<CTransaction>, InvokeContext& invoke_context, const Input& input)
+bool CustomHasField(TypeList<Transaction>, InvokeContext& invoke_context, const Input& input)
 {
     return input.get().size() > 0;
 }

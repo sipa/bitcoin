@@ -218,7 +218,7 @@ bool CZMQPublishHashBlockNotifier::NotifyBlock(const CBlockIndex *pindex)
     return SendZmqMessage(MSG_HASHBLOCK, data, 32);
 }
 
-bool CZMQPublishHashTransactionNotifier::NotifyTransaction(const CTransaction &transaction)
+bool CZMQPublishHashTransactionNotifier::NotifyTransaction(const Transaction &transaction)
 {
     uint256 hash = transaction.GetHash().ToUint256();
     LogDebug(BCLog::ZMQ, "Publish hashtx %s to %s\n", hash.GetHex(), this->address);
@@ -242,7 +242,7 @@ bool CZMQPublishRawBlockNotifier::NotifyBlock(const CBlockIndex *pindex)
     return SendZmqMessage(MSG_RAWBLOCK, block.data(), block.size());
 }
 
-bool CZMQPublishRawTransactionNotifier::NotifyTransaction(const CTransaction &transaction)
+bool CZMQPublishRawTransactionNotifier::NotifyTransaction(const Transaction &transaction)
 {
     uint256 hash = transaction.GetHash().ToUint256();
     LogDebug(BCLog::ZMQ, "Publish rawtx %s to %s\n", hash.GetHex(), this->address);
@@ -278,14 +278,14 @@ bool CZMQPublishSequenceNotifier::NotifyBlockDisconnect(const CBlockIndex *pinde
     return SendSequenceMsg(*this, hash, /* Block (D)isconnect */ 'D');
 }
 
-bool CZMQPublishSequenceNotifier::NotifyTransactionAcceptance(const CTransaction &transaction, uint64_t mempool_sequence)
+bool CZMQPublishSequenceNotifier::NotifyTransactionAcceptance(const Transaction &transaction, uint64_t mempool_sequence)
 {
     uint256 hash = transaction.GetHash().ToUint256();
     LogDebug(BCLog::ZMQ, "Publish hashtx mempool acceptance %s to %s\n", hash.GetHex(), this->address);
     return SendSequenceMsg(*this, hash, /* Mempool (A)cceptance */ 'A', mempool_sequence);
 }
 
-bool CZMQPublishSequenceNotifier::NotifyTransactionRemoval(const CTransaction &transaction, uint64_t mempool_sequence)
+bool CZMQPublishSequenceNotifier::NotifyTransactionRemoval(const Transaction &transaction, uint64_t mempool_sequence)
 {
     uint256 hash = transaction.GetHash().ToUint256();
     LogDebug(BCLog::ZMQ, "Publish hashtx mempool removal %s to %s\n", hash.GetHex(), this->address);

@@ -21,15 +21,15 @@
 #include <unordered_map>
 #include <unordered_set>
 
-struct CTransactionRefHash {
-    size_t operator()(const CTransactionRef& tx) const
+struct TransactionRefHash {
+    size_t operator()(const TransactionRef& tx) const
     {
         return static_cast<size_t>(tx->GetWitnessHash().ToUint256().GetUint64(0));
     }
 };
 
-struct CTransactionRefComp {
-    bool operator()(const CTransactionRef& a, const CTransactionRef& b) const
+struct TransactionRefComp {
+    bool operator()(const TransactionRef& a, const TransactionRef& b) const
     {
         return a->GetWitnessHash() == b->GetWitnessHash();
     }
@@ -47,11 +47,11 @@ FUZZ_TARGET(private_broadcast)
 
     // Random transaction that the test generated and passed to Add(). Trimmed when Remove() is called.
     // The values are the number of times a transaction was picked for sending.
-    std::unordered_map<CTransactionRef, size_t, CTransactionRefHash, CTransactionRefComp> transactions;
+    std::unordered_map<TransactionRef, size_t, TransactionRefHash, TransactionRefComp> transactions;
 
     // Transactions passed to PickTxForSend(), indexed by node id. Trimmed when
     // Remove() is called or a transaction is reset by Add().
-    std::unordered_map<NodeId, CTransactionRef> nodes_sent_to;
+    std::unordered_map<NodeId, TransactionRef> nodes_sent_to;
 
     // A subset of `nodes_sent_to`, node ids passed to NodeConfirmedReception().
     // Trimmed when Remove() is called or a transaction is reset by Add().
@@ -74,7 +74,7 @@ FUZZ_TARGET(private_broadcast)
         CallOneOf(
             fdp,
             [&] { // Add()
-                CTransactionRef tx;
+                TransactionRef tx;
                 if (transactions.empty() || fdp.ConsumeBool()) {
                     tx = MakeTransactionRef(ConsumeTransaction(fdp, std::nullopt));
                 } else {
@@ -92,7 +92,7 @@ FUZZ_TARGET(private_broadcast)
                         Assert(res == PrivateBroadcast::AddResult::Added);
                         tx_it->second = 0;
                         for (auto it = nodes_sent_to.begin(); it != nodes_sent_to.end();) {
-                            if (CTransactionRefComp{}(it->second, tx)) {
+                            if (TransactionRefComp{}(it->second, tx)) {
                                 nodes_that_confirmed_reception.erase(it->first);
                                 it = nodes_sent_to.erase(it);
                             } else {
@@ -112,14 +112,14 @@ FUZZ_TARGET(private_broadcast)
                     return;
                 }
                 const auto transactions_it{PickIterator(fdp, transactions)};
-                const CTransactionRef& tx{transactions_it->first};
+                const TransactionRef& tx{transactions_it->first};
 
                 size_t num_nodes_that_confirmed_tx{0};
 
                 // Remove relevant entries from nodes_sent_to[] and nodes_that_confirmed_reception[] if any.
                 for (auto it = nodes_sent_to.begin(); it != nodes_sent_to.end();) {
                     const NodeId nodeid{it->first};
-                    if (CTransactionRefComp{}(it->second, tx)) {
+                    if (TransactionRefComp{}(it->second, tx)) {
                         it = nodes_sent_to.erase(it);
                         if (nodes_that_confirmed_reception.erase(nodeid) > 0) {
                             ++num_nodes_that_confirmed_tx;

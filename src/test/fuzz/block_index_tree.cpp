@@ -82,7 +82,7 @@ FUZZ_TARGET(block_index_tree, .init = initialize_block_index_tree)
                     } else {
                         size_t nTx = fuzzed_data_provider.ConsumeIntegralInRange<size_t>(1, 1000);
                         CBlock block; // Dummy block, so that ReceivedBlockTransactions can infer a nTx value.
-                        block.vtx = std::vector<CTransactionRef>(nTx);
+                        block.vtx = std::vector<TransactionRef>(nTx);
                         FlatFilePos pos(0, fuzzed_data_provider.ConsumeIntegralInRange<int>(1, 1000));
                         chainman.ReceivedBlockTransactions(block, index, pos);
                         assert(index->nStatus & BLOCK_VALID_TRANSACTIONS);
@@ -185,7 +185,7 @@ FUZZ_TARGET(block_index_tree, .init = initialize_block_index_tree)
                 CBlockIndex* index = pruned_blocks[i];
                 assert(!(index->nStatus & BLOCK_HAVE_DATA));
                 CBlock block;
-                block.vtx = std::vector<CTransactionRef>(index->nTx); // Set the number of tx to the prior value.
+                block.vtx = std::vector<TransactionRef>(index->nTx); // Set the number of tx to the prior value.
                 FlatFilePos pos(0, fuzzed_data_provider.ConsumeIntegralInRange<int>(1, 1000));
                 chainman.ReceivedBlockTransactions(block, index, pos);
                 assert(index->nStatus & BLOCK_VALID_TRANSACTIONS);

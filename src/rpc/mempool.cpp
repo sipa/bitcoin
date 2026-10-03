@@ -139,7 +139,7 @@ static RPCMethod sendrawtransaction()
                 }
             }
 
-            CTransactionRef tx(MakeTransactionRef(std::move(mtx)));
+            TransactionRef tx(MakeTransactionRef(std::move(mtx)));
 
             const CFeeRate max_raw_tx_fee_rate{ParseFeeRate(self.Arg<UniValue>("maxfeerate"))};
 
@@ -380,7 +380,7 @@ static RPCMethod testmempoolaccept()
 
             const CFeeRate max_raw_tx_fee_rate{ParseFeeRate(self.Arg<UniValue>("maxfeerate"))};
 
-            std::vector<CTransactionRef> txns;
+            std::vector<TransactionRef> txns;
             txns.reserve(raw_transactions.size());
             for (const auto& rawtx : raw_transactions.getValues()) {
                 CMutableTransaction mtx;
@@ -598,7 +598,7 @@ static void entryToJSON(const CTxMemPool& pool, UniValue& info, const CTxMemPool
     fees.pushKV("chunk", ValueFromAmount(feerate.fee));
     info.pushKV("fees", std::move(fees));
 
-    const CTransaction& tx = e.GetTx();
+    const Transaction& tx = e.GetTx();
     std::set<std::string> setDepends;
     for (const CTxInView txin : tx.Inputs())
     {
@@ -1041,7 +1041,7 @@ static RPCMethod gettxspendingprevout()
                 prevouts_to_process.emplace_back(COutPoint{txid, static_cast<uint32_t>(nOutput)}, idx);
             }
 
-            auto make_output = [&output_params, return_spending_tx](const Entry& prevout, const CTransaction* spending_tx = nullptr) {
+            auto make_output = [&output_params, return_spending_tx](const Entry& prevout, const Transaction* spending_tx = nullptr) {
                 UniValue o{output_params[prevout.request_index]};
                 if (spending_tx) {
                     o.pushKV("spendingtxid", spending_tx->GetHash().ToString());
@@ -1451,7 +1451,7 @@ static RPCMethod submitpackage()
             // Burn sanity check is run with no context
             const CAmount max_burn_amount = request.params[2].isNull() ? 0 : AmountFromValue(request.params[2]);
 
-            std::vector<CTransactionRef> txns;
+            std::vector<TransactionRef> txns;
             txns.reserve(raw_transactions.size());
             for (const auto& rawtx : raw_transactions.getValues()) {
                 CMutableTransaction mtx;

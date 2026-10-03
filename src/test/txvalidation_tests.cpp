@@ -36,7 +36,7 @@ BOOST_FIXTURE_TEST_CASE(tx_mempool_reject_coinbase, TestChain100Setup)
     coinbaseTx.vout[0].nValue = 1 * CENT;
     coinbaseTx.vout[0].scriptPubKey = scriptPubKey;
 
-    BOOST_CHECK(CTransaction(coinbaseTx).IsCoinBase());
+    BOOST_CHECK(Transaction(coinbaseTx).IsCoinBase());
 
     LOCK(cs_main);
 
@@ -75,7 +75,7 @@ static inline std::vector<CPubKey> random_keys(size_t num_keys) {
 }
 
 // Creates a placeholder tx (not valid) with 25 outputs. Specify the version and the inputs.
-static inline CTransactionRef make_tx(const std::vector<COutPoint>& inputs, int32_t version)
+static inline TransactionRef make_tx(const std::vector<COutPoint>& inputs, int32_t version)
 {
     CMutableTransaction mtx = CMutableTransaction{};
     mtx.version = version;
@@ -95,7 +95,7 @@ static constexpr auto NUM_EPHEMERAL_TX_OUTPUTS = 3;
 static constexpr auto EPHEMERAL_DUST_INDEX = NUM_EPHEMERAL_TX_OUTPUTS - 1;
 
 // Same as make_tx but adds 2 normal outputs and 0-value dust to end of vout
-static inline CTransactionRef make_ephemeral_tx(const std::vector<COutPoint>& inputs, int32_t version)
+static inline TransactionRef make_ephemeral_tx(const std::vector<COutPoint>& inputs, int32_t version)
 {
     CMutableTransaction mtx = CMutableTransaction{};
     mtx.version = version;
@@ -411,7 +411,7 @@ BOOST_FIXTURE_TEST_CASE(version3_tests, RegTestingSetup)
     // Configuration where the tx is in a multi-generation chain.
     {
         Package package_multi_gen;
-        CTransactionRef middle_tx;
+        TransactionRef middle_tx;
         auto last_outpoint{random_outpoints(1)[0]};
         for (size_t i{0}; i < 2; ++i) {
             auto mempool_tx = make_tx({last_outpoint}, /*version=*/3);

@@ -87,10 +87,10 @@ void initialize_tx_pool()
 }
 
 struct TransactionsDelta final : public CValidationInterface {
-    std::set<CTransactionRef>& m_removed;
-    std::set<CTransactionRef>& m_added;
+    std::set<TransactionRef>& m_removed;
+    std::set<TransactionRef>& m_added;
 
-    explicit TransactionsDelta(std::set<CTransactionRef>& r, std::set<CTransactionRef>& a)
+    explicit TransactionsDelta(std::set<TransactionRef>& r, std::set<TransactionRef>& a)
         : m_removed{r}, m_added{a} {}
 
     void TransactionAddedToMempool(const NewMempoolTransactionInfo& tx, uint64_t /* mempool_sequence */) override
@@ -98,7 +98,7 @@ struct TransactionsDelta final : public CValidationInterface {
         Assert(m_added.insert(tx.info.m_tx).second);
     }
 
-    void TransactionRemovedFromMempool(const CTransactionRef& tx, MemPoolRemovalReason reason, uint64_t /* mempool_sequence */) override
+    void TransactionRemovedFromMempool(const TransactionRef& tx, MemPoolRemovalReason reason, uint64_t /* mempool_sequence */) override
     {
         Assert(m_removed.insert(tx).second);
     }
@@ -333,9 +333,9 @@ FUZZ_TARGET(tx_pool_standard, .init = initialize_tx_pool)
         Assert(!outpoints_supply.empty());
 
         // Create transaction to add to the mempool
-        const CTransactionRef tx = [&] {
+        const TransactionRef tx = [&] {
             CMutableTransaction tx_mut;
-            tx_mut.version = fuzzed_data_provider.ConsumeBool() ? TRUC_VERSION : CTransaction::CURRENT_VERSION;
+            tx_mut.version = fuzzed_data_provider.ConsumeBool() ? TRUC_VERSION : Transaction::CURRENT_VERSION;
             tx_mut.nLockTime = fuzzed_data_provider.ConsumeBool() ? 0 : fuzzed_data_provider.ConsumeIntegral<uint32_t>();
             const auto num_in = fuzzed_data_provider.ConsumeIntegralInRange<int>(1, outpoints_rbf.size());
             const auto num_out = fuzzed_data_provider.ConsumeIntegralInRange<int>(1, outpoints_rbf.size() * 2);
@@ -398,8 +398,8 @@ FUZZ_TARGET(tx_pool_standard, .init = initialize_tx_pool)
         }
 
         // Remember all removed and added transactions
-        std::set<CTransactionRef> removed;
-        std::set<CTransactionRef> added;
+        std::set<TransactionRef> removed;
+        std::set<TransactionRef> added;
         auto txr = std::make_shared<TransactionsDelta>(removed, added);
         node.validation_signals->RegisterSharedValidationInterface(txr);
 

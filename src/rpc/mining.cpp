@@ -377,7 +377,7 @@ static RPCMethod generateblock()
     node::BlockTemplateManager& block_template_manager = EnsureBlockTemplateManager(node);
     const CTxMemPool& mempool = EnsureMemPool(node);
 
-    std::vector<CTransactionRef> txs;
+    std::vector<TransactionRef> txs;
     const auto raw_txs_or_txids = request.params[1].get_array();
     for (size_t i = 0; i < raw_txs_or_txids.size(); i++) {
         const auto& str{raw_txs_or_txids[i].get_str()};
@@ -932,7 +932,7 @@ static RPCMethod getblocktemplate()
 
     int i = 0;
     for (const auto& it : block_template->block.vtx) {
-        const CTransaction& tx = *it;
+        const Transaction& tx = *it;
         Txid txHash = tx.GetHash();
         setTxIndex[txHash] = i++;
 
