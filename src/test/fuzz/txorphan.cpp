@@ -96,8 +96,8 @@ FUZZ_TARGET(txorphan, .init = initialize_orphanage)
             // Check that all txns returned from GetChildrenFrom* are indeed a direct child of this tx.
             NodeId peer_id = fuzzed_data_provider.ConsumeIntegral<NodeId>();
             for (const auto& child : orphanage->GetChildrenFromSamePeer(ptx_potential_parent, peer_id)) {
-                assert(std::any_of(child->vin.cbegin(), child->vin.cend(), [&](const auto& input) {
-                    return input.prevout.hash == ptx_potential_parent->GetHash();
+                assert(std::any_of(child->Inputs().begin(), child->Inputs().end(), [&](const CTxInView input) {
+                    return input.GetPrevout().hash == ptx_potential_parent->GetHash();
                 }));
             }
         }
@@ -610,16 +610,16 @@ FUZZ_TARGET(txorphanage_sim)
                 for (unsigned tx = 0; tx < NUM_TX; ++tx) {
                     if ((pattern >> tx) & 1) {
                         block.vtx.emplace_back(txn[tx]);
-                        for (auto& txin : block.vtx.back()->vin) {
-                            spent.insert(txin.prevout);
+                        for (const CTxInView txin : block.vtx.back()->Inputs()) {
+                            spent.insert(txin.GetPrevout());
                         }
                     }
                 }
                 std::shuffle(block.vtx.begin(), block.vtx.end(), rng);
                 real->EraseForBlock(block);
                 std::erase_if(sim_announcements, [&](auto& ann) {
-                    for (auto& txin : txn[ann.tx]->vin) {
-                        if (spent.contains(txin.prevout)) return true;
+                    for (const CTxInView txin : txn[ann.tx]->Inputs()) {
+                        if (spent.contains(txin.GetPrevout())) return true;
                     }
                     return false;
                 });
@@ -635,8 +635,8 @@ FUZZ_TARGET(txorphanage_sim)
                     if (!have_tx_fn(child_tx)) continue;
                     if (have_reconsiderable_fn(child_tx)) continue;
                     bool child_of = false;
-                    for (auto& txin : txn[child_tx]->vin) {
-                        if (txin.prevout.hash == txn[tx]->GetHash()) {
+                    for (const CTxInView txin : txn[child_tx]->Inputs()) {
+                        if (txin.GetPrevout().hash == txn[tx]->GetHash()) {
                             child_of = true;
                             break;
                         }

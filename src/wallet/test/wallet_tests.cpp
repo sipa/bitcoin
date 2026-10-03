@@ -72,7 +72,7 @@ static CMutableTransaction TestSimpleSpend(const CTransaction& from, uint32_t in
     FillableSigningProvider keystore;
     keystore.AddKey(key);
     std::map<COutPoint, Coin> coins;
-    coins[mtx.GetInputPrevout(0)].out = from.vout[index];
+    coins[mtx.GetInputPrevout(0)].out = from.GetOutput(index).ToTxOut();
     std::map<int, bilingual_str> input_errors;
     BOOST_CHECK(SignTransaction(mtx, &keystore, coins, {.sighash_type = SIGHASH_ALL}, input_errors));
     return mtx;

@@ -92,7 +92,7 @@ bool CheckTxScripts(const CTransaction& tx, const std::map<COutPoint, CScript>& 
     bool tx_valid = true;
     ScriptError err = expect_valid ? SCRIPT_ERR_UNKNOWN_ERROR : SCRIPT_ERR_OK;
     for (unsigned int i = 0; i < tx.GetNumInputs() && tx_valid; ++i) {
-        const CTxIn input = tx.vin[i];
+        const CTxIn input = tx.GetInput(i).ToTxIn();
         const CAmount amount = map_prevout_values.contains(input.prevout) ? map_prevout_values.at(input.prevout) : 0;
         try {
             tx_valid = VerifyScript(input.scriptSig, map_prevout_scriptPubKeys.at(input.prevout),
@@ -430,9 +430,9 @@ static void CreateCreditAndSpend(const FillableSigningProvider& keystore, const 
     ssout << TX_WITH_WITNESS(outputm);
     ssout >> TX_WITH_WITNESS(output);
     assert(output->GetNumInputs() == 1);
-    assert(output->vin[0] == outputm.vin[0]);
+    assert(output->GetInput(0).ToTxIn() == outputm.vin[0]);
     assert(output->GetNumOutputs() == 1);
-    assert(output->vout[0] == outputm.vout[0]);
+    assert(output->GetOutput(0) == outputm.GetOutput(0));
 
     CMutableTransaction inputm;
     inputm.version = 1;
@@ -459,7 +459,7 @@ static void CheckWithFlag(const CTransactionRef& output, const CMutableTransacti
 {
     ScriptError error;
     CTransaction inputi(input);
-    bool ret = VerifyScript(inputi.vin[0].scriptSig, output->vout[0].scriptPubKey, &inputi.vin[0].scriptWitness, flags, TransactionSignatureChecker(&inputi, 0, output->GetOutputValue(0), MissingDataBehavior::ASSERT_FAIL), &error);
+    bool ret = VerifyScript(inputi.GetInputScriptSig(0), output->GetOutputScriptPubKey(0), inputi.GetInputWitness(0), flags, TransactionSignatureChecker(&inputi, 0, output->GetOutputValue(0), MissingDataBehavior::ASSERT_FAIL), &error);
     assert(ret == success);
 }
 
@@ -563,9 +563,10 @@ BOOST_AUTO_TEST_CASE(test_big_witness_transaction)
 SignatureData CombineSignatures(const CMutableTransaction& input1, const CMutableTransaction& input2, const CTransactionRef tx)
 {
     SignatureData sigdata;
-    sigdata = DataFromTransaction(input1, 0, tx->vout[0]);
-    sigdata.MergeSignatureData(DataFromTransaction(input2, 0, tx->vout[0]));
-    ProduceSignature(DUMMY_SIGNING_PROVIDER, MutableTransactionSignatureCreator(input1, 0, tx->GetOutputValue(0), {.sighash_type = SIGHASH_DEFAULT}), tx->vout[0].scriptPubKey, sigdata);
+    const CTxOut prev_out{tx->GetOutput(0).ToTxOut()};
+    sigdata = DataFromTransaction(input1, 0, prev_out);
+    sigdata.MergeSignatureData(DataFromTransaction(input2, 0, prev_out));
+    ProduceSignature(DUMMY_SIGNING_PROVIDER, MutableTransactionSignatureCreator(input1, 0, prev_out.nValue, {.sighash_type = SIGHASH_DEFAULT}), prev_out.scriptPubKey, sigdata);
     return sigdata;
 }
 
