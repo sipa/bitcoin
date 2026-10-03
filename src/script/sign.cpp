@@ -1029,9 +1029,9 @@ bool IsSegWitOutput(const SigningProvider& provider, const CScript& script)
 
 bool SignTransaction(CMutableTransaction& mtx, const SigningProvider* keystore, const std::map<COutPoint, Coin>& coins, const SignOptions& options, std::map<int, bilingual_str>& input_errors)
 {
-    // Use CTransaction for the constant parts of the
+    // Use Transaction for the constant parts of the
     // transaction to avoid rehashing.
-    const CTransaction txConst(mtx);
+    const Transaction txConst(mtx);
 
     PrecomputedTransactionData txdata;
     std::vector<CTxOut> spent_outputs;
