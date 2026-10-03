@@ -251,7 +251,7 @@ template <typename T>
     }
 }
 
-[[nodiscard]] bool ContainsSpentInput(const CTransaction& tx, const CCoinsViewCache& inputs) noexcept;
+[[nodiscard]] bool ContainsSpentInput(const Transaction& tx, const CCoinsViewCache& inputs) noexcept;
 
 /**
  * Sets errno to a value selected from the given std::array `errnos`.

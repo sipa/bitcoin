@@ -44,7 +44,7 @@ CMutableTransaction ConsumeTransaction(FuzzedDataProvider& fuzzed_data_provider,
     CMutableTransaction tx_mut;
     const auto p2wsh_op_true = fuzzed_data_provider.ConsumeBool();
     tx_mut.version = fuzzed_data_provider.ConsumeBool() ?
-                          CTransaction::CURRENT_VERSION :
+                          Transaction::CURRENT_VERSION :
                           fuzzed_data_provider.ConsumeIntegral<uint32_t>();
     tx_mut.nLockTime = fuzzed_data_provider.ConsumeIntegral<uint32_t>();
     const auto num_in = fuzzed_data_provider.ConsumeIntegralInRange<int>(0, max_num_in);
@@ -237,7 +237,7 @@ CKey ConsumePrivateKey(FuzzedDataProvider& fuzzed_data_provider, std::optional<b
     return key;
 }
 
-bool ContainsSpentInput(const CTransaction& tx, const CCoinsViewCache& inputs) noexcept
+bool ContainsSpentInput(const Transaction& tx, const CCoinsViewCache& inputs) noexcept
 {
     for (const CTxInView tx_in : tx.Inputs()) {
         const Coin& coin = inputs.AccessCoin(tx_in.GetPrevout());

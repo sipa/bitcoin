@@ -16,7 +16,7 @@
 #include <utility>
 #include <vector>
 
-bool CheckTransaction(const CTransaction& tx, TxValidationState& state)
+bool CheckTransaction(const Transaction& tx, TxValidationState& state)
 {
     // Basic checks that don't depend on any context
     if (tx.Inputs().empty())

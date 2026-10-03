@@ -23,7 +23,7 @@ CMutableTransaction BuildCreditingTransaction(const CScript& scriptPubKey, CAmou
     return txCredit;
 }
 
-CMutableTransaction BuildSpendingTransaction(const CScript& scriptSig, const CScriptWitness& scriptWitness, const CTransaction& txCredit)
+CMutableTransaction BuildSpendingTransaction(const CScript& scriptSig, const CScriptWitness& scriptWitness, const Transaction& txCredit)
 {
     CMutableTransaction txSpend;
     txSpend.version = 1;
@@ -59,14 +59,14 @@ std::vector<CMutableTransaction> SetupDummyInputs(FillableSigningProvider& keyst
     dummyTransactions[0].vout[0].scriptPubKey << ToByteVector(key[0].GetPubKey()) << OP_CHECKSIG;
     dummyTransactions[0].vout[1].nValue = nValues[1];
     dummyTransactions[0].vout[1].scriptPubKey << ToByteVector(key[1].GetPubKey()) << OP_CHECKSIG;
-    AddCoins(coinsRet, CTransaction(dummyTransactions[0]), 0);
+    AddCoins(coinsRet, Transaction(dummyTransactions[0]), 0);
 
     dummyTransactions[1].vout.resize(2);
     dummyTransactions[1].vout[0].nValue = nValues[2];
     dummyTransactions[1].vout[0].scriptPubKey = GetScriptForDestination(PKHash(key[2].GetPubKey()));
     dummyTransactions[1].vout[1].nValue = nValues[3];
     dummyTransactions[1].vout[1].scriptPubKey = GetScriptForDestination(PKHash(key[3].GetPubKey()));
-    AddCoins(coinsRet, CTransaction(dummyTransactions[1]), 0);
+    AddCoins(coinsRet, Transaction(dummyTransactions[1]), 0);
 
     return dummyTransactions;
 }
@@ -74,7 +74,7 @@ std::vector<CMutableTransaction> SetupDummyInputs(FillableSigningProvider& keyst
 void BulkTransaction(CMutableTransaction& tx, int32_t target_weight)
 {
     tx.vout.emplace_back(0, CScript() << OP_RETURN);
-    auto unpadded_weight{GetTransactionWeight(CTransaction(tx))};
+    auto unpadded_weight{GetTransactionWeight(Transaction(tx))};
     assert(target_weight >= unpadded_weight);
 
     // determine number of needed padding bytes by converting weight difference to vbytes
@@ -87,8 +87,8 @@ void BulkTransaction(CMutableTransaction& tx, int32_t target_weight)
     tx.vout[0].scriptPubKey.insert(tx.vout[0].scriptPubKey.end(), dummy_vbytes, OP_1);
 
     // actual weight should be at most 3 higher than target weight
-    assert(GetTransactionWeight(CTransaction(tx)) >= target_weight);
-    assert(GetTransactionWeight(CTransaction(tx)) <= target_weight + 3);
+    assert(GetTransactionWeight(Transaction(tx)) >= target_weight);
+    assert(GetTransactionWeight(Transaction(tx)) <= target_weight + 3);
 }
 
 bool SignSignature(const SigningProvider &provider, const CScript& fromPubKey, CMutableTransaction& txTo, unsigned int nIn, const CAmount& amount, int nHashType, SignatureData& sig_data)
@@ -102,7 +102,7 @@ bool SignSignature(const SigningProvider &provider, const CScript& fromPubKey, C
     return ret;
 }
 
-bool SignSignature(const SigningProvider &provider, const CTransaction& txFrom, CMutableTransaction& txTo, unsigned int nIn, int nHashType, SignatureData& sig_data)
+bool SignSignature(const SigningProvider &provider, const Transaction& txFrom, CMutableTransaction& txTo, unsigned int nIn, int nHashType, SignatureData& sig_data)
 {
     assert(nIn < txTo.GetNumInputs());
     const CTxIn& txin = txTo.vin[nIn];
