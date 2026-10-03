@@ -772,7 +772,9 @@ public:
     bool IsMine(const CScript& script) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     /** Returns amount of debit, i.e. the amount leaving this wallet due to this input */
     CAmount GetDebit(const CTxIn& txin) const;
+    CAmount GetDebit(const CTxInView& txin) const { return GetDebit(txin.ToTxIn()); }
     bool IsMine(const CTxOut& txout) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    bool IsMine(const CTxOutView& txout) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet) { return IsMine(txout.ToTxOut()); }
     bool IsMine(const CTransaction& tx) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     bool IsMine(const COutPoint& outpoint) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     /** should probably be renamed to IsRelevantToMe */

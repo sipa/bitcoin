@@ -63,17 +63,17 @@ WalletTx MakeWalletTx(CWallet& wallet, const CWalletTx& wtx)
     WalletTx result;
     result.tx = wtx.GetTx();
     result.txin_is_mine.reserve(result.tx->GetNumInputs());
-    for (const auto& txin : result.tx->vin) {
+    for (const CTxInView txin : result.tx->Inputs()) {
         result.txin_is_mine.emplace_back(InputIsMine(wallet, txin));
     }
     result.txout_is_mine.reserve(result.tx->GetNumOutputs());
     result.txout_address.reserve(result.tx->GetNumOutputs());
     result.txout_address_is_mine.reserve(result.tx->GetNumOutputs());
-    for (const auto& txout : result.tx->vout) {
+    for (const CTxOutView txout : result.tx->Outputs()) {
         result.txout_is_mine.emplace_back(wallet.IsMine(txout));
         result.txout_is_change.push_back(OutputIsChange(wallet, txout));
         result.txout_address.emplace_back();
-        result.txout_address_is_mine.emplace_back(ExtractDestination(txout.scriptPubKey, result.txout_address.back()) ?
+        result.txout_address_is_mine.emplace_back(ExtractDestination(txout.ToTxOut().scriptPubKey, result.txout_address.back()) ?
                                                       wallet.IsMine(result.txout_address.back()) :
                                                       false);
     }
@@ -118,7 +118,7 @@ WalletTxOut MakeWalletTxOut(const CWallet& wallet,
     int depth) EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet)
 {
     WalletTxOut result;
-    result.txout = wtx.GetTx()->vout[n];
+    result.txout = wtx.GetTx()->GetOutput(n).ToTxOut();
     result.time = wtx.GetTxTime();
     result.depth_in_main_chain = depth;
     result.is_spent = wallet.IsSpent(COutPoint(wtx.GetHash(), n));

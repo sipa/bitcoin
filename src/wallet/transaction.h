@@ -438,14 +438,15 @@ class WalletTXO
 {
 private:
     const CWalletTx& m_wtx;
-    const CTxOut& m_output;
+    //! A copy of the output (a Transaction does not necessarily contain CTxOut objects to refer to).
+    const CTxOut m_output;
 
 public:
     WalletTXO(const CWalletTx& wtx, const CTxOut& output)
     : m_wtx(wtx),
     m_output(output)
     {
-        Assume(std::ranges::find(wtx.GetTx()->vout, output) != wtx.GetTx()->vout.end());
+        Assume(std::ranges::any_of(wtx.GetTx()->Outputs(), [&](const CTxOutView o) { return o == output; }));
     }
 
     const CWalletTx& GetWalletTx() const { return m_wtx; }
