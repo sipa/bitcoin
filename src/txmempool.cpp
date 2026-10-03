@@ -76,8 +76,8 @@ std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> CTxMemPool::GetParents(const CT
     LOCK(cs);
     std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> ret;
     std::set<Txid> inputs;
-    for (const auto& txin : entry.GetTx().vin) {
-        inputs.insert(txin.prevout.hash);
+    for (const CTxInView txin : entry.GetTx().Inputs()) {
+        inputs.insert(txin.GetPrevout().hash);
     }
     for (const auto& hash : inputs) {
         std::optional<txiter> piter = GetIter(hash);
@@ -146,8 +146,8 @@ CTxMemPool::setEntries CTxMemPool::CalculateMemPoolAncestors(const CTxMemPoolEnt
     const CTransaction &tx = entry.GetTx();
 
     // Get parents of this transaction that are in the mempool
-    for (unsigned int i = 0; i < tx.vin.size(); i++) {
-        std::optional<txiter> piter = GetIter(tx.vin[i].prevout.hash);
+    for (unsigned int i = 0; i < tx.GetNumInputs(); i++) {
+        std::optional<txiter> piter = GetIter(tx.GetInputPrevout(i).hash);
         if (piter) {
             staged_parents.insert(*piter);
         }
@@ -236,7 +236,7 @@ void CTxMemPool::addNewTransaction(CTxMemPool::txiter newit)
     cachedInnerUsage += entry.DynamicMemoryUsage();
 
     const CTransaction& tx = newit->GetTx();
-    for (unsigned int i = 0; i < tx.vin.size(); i++) {
+    for (unsigned int i = 0; i < tx.GetNumInputs(); i++) {
         mapNextTx.insert(std::make_pair(&tx.vin[i].prevout, newit));
     }
     // Don't bother worrying about child transactions of this one.
@@ -281,8 +281,8 @@ void CTxMemPool::removeUnchecked(txiter it, MemPoolRemovalReason reason)
         std::chrono::duration_cast<std::chrono::duration<std::uint64_t>>(it->GetTime()).count()
     );
 
-    for (const CTxIn& txin : it->GetTx().vin)
-        mapNextTx.erase(txin.prevout);
+    for (const CTxInView txin : it->GetTx().Inputs())
+        mapNextTx.erase(txin.GetPrevout());
 
     RemoveUnbroadcastTx(it->GetTx().GetHash(), true /* add logging because unchecked */);
 
@@ -490,7 +490,7 @@ void CTxMemPool::check(const CCoinsViewCache& active_coins_tip, int64_t spendhei
             indexed_transaction_set::const_iterator it2 = mapTx.find(txin.prevout.hash);
             if (it2 != mapTx.end()) {
                 const CTransaction& tx2 = it2->GetTx();
-                assert(tx2.vout.size() > txin.prevout.n && !tx2.vout[txin.prevout.n].IsNull());
+                assert(tx2.GetNumOutputs() > txin.prevout.n && !tx2.vout[txin.prevout.n].IsNull());
                 setParentCheck.insert(*it2);
             }
             // We are iterating through the mempool entries sorted
@@ -779,8 +779,8 @@ std::vector<CTxMemPool::txiter> CTxMemPool::GetIterVec(const std::vector<Txid>& 
 
 bool CTxMemPool::HasNoInputsOf(const CTransaction &tx) const
 {
-    for (unsigned int i = 0; i < tx.vin.size(); i++)
-        if (exists(tx.vin[i].prevout.hash))
+    for (unsigned int i = 0; i < tx.GetNumInputs(); i++)
+        if (exists(tx.GetInputPrevout(i).hash))
             return false;
     return true;
 }
@@ -800,7 +800,7 @@ std::optional<Coin> CCoinsViewMemPool::GetCoin(const COutPoint& outpoint) const
     // transactions. First checking the underlying cache risks returning a pruned entry instead.
     CTransactionRef ptx = mempool.get(outpoint.hash);
     if (ptx) {
-        if (outpoint.n < ptx->vout.size()) {
+        if (outpoint.n < ptx->GetNumOutputs()) {
             Coin coin(ptx->vout[outpoint.n], MEMPOOL_HEIGHT, false);
             m_non_base_coins.emplace(outpoint);
             return coin;
@@ -812,7 +812,7 @@ std::optional<Coin> CCoinsViewMemPool::GetCoin(const COutPoint& outpoint) const
 
 void CCoinsViewMemPool::PackageAddTransaction(const CTransactionRef& tx)
 {
-    for (unsigned int n = 0; n < tx->vout.size(); ++n) {
+    for (unsigned int n = 0; n < tx->GetNumOutputs(); ++n) {
         m_temp_added.emplace(COutPoint(tx->GetHash(), n), Coin(tx->vout[n], MEMPOOL_HEIGHT, false));
         m_non_base_coins.emplace(tx->GetHash(), n);
     }
@@ -945,9 +945,9 @@ void CTxMemPool::TrimToSize(size_t sizelimit, std::vector<COutPoint>* pvNoSpends
         }
         if (pvNoSpendsRemaining) {
             for (const CTransaction& tx : txn) {
-                for (const CTxIn& txin : tx.vin) {
-                    if (exists(txin.prevout.hash)) continue;
-                    pvNoSpendsRemaining->push_back(txin.prevout);
+                for (const CTxInView txin : tx.Inputs()) {
+                    if (exists(txin.GetPrevout().hash)) continue;
+                    pvNoSpendsRemaining->push_back(txin.GetPrevout());
                 }
             }
         }
