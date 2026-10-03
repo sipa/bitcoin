@@ -23,7 +23,7 @@ namespace node {
 // Container for tracking updates to ancestor feerate as we include ancestors in the "block"
 class MiniMinerMempoolEntry
 {
-    const CTransactionRef tx;
+    const TransactionRef tx;
     const int64_t vsize_individual;
     int64_t vsize_with_ancestors;
     const CAmount fee_individual;
@@ -33,7 +33,7 @@ class MiniMinerMempoolEntry
 // methods can be called without holding that lock.
 
 public:
-    explicit MiniMinerMempoolEntry(const CTransactionRef& tx_in,
+    explicit MiniMinerMempoolEntry(const TransactionRef& tx_in,
                                    int64_t vsize_self,
                                    int64_t vsize_ancestor,
                                    CAmount fee_self,
@@ -49,7 +49,7 @@ public:
     CAmount GetModFeesWithAncestors() const { return fee_with_ancestors; }
     int64_t GetTxSize() const { return vsize_individual; }
     int64_t GetSizeWithAncestors() const { return vsize_with_ancestors; }
-    const CTransaction& GetTx() const LIFETIMEBOUND { return *tx; }
+    const Transaction& GetTx() const LIFETIMEBOUND { return *tx; }
     void UpdateAncestorState(int64_t vsize_change, CAmount fee_change) {
         vsize_with_ancestors += vsize_change;
         fee_with_ancestors += fee_change;
