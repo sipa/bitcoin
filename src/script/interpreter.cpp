@@ -2216,6 +2216,17 @@ size_t CountWitnessSigOps(std::span<const unsigned char> scriptSig, std::span<co
     return 0;
 }
 
+size_t CountWitnessSigOps(std::span<const unsigned char> scriptSig, std::span<const unsigned char> scriptPubKey, const CScriptWitness& witness, script_verify_flags flags)
+{
+    std::vector<unsigned char> serialized;
+    transaction_detail::AppendCompactSize(serialized, witness.stack.size());
+    for (const auto& element : witness.stack) {
+        transaction_detail::AppendCompactSize(serialized, element.size());
+        serialized.insert(serialized.end(), element.begin(), element.end());
+    }
+    return CountWitnessSigOps(scriptSig, scriptPubKey, WitnessView{serialized}, flags);
+}
+
 const std::map<std::string, script_verify_flag_name>& ScriptFlagNamesToEnum()
 {
 #define FLAG_NAME(flag) {std::string(#flag), SCRIPT_VERIFY_##flag}

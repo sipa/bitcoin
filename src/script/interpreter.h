@@ -383,10 +383,7 @@ bool VerifyScript(std::span<const unsigned char> scriptSig, std::span<const unsi
 bool VerifyScript(std::span<const unsigned char> scriptSig, std::span<const unsigned char> scriptPubKey, const WitnessView& witness, script_verify_flags flags, const BaseSignatureChecker& checker, ScriptError* serror = nullptr);
 
 size_t CountWitnessSigOps(std::span<const unsigned char> scriptSig, std::span<const unsigned char> scriptPubKey, const WitnessView& witness, script_verify_flags flags);
-inline size_t CountWitnessSigOps(std::span<const unsigned char> scriptSig, std::span<const unsigned char> scriptPubKey, const CScriptWitness& witness, script_verify_flags flags)
-{
-    return CountWitnessSigOps(scriptSig, scriptPubKey, WitnessView{witness}, flags);
-}
+size_t CountWitnessSigOps(std::span<const unsigned char> scriptSig, std::span<const unsigned char> scriptPubKey, const CScriptWitness& witness, script_verify_flags flags);
 
 /** Remove all occurrences of b (at opcode boundaries) from script. Returns the resulting script and the number
  *  of occurrences removed. Consensus critical. */
