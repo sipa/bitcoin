@@ -46,7 +46,39 @@ std::optional<CAmount> ExpectedValueOut(const CMutableTransaction& mtx)
     return sum;
 }
 
+/** Transaction::ToString's result, computed independently of Transaction. */
+std::string ExpectedToString(const CMutableTransaction& mtx)
+{
+    std::string str;
+    str += strprintf("CTransaction(hash=%s, ver=%u, vin.size=%u, vout.size=%u, nLockTime=%u)\n",
+        mtx.GetHash().ToString().substr(0,10),
+        mtx.version,
+        mtx.vin.size(),
+        mtx.vout.size(),
+        mtx.nLockTime);
+    for (const auto& tx_in : mtx.vin)
+        str += "    " + tx_in.ToString() + "\n";
+    for (const auto& tx_in : mtx.vin)
+        str += "    " + tx_in.scriptWitness.ToString() + "\n";
+    for (const auto& tx_out : mtx.vout)
+        str += "    " + tx_out.ToString() + "\n";
+    return str;
+}
+
 } // namespace
+
+bool ExpectedEquals(const CMutableTransaction& a, const CMutableTransaction& b, const EqualsOptions opts)
+{
+    return a.nLockTime == b.nLockTime &&
+        a.version == b.version &&
+        a.vout == b.vout &&
+        std::ranges::equal(a.vin, b.vin, [&opts](const CTxIn& self, const CTxIn& other) {
+            return self.prevout == other.prevout &&
+                self.nSequence == other.nSequence &&
+                (opts.include_script_sig ? self.scriptSig == other.scriptSig : true) &&
+                (opts.include_witness_data ? self.scriptWitness.stack == other.scriptWitness.stack : true);
+        });
+}
 
 std::string CompareTransaction(const Transaction& tx, const CMutableTransaction& mtx)
 {
@@ -63,6 +95,7 @@ std::string CompareTransaction(const Transaction& tx, const CMutableTransaction&
     if (tx.IsNull() != (mtx.vin.empty() && mtx.vout.empty())) return "IsNull";
     if (tx.IsCoinBase() != (mtx.vin.size() == 1 && mtx.vin[0].prevout.IsNull())) return "IsCoinBase";
     if (TryGetValueOut(tx) != ExpectedValueOut(mtx)) return "GetValueOut";
+    if (tx.ToString() != ExpectedToString(mtx)) return "ToString";
 
     for (uint32_t i = 0; i < mtx.vin.size(); ++i) {
         const CTxIn& txin{mtx.vin[i]};
@@ -117,6 +150,7 @@ std::string CompareTransaction(const Transaction& tx, const CMutableTransaction&
 
     if (Ser(TX_WITH_WITNESS(CMutableTransaction{tx})) != ser_witness) return "conversion to CMutableTransaction";
     if (Ser(TX_WITH_WITNESS(Transaction{mtx})) != ser_witness) return "conversion from CMutableTransaction";
+    if (!tx.Equals(Transaction{mtx})) return "Equals";
 
     // Deserializing the serialization must give the same object, except where the witness serialization is
     // ambiguous (no inputs, but outputs, which looks like the extended format's marker and flags).
