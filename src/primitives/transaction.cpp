@@ -114,10 +114,31 @@ Txid CMutableTransaction::GetHash() const
     return Txid::FromUint256((HashWriter{} << TX_NO_WITNESS(*this)).GetHash());
 }
 
+Transaction::Scratch& Transaction::GetScratch()
+{
+    static thread_local Scratch scratch;
+    return scratch;
+}
+
+void Transaction::UseScratchBuffers()
+{
+    Scratch& scratch{GetScratch()};
+    m_data.swap(scratch.data);
+    m_data.clear();
+    m_offsets.swap(scratch.offsets);
+    m_offsets.clear();
+}
+
 void Transaction::Finalize()
 {
-    m_data.shrink_to_fit();
-    m_offsets.shrink_to_fit();
+    // Copy the data and offsets into exactly-sized vectors, and hand the scratch buffers back (unless very large).
+    std::vector<uint8_t> data(m_data.begin(), m_data.end());
+    std::vector<uint32_t> offsets(m_offsets.begin(), m_offsets.end());
+    m_data.swap(data);
+    m_offsets.swap(offsets);
+    Scratch& scratch{GetScratch()};
+    if (data.capacity() <= (1 << 20)) scratch.data.swap(data);
+    if (offsets.capacity() <= (1 << 18)) scratch.offsets.swap(offsets);
     assert(m_offsets.size() == 2 * size_t{m_num_inputs} + m_num_outputs);
 
     HashWriter txid_hasher{};
@@ -134,8 +155,7 @@ void Transaction::Finalize()
 
 Transaction::Transaction(const CMutableTransaction& tx)
 {
-    m_data.reserve(::GetSerializeSize(TX_WITH_WITNESS(tx)));
-    m_offsets.reserve(2 * tx.vin.size() + tx.vout.size());
+    UseScratchBuffers();
     VectorWriter writer{m_data, 0};
     const bool witness{tx.HasWitness()};
     writer << tx.version;

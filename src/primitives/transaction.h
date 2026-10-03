@@ -560,8 +560,17 @@ private:
     std::vector<uint8_t> m_data;
     std::vector<uint32_t> m_offsets;
 
-    /** Finish constructing this object, after m_data and m_offsets have been filled in: release their unused
-     *  capacity, and compute the hashes. */
+    /** Per-thread scratch buffers, to construct Transactions without repeated reallocations. */
+    struct Scratch
+    {
+        std::vector<uint8_t> data;
+        std::vector<uint32_t> offsets;
+    };
+    static Scratch& GetScratch();
+    /** Start constructing this object: let m_data and m_offsets use the (cleared) per-thread scratch buffers. */
+    void UseScratchBuffers();
+    /** Finish constructing this object, after m_data and m_offsets have been filled in: copy them into
+     *  exactly-sized vectors (handing the scratch buffers back), and compute the hashes. */
     void Finalize();
 
     /** Read n bytes from s, appending them to m_data (allocating in chunks, as vector deserialization does). */
@@ -746,6 +755,7 @@ uint64_t Transaction::ReadCompactSizeInto(Stream& s)
 template <typename Stream>
 Transaction::Transaction(deserialize_type, const TransactionSerParams& params, Stream& s)
 {
+    UseScratchBuffers();
     // This mirrors UnserializeTransaction, but appends the bytes read to m_data, and records offsets in m_offsets.
     const auto read_inputs = [&](uint64_t count) {
         for (uint64_t i = 0; i < count; ++i) {
