@@ -96,7 +96,7 @@ std::shared_ptr<CBlock> MinerTestingSetup::Block(const uint256& prev_hash)
     CMutableTransaction txCoinbase(*pblock->vtx[0]);
     txCoinbase.vout.resize(2);
     txCoinbase.vout[1].scriptPubKey = P2WSH_OP_TRUE;
-    txCoinbase.vout[1].nValue = txCoinbase.vout[0].nValue;
+    txCoinbase.vout[1].nValue = txCoinbase.GetOutputValue(0);
     txCoinbase.vout[0].nValue = 0;
     txCoinbase.vin[0].scriptWitness.SetNull();
     // Always pad with OP_0 as dummy extraNonce (also avoids bad-cb-length error for block <=16)

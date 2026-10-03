@@ -316,7 +316,7 @@ FUZZ_TARGET(txorphan_protected, .init = initialize_orphanage)
                     bool have_tx_and_peer = orphanage->HaveTxFromPeer(wtxid, peer_id);
                     if (peer_is_protected && !have_tx_and_peer &&
                         (orphanage->UsageByPeer(peer_id) + tx_weight > honest_mem_limit ||
-                        orphanage->LatencyScoreFromPeer(peer_id) + (tx->vin.size() / 10) + 1 > honest_latency_limit)) {
+                        orphanage->LatencyScoreFromPeer(peer_id) + (tx->GetNumInputs() / 10) + 1 > honest_latency_limit)) {
                         // We never want our protected peer oversized or over-announced
                     } else {
                         orphanage->AddTx(tx, peer_id);
@@ -331,7 +331,7 @@ FUZZ_TARGET(txorphan_protected, .init = initialize_orphanage)
                     {
                         if (peer_is_protected && !have_tx_and_peer &&
                             (orphanage->UsageByPeer(peer_id) + tx_weight > honest_mem_limit ||
-                            orphanage->LatencyScoreFromPeer(peer_id) + (tx->vin.size() / 10) + 1 > honest_latency_limit)) {
+                            orphanage->LatencyScoreFromPeer(peer_id) + (tx->GetNumInputs() / 10) + 1 > honest_latency_limit)) {
                             // We never want our protected peer oversized
                         } else {
                             orphanage->AddAnnouncer(tx->GetWitnessHash(), peer_id);
@@ -437,14 +437,14 @@ FUZZ_TARGET(txorphanage_sim)
             for (auto& [child, parent] : deps) {
                 if (child == t) {
                     auto& partx = txn[txorder[parent]];
-                    assert(partx->version == 1);
-                    COutPoint outpoint(partx->GetHash(), rng.randrange<size_t>(partx->vout.size()));
+                    assert(partx->GetVersion() == 1);
+                    COutPoint outpoint(partx->GetHash(), rng.randrange<size_t>(partx->GetNumOutputs()));
                     tx.vin.emplace_back(outpoint);
                     tx.vin.back().scriptSig.resize(provider.ConsumeIntegralInRange<unsigned>(16, 200));
                 }
             }
             // Construct fallback input in case there are no dependencies.
-            if (tx.vin.empty()) {
+            if (tx.Inputs().empty()) {
                 COutPoint outpoint(Txid::FromUint256(rng.rand256()), rng.randrange<size_t>(16));
                 tx.vin.emplace_back(outpoint);
                 tx.vin.back().scriptSig.resize(provider.ConsumeIntegralInRange<unsigned>(16, 200));
@@ -453,7 +453,7 @@ FUZZ_TARGET(txorphanage_sim)
         // Optionally modify the witness (allowing wtxid != txid), and certainly when the wtxid
         // already exists.
         while (wtxids.contains(CTransaction(tx).GetWitnessHash()) || rng.randrange(4) == 0) {
-            auto& input = tx.vin[rng.randrange(tx.vin.size())];
+            auto& input = tx.vin[rng.randrange(tx.GetNumInputs())];
             if (rng.randbool()) {
                 input.scriptWitness.stack.resize(1);
                 input.scriptWitness.stack[0].resize(rng.randrange(100));
@@ -554,7 +554,7 @@ FUZZ_TARGET(txorphanage_sim)
         int64_t usage{0};
         for (auto& ann : sim_announcements) {
             if (ann.announcer != peer) continue;
-            count += 1 + (txn[ann.tx]->vin.size() / 10);
+            count += 1 + (txn[ann.tx]->GetNumInputs() / 10);
             usage += GetTransactionWeight(*txn[ann.tx]);
         }
         return std::max<ByRatioNegSize<FeeFrac>>(FeeFrac{count, max_count}, FeeFrac{usage, max_usage});
@@ -695,7 +695,7 @@ FUZZ_TARGET(txorphanage_sim)
             for (unsigned tx = 0; tx < NUM_TX; ++tx) {
                 if (have_tx_fn(tx)) {
                     total_usage += GetTransactionWeight(*txn[tx]);
-                    total_latency_score += txn[tx]->vin.size() / 10;
+                    total_latency_score += txn[tx]->GetNumInputs() / 10;
                 }
             }
             auto num_peers = count_peers_fn();
@@ -752,7 +752,7 @@ FUZZ_TARGET(txorphanage_sim)
         bool sim_have_tx = have_tx_fn(tx);
         if (sim_have_tx) {
             orphan_usage += GetTransactionWeight(*txn[tx]);
-            total_latency_score += txn[tx]->vin.size() / 10;
+            total_latency_score += txn[tx]->GetNumInputs() / 10;
         }
         unique_orphans += sim_have_tx;
         auto orphans_it = std::find_if(all_orphans.begin(), all_orphans.end(), [&](auto& orph) { return orph.tx->GetWitnessHash() == txn[tx]->GetWitnessHash(); });
@@ -786,8 +786,8 @@ FUZZ_TARGET(txorphanage_sim)
                     if (ann.announcer != peer) continue;
                     if (ann.reconsider != (phase == 1)) continue;
                     bool matching_parent{false};
-                    for (const auto& vin : txn[ann.tx]->vin) {
-                        if (vin.prevout.hash == txn[tx]->GetHash()) matching_parent = true;
+                    for (const CTxInView vin : txn[ann.tx]->Inputs()) {
+                        if (vin.GetPrevout().hash == txn[tx]->GetHash()) matching_parent = true;
                     }
                     if (!matching_parent) continue;
                     // Found an announcement from peer which is a child of txn[tx].

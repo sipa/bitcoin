@@ -38,14 +38,14 @@ static CBlock BuildBlockTestCase(FastRandomContext& ctx) {
     block.hashPrevBlock = ctx.rand256();
     block.nBits = 0x207fffff;
 
-    tx.vin[0].prevout.hash = Txid::FromUint256(ctx.rand256());
-    tx.vin[0].prevout.n = 0;
+    tx.GetInputPrevout(0).hash = Txid::FromUint256(ctx.rand256());
+    tx.GetInputPrevout(0).n = 0;
     block.vtx[1] = MakeTransactionRef(tx);
 
     tx.vin.resize(10);
-    for (size_t i = 0; i < tx.vin.size(); i++) {
-        tx.vin[i].prevout.hash = Txid::FromUint256(ctx.rand256());
-        tx.vin[i].prevout.n = 0;
+    for (size_t i = 0; i < tx.GetNumInputs(); i++) {
+        tx.GetInputPrevout(i).hash = Txid::FromUint256(ctx.rand256());
+        tx.GetInputPrevout(i).n = 0;
     }
     block.vtx[2] = MakeTransactionRef(tx);
 
@@ -321,14 +321,14 @@ BOOST_AUTO_TEST_CASE(ReceiveWithExtraTransactions) {
     auto rand_ctx(FastRandomContext(uint256{42}));
 
     CMutableTransaction mtx = BuildTransactionTestCase();
-    mtx.vin[0].prevout.hash = Txid::FromUint256(rand_ctx.rand256());
-    mtx.vin[0].prevout.n = 0;
+    mtx.GetInputPrevout(0).hash = Txid::FromUint256(rand_ctx.rand256());
+    mtx.GetInputPrevout(0).n = 0;
     const CTransactionRef non_block_tx = MakeTransactionRef(std::move(mtx));
 
     CBlock block(BuildBlockTestCase(rand_ctx));
     // Leave one transaction missing so scanning doesn't stop before the collision.
     mtx = BuildTransactionTestCase();
-    mtx.vin[0].prevout.hash = Txid::FromUint256(rand_ctx.rand256());
+    mtx.GetInputPrevout(0).hash = Txid::FromUint256(rand_ctx.rand256());
     block.vtx.push_back(MakeTransactionRef(std::move(mtx)));
     block.hashMerkleRoot = BlockMerkleRoot(block);
     while (!CheckProofOfWork(block.GetHash(), block.nBits, Params().GetConsensus())) ++block.nNonce;

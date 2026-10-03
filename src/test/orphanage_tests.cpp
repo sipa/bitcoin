@@ -441,8 +441,8 @@ BOOST_AUTO_TEST_CASE(DoS_mapOrphans)
     {
         CMutableTransaction tx;
         tx.vin.resize(1);
-        tx.vin[0].prevout.n = 0;
-        tx.vin[0].prevout.hash = Txid::FromUint256(m_rng.rand256());
+        tx.GetInputPrevout(0).n = 0;
+        tx.GetInputPrevout(0).hash = Txid::FromUint256(m_rng.rand256());
         tx.vin[0].scriptSig << OP_1;
         tx.vout.resize(1);
         tx.vout[0].nValue = i*CENT;
@@ -460,8 +460,8 @@ BOOST_AUTO_TEST_CASE(DoS_mapOrphans)
 
         CMutableTransaction tx;
         tx.vin.resize(1);
-        tx.vin[0].prevout.n = 0;
-        tx.vin[0].prevout.hash = txPrev->GetHash();
+        tx.GetInputPrevout(0).n = 0;
+        tx.GetInputPrevout(0).hash = txPrev->GetHash();
         tx.vout.resize(1);
         tx.vout[0].nValue = i*CENT;
         tx.vout[0].scriptPubKey = GetScriptForDestination(PKHash(key.GetPubKey()));
@@ -483,16 +483,16 @@ BOOST_AUTO_TEST_CASE(DoS_mapOrphans)
         tx.vout[0].nValue = 1*CENT;
         tx.vout[0].scriptPubKey = GetScriptForDestination(PKHash(key.GetPubKey()));
         tx.vin.resize(2777);
-        for (unsigned int j = 0; j < tx.vin.size(); j++)
+        for (unsigned int j = 0; j < tx.GetNumInputs(); j++)
         {
-            tx.vin[j].prevout.n = j;
-            tx.vin[j].prevout.hash = txPrev->GetHash();
+            tx.GetInputPrevout(j).n = j;
+            tx.GetInputPrevout(j).hash = txPrev->GetHash();
         }
         SignatureData empty;
         BOOST_CHECK(SignSignature(keystore, *txPrev, tx, 0, SIGHASH_ALL, empty));
         // Reuse same signature for other inputs
         // (they don't have to be valid for this test)
-        for (unsigned int j = 1; j < tx.vin.size(); j++)
+        for (unsigned int j = 1; j < tx.GetNumInputs(); j++)
             tx.vin[j].scriptSig = tx.vin[0].scriptSig;
 
         BOOST_CHECK(!orphanage->AddTx(MakeTransactionRef(tx), i));

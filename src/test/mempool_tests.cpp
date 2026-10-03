@@ -71,8 +71,8 @@ BOOST_AUTO_TEST_CASE(MempoolRemoveTest)
     {
         txChild[i].vin.resize(1);
         txChild[i].vin[0].scriptSig = CScript() << OP_11;
-        txChild[i].vin[0].prevout.hash = txParent.GetHash();
-        txChild[i].vin[0].prevout.n = i;
+        txChild[i].GetInputPrevout(0).hash = txParent.GetHash();
+        txChild[i].GetInputPrevout(0).n = i;
         txChild[i].vout.resize(1);
         txChild[i].vout[0].scriptPubKey = CScript() << OP_11 << OP_EQUAL;
         txChild[i].vout[0].nValue = 11000LL;
@@ -82,8 +82,8 @@ BOOST_AUTO_TEST_CASE(MempoolRemoveTest)
     {
         txGrandChild[i].vin.resize(1);
         txGrandChild[i].vin[0].scriptSig = CScript() << OP_11;
-        txGrandChild[i].vin[0].prevout.hash = txChild[i].GetHash();
-        txGrandChild[i].vin[0].prevout.n = 0;
+        txGrandChild[i].GetInputPrevout(0).hash = txChild[i].GetHash();
+        txGrandChild[i].GetInputPrevout(0).n = 0;
         txGrandChild[i].vout.resize(1);
         txGrandChild[i].vout[0].scriptPubKey = CScript() << OP_11 << OP_EQUAL;
         txGrandChild[i].vout[0].nValue = 11000LL;
@@ -197,9 +197,9 @@ BOOST_AUTO_TEST_CASE(MempoolSizeLimitTest)
 
     CMutableTransaction tx4 = CMutableTransaction();
     tx4.vin.resize(2);
-    tx4.vin[0].prevout.SetNull();
+    tx4.GetInputPrevout(0).SetNull();
     tx4.vin[0].scriptSig = CScript() << OP_4;
-    tx4.vin[1].prevout.SetNull();
+    tx4.GetInputPrevout(1).SetNull();
     tx4.vin[1].scriptSig = CScript() << OP_4;
     tx4.vout.resize(2);
     tx4.vout[0].scriptPubKey = CScript() << OP_4 << OP_EQUAL;
@@ -211,7 +211,7 @@ BOOST_AUTO_TEST_CASE(MempoolSizeLimitTest)
     tx5.vin.resize(2);
     tx5.vin[0].prevout = COutPoint(tx4.GetHash(), 0);
     tx5.vin[0].scriptSig = CScript() << OP_4;
-    tx5.vin[1].prevout.SetNull();
+    tx5.GetInputPrevout(1).SetNull();
     tx5.vin[1].scriptSig = CScript() << OP_5;
     tx5.vout.resize(2);
     tx5.vout[0].scriptPubKey = CScript() << OP_5 << OP_EQUAL;
@@ -223,7 +223,7 @@ BOOST_AUTO_TEST_CASE(MempoolSizeLimitTest)
     tx6.vin.resize(2);
     tx6.vin[0].prevout = COutPoint(tx4.GetHash(), 1);
     tx6.vin[0].scriptSig = CScript() << OP_4;
-    tx6.vin[1].prevout.SetNull();
+    tx6.GetInputPrevout(1).SetNull();
     tx6.vin[1].scriptSig = CScript() << OP_6;
     tx6.vout.resize(2);
     tx6.vout[0].scriptPubKey = CScript() << OP_6 << OP_EQUAL;
@@ -311,8 +311,8 @@ inline CTransactionRef make_tx(std::vector<CAmount>&& output_values, std::vector
     tx.vin.resize(inputs.size());
     tx.vout.resize(output_values.size());
     for (size_t i = 0; i < inputs.size(); ++i) {
-        tx.vin[i].prevout.hash = inputs[i]->GetHash();
-        tx.vin[i].prevout.n = input_indices.size() > i ? input_indices[i] : 0;
+        tx.GetInputPrevout(i).hash = inputs[i]->GetHash();
+        tx.GetInputPrevout(i).n = input_indices.size() > i ? input_indices[i] : 0;
     }
     for (size_t i = 0; i < output_values.size(); ++i) {
         tx.vout[i].scriptPubKey = CScript() << OP_11 << OP_EQUAL;

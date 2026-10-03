@@ -23,8 +23,8 @@ static inline CTransactionRef make_tx(const std::vector<CTransactionRef>& inputs
     tx.vin.resize(inputs.size());
     tx.vout.resize(output_values.size());
     for (size_t i = 0; i < inputs.size(); ++i) {
-        tx.vin[i].prevout.hash = inputs[i]->GetHash();
-        tx.vin[i].prevout.n = 0;
+        tx.GetInputPrevout(i).hash = inputs[i]->GetHash();
+        tx.GetInputPrevout(i).n = 0;
         // Add a witness so wtxid != txid
         CScriptWitness witness;
         witness.stack.emplace_back(i + 10);
@@ -184,7 +184,7 @@ BOOST_FIXTURE_TEST_CASE(rbf_conflicts_calculator, TestChain100Setup)
         for (auto i = 0; i < NUM_OUTPUTS; ++i) {
             auto pretx = make_tx(/*inputs=*/ {parent_tx}, /*output_values=*/ {995 * CENT});
             CMutableTransaction tx(*pretx);
-            tx.vin[0].prevout.n = i;
+            tx.GetInputPrevout(0).n = i;
             TryAddToMempool(pool, entry.Fee(normal_fee).FromTx(tx));
             BOOST_CHECK(pool.GetIter(tx.GetHash()).has_value());
             direct_children.push_back(MakeTransactionRef(tx));
