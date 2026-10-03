@@ -427,7 +427,7 @@ static bool CheckInputsFromMempoolAndCache(const CTransaction& tx, TxValidationS
         if (txFrom) {
             assert(txFrom->GetHash() == txin.GetPrevout().hash);
             assert(txFrom->GetNumOutputs() > txin.GetPrevout().n);
-            assert(txFrom->vout[txin.GetPrevout().n] == coin.out);
+            assert(txFrom->GetOutput(txin.GetPrevout().n) == coin.out);
         } else {
             const Coin& coinFromUTXOSet = coins_tip.AccessCoin(txin.GetPrevout());
             assert(!coinFromUTXOSet.IsSpent());
@@ -827,9 +827,9 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     }
 
     // Check for conflicts with in-memory transactions
-    for (const CTxIn &txin : tx.vin)
+    for (const CTxInView txin : tx.Inputs())
     {
-        const CTransaction* ptxConflicting = m_pool.GetConflictTx(txin.prevout);
+        const CTransaction* ptxConflicting = m_pool.GetConflictTx(txin.GetPrevout());
         if (ptxConflicting) {
             if (!args.m_allow_replacement) {
                 // Transaction conflicts with a mempool tx, but we're not allowing replacements in this context.
@@ -907,8 +907,8 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     // Keep track of transactions that spend a coinbase, which we re-scan
     // during reorgs to ensure COINBASE_MATURITY is still met.
     bool fSpendsCoinbase = false;
-    for (const CTxIn &txin : tx.vin) {
-        const Coin &coin = m_view.AccessCoin(txin.prevout);
+    for (const CTxInView txin : tx.Inputs()) {
+        const Coin &coin = m_view.AccessCoin(txin.GetPrevout());
         if (coin.IsCoinBase()) {
             fSpendsCoinbase = true;
             break;
@@ -2000,9 +2000,9 @@ void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, CTxUndo &txund
     // mark inputs spent
     if (!tx.IsCoinBase()) {
         txundo.vprevout.reserve(tx.GetNumInputs());
-        for (const CTxIn &txin : tx.vin) {
+        for (const CTxInView txin : tx.Inputs()) {
             txundo.vprevout.emplace_back();
-            bool is_spent = inputs.SpendCoin(txin.prevout, &txundo.vprevout.back());
+            bool is_spent = inputs.SpendCoin(txin.GetPrevout(), &txundo.vprevout.back());
             assert(is_spent);
         }
     }
@@ -2011,8 +2011,8 @@ void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, CTxUndo &txund
 }
 
 std::optional<std::pair<ScriptError, std::string>> CScriptCheck::operator()() {
-    const CScript &scriptSig = ptxTo->vin[nIn].scriptSig;
-    const CScriptWitness *witness = &ptxTo->vin[nIn].scriptWitness;
+    const std::span<const unsigned char> scriptSig{ptxTo->GetInputScriptSig(nIn)};
+    const WitnessView witness{ptxTo->GetInputWitness(nIn)};
     ScriptError error{SCRIPT_ERR_UNKNOWN_ERROR};
     if (VerifyScript(scriptSig, m_tx_out.scriptPubKey, witness, m_flags, CachingTransactionSignatureChecker(ptxTo, nIn, m_tx_out.nValue, cacheStore, *m_signature_cache, *txdata), &error)) {
         return std::nullopt;
@@ -2210,11 +2210,11 @@ DisconnectResult Chainstate::DisconnectBlock(const CBlock& block, const CBlockIn
         // Check that all outputs are available and match the outputs in the block itself
         // exactly.
         for (size_t o = 0; o < tx.GetNumOutputs(); o++) {
-            if (!tx.vout[o].scriptPubKey.IsUnspendable()) {
+            if (!IsUnspendable(tx.GetOutputScriptPubKey(o))) {
                 COutPoint out(hash, o);
                 Coin coin;
                 bool is_spent = view.SpendCoin(out, &coin);
-                if (!is_spent || tx.vout[o] != coin.out || pindex->nHeight != coin.nHeight || is_coinbase != coin.IsCoinBase()) {
+                if (!is_spent || !(tx.GetOutput(o) == coin.out) || pindex->nHeight != coin.nHeight || is_coinbase != coin.IsCoinBase()) {
                     if (!is_bip30_exception) {
                         fClean = false; // transaction output mismatch
                     }
@@ -3883,9 +3883,9 @@ static bool CheckWitnessMalleation(const CBlock& block, bool expect_witness_comm
         int commitpos = GetWitnessCommitmentIndex(block);
         if (commitpos != NO_WITNESS_COMMITMENT) {
             assert(!block.vtx.empty() && !block.vtx[0]->Inputs().empty());
-            const auto& witness_stack{block.vtx[0]->vin[0].scriptWitness.stack};
+            const WitnessView witness{block.vtx[0]->GetInputWitness(0)};
 
-            if (witness_stack.size() != 1 || witness_stack[0].size() != 32) {
+            if (witness.size() != 1 || witness.front().size() != 32) {
                 return state.Invalid(
                     /*result=*/BlockValidationResult::BLOCK_MUTATED,
                     /*reject_reason=*/"bad-witness-nonce-size",
@@ -3897,8 +3897,8 @@ static bool CheckWitnessMalleation(const CBlock& block, bool expect_witness_comm
             // witness tree.
             uint256 hash_witness = BlockWitnessMerkleRoot(block);
 
-            CHash256().Write(hash_witness).Write(witness_stack[0]).Finalize(hash_witness);
-            if (memcmp(hash_witness.begin(), &block.vtx[0]->vout[commitpos].scriptPubKey[6], 32)) {
+            CHash256().Write(hash_witness).Write(witness.front()).Finalize(hash_witness);
+            if (memcmp(hash_witness.begin(), &block.vtx[0]->GetOutputScriptPubKey(commitpos)[6], 32)) {
                 return state.Invalid(
                     /*result=*/BlockValidationResult::BLOCK_MUTATED,
                     /*reject_reason=*/"bad-witness-merkle-match",
@@ -4160,8 +4160,8 @@ static bool ContextualCheckBlock(const CBlock& block, BlockValidationState& stat
     if (DeploymentActiveAfter(pindexPrev, chainman, Consensus::DEPLOYMENT_HEIGHTINCB))
     {
         CScript expect = CScript() << nHeight;
-        if (block.vtx[0]->vin[0].scriptSig.size() < expect.size() ||
-            !std::equal(expect.begin(), expect.end(), block.vtx[0]->vin[0].scriptSig.begin())) {
+        if (block.vtx[0]->GetInputScriptSig(0).size() < expect.size() ||
+            !std::equal(expect.begin(), expect.end(), block.vtx[0]->GetInputScriptSig(0).begin())) {
             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-cb-height", "block height mismatch in coinbase");
         }
     }
@@ -4779,8 +4779,8 @@ bool Chainstate::RollforwardBlock(const CBlockIndex* pindex, CCoinsViewCache& in
 
     for (const CTransactionRef& tx : block.vtx) {
         if (!tx->IsCoinBase()) {
-            for (const CTxIn &txin : tx->vin) {
-                inputs.SpendCoin(txin.prevout);
+            for (const CTxInView txin : tx->Inputs()) {
+                inputs.SpendCoin(txin.GetPrevout());
             }
         }
         // Pass check = true as every addition may be an overwrite.
