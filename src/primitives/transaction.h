@@ -176,10 +176,15 @@ struct CMutableTransaction;
 
 struct TransactionSerParams {
     const bool allow_witness;
+    //! When deserializing, reject transactions without inputs or without outputs (which are never valid) as soon as
+    //! that is known, rather than first allocating memory for whatever else they contain.
+    const bool require_inputs_and_outputs{false};
     SER_PARAMS_OPFUNC
 };
 inline constexpr TransactionSerParams TX_WITH_WITNESS{.allow_witness = true};
 inline constexpr TransactionSerParams TX_NO_WITNESS{.allow_witness = false};
+//! TX_WITH_WITNESS, but rejecting transactions without inputs or outputs. For data received from P2P peers.
+inline constexpr TransactionSerParams TX_WITH_WITNESS_P2P{.allow_witness = true, .require_inputs_and_outputs = true};
 
 /**
  * Basic transaction serialization format:
@@ -202,6 +207,9 @@ template<typename Stream, typename TxType>
 void UnserializeTransaction(TxType& tx, Stream& s, const TransactionSerParams& params)
 {
     const bool fAllowWitness = params.allow_witness;
+    const auto check_inputs{[&] {
+        if (params.require_inputs_and_outputs && tx.vin.empty()) throw std::ios_base::failure("Transaction without inputs");
+    }};
 
     s >> tx.version;
     unsigned char flags = 0;
@@ -214,12 +222,16 @@ void UnserializeTransaction(TxType& tx, Stream& s, const TransactionSerParams& p
         s >> flags;
         if (flags != 0) {
             s >> tx.vin;
+            check_inputs();
             s >> tx.vout;
         }
     } else {
         /* We read a non-empty vin. Assume a normal vout follows. */
+        check_inputs();
         s >> tx.vout;
     }
+    check_inputs();
+    if (params.require_inputs_and_outputs && tx.vout.empty()) throw std::ios_base::failure("Transaction without outputs");
     if ((flags & 1) && fAllowWitness) {
         /* The witness flag is present, and we support witnesses. */
         flags ^= 1;
