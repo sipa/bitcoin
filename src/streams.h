@@ -79,6 +79,12 @@ private:
 
 /** Minimal stream for reading from an existing byte array by std::span.
  */
+/** Throw a std::ios_base::failure for reading past the end of a stream. This is defined out of line, as inlining the
+ *  construction and throwing of the exception makes the (hot) read functions of in-memory streams too large to be
+ *  inlined themselves by some compilers (clang in particular, with _FORTIFY_SOURCE), which makes deserializing many
+ *  small objects much slower. */
+[[noreturn]] void ThrowEndOfData(const char* message);
+
 class SpanReader
 {
 private:
@@ -109,7 +115,7 @@ public:
 
         // Read from the beginning of the buffer
         if (dst.size() > m_data.size()) {
-            throw std::ios_base::failure("SpanReader::read(): end of data");
+            ThrowEndOfData("SpanReader::read(): end of data");
         }
         memcpy(dst.data(), m_data.data(), dst.size());
         m_data = m_data.subspan(dst.size());
@@ -215,7 +221,7 @@ public:
         // Read from the beginning of the buffer
         auto next_read_pos{CheckedAdd(m_read_pos, dst.size())};
         if (!next_read_pos.has_value() || next_read_pos.value() > vch.size()) {
-            throw std::ios_base::failure("DataStream::read(): end of data");
+            ThrowEndOfData("DataStream::read(): end of data");
         }
         memcpy(dst.data(), &vch[m_read_pos], dst.size());
         if (next_read_pos.value() == vch.size()) {

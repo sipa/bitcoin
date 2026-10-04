@@ -9,6 +9,12 @@
 #include <util/obfuscation.h>
 
 #include <array>
+#include <ios>
+
+void ThrowEndOfData(const char* message)
+{
+    throw std::ios_base::failure(message);
+}
 
 AutoFile::AutoFile(std::FILE* file, const Obfuscation& obfuscation) : m_file{file}, m_obfuscation{obfuscation}
 {
