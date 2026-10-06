@@ -752,7 +752,8 @@ int btck_witness_stack_get_item_at(const btck_WitnessStack* witness_stack, size_
 {
     const auto& stack{btck_WitnessStack::get(witness_stack)};
     assert(index < stack.size());
-    return writer(stack[index].data(), stack[index].size(), user_data);
+    const auto element{stack[index]};
+    return writer(element.data(), element.size(), user_data);
 }
 
 btck_WitnessStack* btck_witness_stack_copy(const btck_WitnessStack* witness_stack)
