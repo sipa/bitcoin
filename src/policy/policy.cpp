@@ -312,8 +312,10 @@ bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
             size_t sizeWitnessStack = tx.vin[i].scriptWitness.size() - 1;
             if (sizeWitnessStack > MAX_STANDARD_P2WSH_STACK_ITEMS)
                 return false;
+            // The elements as a vector of spans, for indexed access in the loop below.
+            const auto witness_stack = tx.vin[i].scriptWitness.ToSpans();
             for (unsigned int j = 0; j < sizeWitnessStack; j++) {
-                if (tx.vin[i].scriptWitness.stack[j].size() > MAX_STANDARD_P2WSH_STACK_ITEM_SIZE)
+                if (witness_stack[j].size() > MAX_STANDARD_P2WSH_STACK_ITEM_SIZE)
                     return false;
             }
         }
@@ -323,7 +325,9 @@ bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
         // - No annexes
         if (witnessversion == 1 && witnessprogram.size() == WITNESS_V1_TAPROOT_SIZE && !p2sh) {
             // Taproot spend (non-P2SH-wrapped, version 1, witness program size 32; see BIP 341)
-            std::span stack{tx.vin[i].scriptWitness.stack};
+            // The elements as a vector of spans, and a span over them from which elements are popped below.
+            const auto witness_stack = tx.vin[i].scriptWitness.ToSpans();
+            std::span stack{witness_stack};
             if (stack.size() >= 2 && !stack.back().empty() && stack.back()[0] == ANNEX_TAG) {
                 // Annexes are nonstandard as long as no semantics are defined for them.
                 return false;
