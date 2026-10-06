@@ -98,7 +98,7 @@ std::shared_ptr<CBlock> MinerTestingSetup::Block(const uint256& prev_hash)
     txCoinbase.vout[1].scriptPubKey = P2WSH_OP_TRUE;
     txCoinbase.vout[1].nValue = txCoinbase.vout[0].nValue;
     txCoinbase.vout[0].nValue = 0;
-    txCoinbase.vin[0].scriptWitness.SetNull();
+    txCoinbase.vin[0].scriptWitness = {};
     // Always pad with OP_0 as dummy extraNonce (also avoids bad-cb-length error for block <=16)
     const int prev_height{WITH_LOCK(::cs_main, return m_node.chainman->m_blockman.LookupBlockIndex(prev_hash)->nHeight)};
     txCoinbase.vin[0].scriptSig = CScript{} << prev_height + 1 << OP_0;

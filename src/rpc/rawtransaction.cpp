@@ -653,7 +653,7 @@ static RPCMethod combinerawtransaction()
             // Remove all scriptSigs and scriptWitnesses from inputs
             for (CTxIn& input : tx_variants_copy[k].vin) {
                 input.scriptSig.clear();
-                input.scriptWitness.SetNull();
+                input.scriptWitness = {};
             }
             if (k == 0) {
                 first_txid = tx_variants_copy[k].GetHash();
@@ -1288,7 +1288,7 @@ static RPCMethod decodepsbt()
         }
         if (!input.final_script_witness.IsNull()) {
             UniValue txinwitness(UniValue::VARR);
-            for (const auto& item : input.final_script_witness.stack) {
+            for (const auto item : input.final_script_witness) {
                 txinwitness.push_back(HexStr(item));
             }
             in.pushKV("final_scriptwitness", std::move(txinwitness));
@@ -1817,7 +1817,7 @@ static RPCMethod converttopsbt()
             throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "Inputs must not have scriptSigs and scriptWitnesses");
         }
         input.scriptSig.clear();
-        input.scriptWitness.SetNull();
+        input.scriptWitness = {};
     }
 
     // Make a blank psbt
