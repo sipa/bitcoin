@@ -12,8 +12,15 @@
 #include <uint256.h>
 #include <util/hash_type.h>
 
+#include <cassert>
 #include <compare>
+#include <ios>
+#include <limits>
+#include <memory>
+#include <span>
+#include <stdexcept>
 #include <string>
+#include <vector>
 
 CScriptID::CScriptID(const CScript& in) : BaseHash(Hash160(in)) {}
 
@@ -289,20 +296,127 @@ bool CScript::IsPushOnly() const
 std::string CScriptWitness::ToString() const
 {
     std::string ret = "CScriptWitness(";
-    for (unsigned int i = 0; i < stack.size(); i++) {
-        if (i) {
-            ret += ", ";
-        }
-        ret += HexStr(stack[i]);
+    bool first{true};
+    for (const auto element : *this) {
+        if (!first) ret += ", ";
+        first = false;
+        ret += HexStr(element);
     }
     return ret + ")";
 }
 
+void CScriptWitness::AppendCompactSize(std::vector<unsigned char>& data, uint64_t n)
+{
+    const auto append_le{[&](uint64_t v, unsigned bytes) {
+        for (unsigned i = 0; i < bytes; ++i) data.push_back(static_cast<unsigned char>(v >> (8 * i)));
+    }};
+    if (n < 253) {
+        data.push_back(static_cast<unsigned char>(n));
+    } else if (n <= 0xffff) {
+        data.push_back(253);
+        append_le(n, 2);
+    } else if (n <= 0xffffffff) {
+        data.push_back(254);
+        append_le(n, 4);
+    } else {
+        data.push_back(255);
+        append_le(n, 8);
+    }
+}
+
+std::vector<unsigned char>& CScriptWitness::GetScratch() noexcept
+{
+    static thread_local std::vector<unsigned char> scratch;
+    // Clear it, as a previous deserialization may have been interrupted by an exception.
+    scratch.clear();
+    return scratch;
+}
+
+void CScriptWitness::Assign(std::span<const unsigned char> data, size_t last_offset)
+{
+    if (data.empty()) {
+        m_data.reset();
+        return;
+    }
+    if (data.size() > std::numeric_limits<uint32_t>::max() - HEADER_SIZE) throw std::length_error("CScriptWitness too large");
+    assert(last_offset < data.size());
+    auto new_data{std::make_unique_for_overwrite<unsigned char[]>(HEADER_SIZE + data.size())};
+    WriteLE32(new_data.get(), data.size());
+    WriteLE32(new_data.get() + 4, last_offset);
+    std::copy(data.begin(), data.end(), new_data.get() + HEADER_SIZE);
+    m_data = std::move(new_data);
+}
+
+void CScriptWitness::CopyFrom(const CScriptWitness& other)
+{
+    if (!other.m_data) {
+        m_data.reset();
+        return;
+    }
+    const size_t total{HEADER_SIZE + other.Data().size()};
+    auto new_data{std::make_unique_for_overwrite<unsigned char[]>(total)};
+    std::copy(other.m_data.get(), other.m_data.get() + total, new_data.get());
+    m_data = std::move(new_data);
+}
+
+void CScriptWitness::SetFromScratch(std::vector<unsigned char>& scratch, size_t last_offset)
+{
+    if (scratch.size() > std::numeric_limits<uint32_t>::max() - HEADER_SIZE) throw std::ios_base::failure("Witness stack too large");
+    Assign(scratch, last_offset);
+    if (scratch.capacity() > (1 << 20)) {
+        scratch = {};
+    } else {
+        scratch.clear();
+    }
+}
+
+std::span<const unsigned char> CScriptWitness::GetElementAtSlow(size_t index) const noexcept
+{
+    const size_t count{size()};
+    assert(index < count);
+    if (index + 1 == count) return back();
+    auto it{begin()};
+    for (size_t i = 0; i < index; ++i) ++it;
+    return *it;
+}
+
+std::vector<std::vector<unsigned char>> CScriptWitness::ToStack() const
+{
+    std::vector<std::vector<unsigned char>> ret;
+    ret.reserve(size());
+    for (const auto element : *this) ret.emplace_back(element.begin(), element.end());
+    return ret;
+}
+
+std::vector<std::span<const unsigned char>> CScriptWitness::ToSpans() const
+{
+    std::vector<std::span<const unsigned char>> ret;
+    ret.reserve(size());
+    for (const auto element : *this) ret.push_back(element);
+    return ret;
+}
+
+CScriptWitness::CScriptWitness(const std::vector<std::vector<unsigned char>>& stack)
+{
+    std::vector<unsigned char> data;
+    size_t last_offset{0};
+    if (!stack.empty()) {
+        size_t total{GetSizeOfCompactSize(stack.size())};
+        for (const auto& element : stack) total += GetSizeOfCompactSize(element.size()) + element.size();
+        data.reserve(total);
+        AppendCompactSize(data, stack.size());
+        for (const auto& element : stack) {
+            last_offset = data.size();
+            AppendCompactSize(data, element.size());
+            data.insert(data.end(), element.begin(), element.end());
+        }
+    }
+    Assign(data, last_offset);
+}
+
 size_t CScriptWitness::DynamicMemoryUsage() const noexcept
 {
-    size_t ret{memusage::DynamicUsage(stack)};
-    for (const auto& element : stack) ret += memusage::DynamicUsage(element);
-    return ret;
+    return m_data ? memusage::MallocUsage(HEADER_SIZE + Data().size()) : 0;
 }
 
 bool CScript::HasValidOps() const

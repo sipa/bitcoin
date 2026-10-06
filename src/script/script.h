@@ -13,11 +13,13 @@
 #include <uint256.h>
 #include <util/hash_type.h>
 
+#include <algorithm>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
 #include <limits>
+#include <memory>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -576,17 +578,56 @@ public:
 
 /** A witness stack. Elements are accessed by forward iteration, as spans, and the first and last ones directly.
  *  Access to other elements by index is O(n) (GetElementAtSlow), to avoid accidentally quadratic behavior. A witness
- *  can only be constructed as a whole (from a vector of its elements), not modified. */
-struct CScriptWitness
+ *  can only be constructed as a whole (from a vector of its elements), not modified.
+ *
+ *  It is stored as its serialization (the CompactSize-encoded number of elements, followed by each element as a
+ *  CompactSize-prefixed byte string), so that all its elements share a single allocation, and the object itself is
+ *  a single pointer (null for an empty stack). */
+class CScriptWitness
 {
-    // Note that this encodes the data elements being pushed, rather than
-    // encoding them as a CScript that pushes them.
-    std::vector<std::vector<unsigned char> > stack;
+    //! Null for an empty stack. Otherwise, a header consisting of the size of the stack's serialization and the
+    //! offset (within it) of its last element (each as 4 little-endian bytes), followed by that serialization.
+    std::unique_ptr<unsigned char[]> m_data;
+    static constexpr size_t HEADER_SIZE{8};
 
+    //! The serialization of the stack (empty for an empty stack).
+    std::span<const unsigned char> Data() const noexcept
+    {
+        if (!m_data) return {};
+        return {m_data.get() + HEADER_SIZE, ReadLE32(m_data.get())};
+    }
+    //! Set the stack from its serialization (which must be empty, for an empty stack), and the offset within it of
+    //! the last element.
+    void Assign(std::span<const unsigned char> data, size_t last_offset);
+    //! Make this a copy of other.
+    void CopyFrom(const CScriptWitness& other);
+
+    //! Decode a CompactSize from (trusted) data, advancing it.
+    static uint64_t DecodeCompactSize(std::span<const unsigned char>& data) noexcept
+    {
+        const unsigned char first{data[0]};
+        if (first < 253) {
+            data = data.subspan(1);
+            return first;
+        }
+        const size_t len{first == 253 ? 2U : first == 254 ? 4U : 8U};
+        uint64_t ret{0};
+        for (size_t i = 0; i < len; ++i) ret |= uint64_t{data[1 + i]} << (8 * i);
+        data = data.subspan(1 + len);
+        return ret;
+    }
+    static void AppendCompactSize(std::vector<unsigned char>& data, uint64_t n);
+    //! A (cleared) per-thread buffer to deserialize into, avoiding repeated reallocations while it grows.
+    static std::vector<unsigned char>& GetScratch() noexcept;
+    //! Set the stack from the scratch buffer (which is cleared, or released if very large), and the offset within it of
+    //! the last element.
+    void SetFromScratch(std::vector<unsigned char>& scratch, size_t last_offset);
+
+public:
     /** Forward iterator over the elements of the stack (as spans). */
     class Iterator
     {
-        std::vector<std::vector<unsigned char>>::const_iterator m_it;
+        std::span<const unsigned char> m_rest; //!< The serialization of the remaining elements.
 
     public:
         using iterator_category = std::forward_iterator_tag;
@@ -596,54 +637,124 @@ struct CScriptWitness
         using reference = value_type;
 
         Iterator() noexcept = default;
-        explicit Iterator(std::vector<std::vector<unsigned char>>::const_iterator it) noexcept : m_it{it} {}
-        value_type operator*() const noexcept { return *m_it; }
-        Iterator& operator++() noexcept { ++m_it; return *this; }
+        explicit Iterator(std::span<const unsigned char> rest) noexcept : m_rest{rest} {}
+        value_type operator*() const noexcept
+        {
+            auto data{m_rest};
+            const auto len{DecodeCompactSize(data)};
+            return data.first(len);
+        }
+        Iterator& operator++() noexcept
+        {
+            const auto len{DecodeCompactSize(m_rest)};
+            m_rest = m_rest.subspan(len);
+            return *this;
+        }
         Iterator operator++(int) noexcept { auto ret{*this}; ++*this; return ret; }
-        friend bool operator==(const Iterator&, const Iterator&) noexcept = default;
+        //! Iterators over the same stack are equal if they point to the same remaining elements.
+        friend bool operator==(const Iterator& a, const Iterator& b) noexcept { return a.m_rest.data() == b.m_rest.data(); }
     };
     using iterator = Iterator;
     using const_iterator = Iterator;
 
-    // Some compilers complain without a default constructor
     CScriptWitness() = default;
-    explicit CScriptWitness(const std::vector<std::vector<unsigned char>>& stack_in) : stack{stack_in} {}
+    explicit CScriptWitness(const std::vector<std::vector<unsigned char>>& stack);
+    CScriptWitness(const CScriptWitness& other) { CopyFrom(other); }
+    CScriptWitness& operator=(const CScriptWitness& other)
+    {
+        if (this != &other) CopyFrom(other);
+        return *this;
+    }
+    //! Moving leaves the source empty.
+    CScriptWitness(CScriptWitness&&) noexcept = default;
+    CScriptWitness& operator=(CScriptWitness&&) noexcept = default;
 
-    bool IsNull() const { return stack.empty(); }
-    bool empty() const noexcept { return stack.empty(); }
-
-    void SetNull() { stack.clear(); stack.shrink_to_fit(); }
+    bool IsNull() const noexcept { return !m_data; }
+    bool empty() const noexcept { return !m_data; }
 
     /** Number of elements. */
-    size_t size() const noexcept { return stack.size(); }
-    Iterator begin() const noexcept LIFETIMEBOUND { return Iterator{stack.begin()}; }
-    Iterator end() const noexcept LIFETIMEBOUND { return Iterator{stack.end()}; }
+    size_t size() const noexcept
+    {
+        if (!m_data) return 0;
+        auto data{Data()};
+        return DecodeCompactSize(data);
+    }
+    Iterator begin() const noexcept LIFETIMEBOUND
+    {
+        if (!m_data) return Iterator{};
+        auto data{Data()};
+        DecodeCompactSize(data);
+        return Iterator{data};
+    }
+    Iterator end() const noexcept LIFETIMEBOUND
+    {
+        if (!m_data) return Iterator{};
+        const auto data{Data()};
+        return Iterator{data.subspan(data.size())};
+    }
     /** The first (bottom) element. The stack must not be empty. */
-    std::span<const unsigned char> front() const noexcept LIFETIMEBOUND { return stack.front(); }
+    std::span<const unsigned char> front() const noexcept LIFETIMEBOUND { return *begin(); }
     /** The last (top) element, in O(1). The stack must not be empty. */
-    std::span<const unsigned char> back() const noexcept LIFETIMEBOUND { return stack.back(); }
+    std::span<const unsigned char> back() const noexcept LIFETIMEBOUND
+    {
+        auto data{Data().subspan(ReadLE32(m_data.get() + 4))};
+        const auto len{DecodeCompactSize(data)};
+        return data.first(len);
+    }
     /** The element at a given index (from the bottom), which must exist. This is O(index), except for the last
      *  element, so avoid it in loops; iterate instead. */
-    std::span<const unsigned char> GetElementAtSlow(size_t index) const noexcept LIFETIMEBOUND
-    {
-        assert(index < stack.size());
-        return stack[index];
-    }
+    std::span<const unsigned char> GetElementAtSlow(size_t index) const noexcept LIFETIMEBOUND;
 
     /** The elements, bottom to top. */
-    std::vector<std::vector<unsigned char>> ToStack() const { return stack; }
+    std::vector<std::vector<unsigned char>> ToStack() const;
     /** Spans of the elements, bottom to top. */
-    std::vector<std::span<const unsigned char>> ToSpans() const LIFETIMEBOUND { return {begin(), end()}; }
+    std::vector<std::span<const unsigned char>> ToSpans() const LIFETIMEBOUND;
 
-    size_t GetSerializeSize() const noexcept { return ::GetSerializeSize(stack); }
+    size_t GetSerializeSize() const noexcept { return m_data ? Data().size() : 1; }
     /** The dynamic memory usage of the stack. */
     size_t DynamicMemoryUsage() const noexcept;
 
-    SERIALIZE_METHODS(CScriptWitness, obj) { READWRITE(obj.stack); }
+    template <typename Stream>
+    void Serialize(Stream& s) const
+    {
+        if (!m_data) {
+            s << uint8_t{0};
+        } else {
+            s.write(MakeByteSpan(Data()));
+        }
+    }
+
+    /** Deserialize a witness stack, with the same semantics (and failures) as deserializing a
+     *  std::vector<std::vector<unsigned char>>. */
+    template <typename Stream>
+    void Unserialize(Stream& s)
+    {
+        const uint64_t count{ReadCompactSize(s)};
+        if (count == 0) {
+            m_data.reset();
+            return;
+        }
+        std::vector<unsigned char>& data{GetScratch()};
+        AppendCompactSize(data, count);
+        size_t last_offset{0};
+        for (uint64_t i = 0; i < count; ++i) {
+            last_offset = data.size();
+            uint64_t len{ReadCompactSize(s)};
+            AppendCompactSize(data, len);
+            while (len > 0) {
+                const size_t chunk = std::min<uint64_t>(len, MAX_VECTOR_ALLOCATE);
+                const size_t old_size{data.size()};
+                data.resize(old_size + chunk);
+                s.read(MakeWritableByteSpan(std::span{data}.subspan(old_size)));
+                len -= chunk;
+            }
+        }
+        SetFromScratch(data, last_offset);
+    }
 
     std::string ToString() const;
 
-    bool operator==(const CScriptWitness&) const = default;
+    friend bool operator==(const CScriptWitness& a, const CScriptWitness& b) noexcept { return std::ranges::equal(a.Data(), b.Data()); }
 };
 
 /** A reference to a CScript: the Hash160 of its serialization */
