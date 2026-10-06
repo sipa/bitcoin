@@ -87,7 +87,7 @@ static CTxIn GetSpendingScript(const CTransaction& tx, uint32_t vout_index)
         res.scriptSig = CScript() << OP_TRUE;
     } else if (output.scriptPubKey == TAPROOT_OP_TRUE) {
         res.scriptSig = CScript();
-        res.scriptWitness.stack = TAPROOT_OP_TRUE_WITNESS;
+        res.scriptWitness = CScriptWitness{TAPROOT_OP_TRUE_WITNESS};
     }
 
     return res;
