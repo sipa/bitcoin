@@ -11,6 +11,7 @@
 #include <prevector.h>
 #include <serialize.h>
 #include <uint256.h>
+#include <util/check.h>
 #include <util/hash_type.h>
 
 #include <cassert>
@@ -574,18 +575,74 @@ public:
     }
 };
 
+/** A witness stack. Elements are accessed as spans, by forward iteration or by index. A witness can only be
+ *  constructed as a whole (from a vector of its elements), not modified. */
 struct CScriptWitness
 {
     // Note that this encodes the data elements being pushed, rather than
     // encoding them as a CScript that pushes them.
+    // Direct access to it is being replaced by the accessors below, which do not expose how the stack is represented.
     std::vector<std::vector<unsigned char> > stack;
+
+    /** Forward iterator over the elements of the stack (as spans). */
+    class Iterator
+    {
+        std::vector<std::vector<unsigned char>>::const_iterator m_it;
+
+        friend CScriptWitness;
+        explicit Iterator(std::vector<std::vector<unsigned char>>::const_iterator it) noexcept : m_it{it} {}
+
+    public:
+        using iterator_category = std::forward_iterator_tag;
+        using value_type = std::span<const unsigned char>;
+        using difference_type = std::ptrdiff_t;
+        using pointer = void;
+        using reference = value_type;
+
+        Iterator() noexcept = default;
+        value_type operator*() const noexcept { return *m_it; }
+        Iterator& operator++() noexcept { ++m_it; return *this; }
+        Iterator operator++(int) noexcept { auto ret{*this}; ++*this; return ret; }
+        friend bool operator==(const Iterator&, const Iterator&) noexcept = default;
+    };
+    using iterator = Iterator;
+    using const_iterator = Iterator;
 
     // Some compilers complain without a default constructor
     CScriptWitness() = default;
+    explicit CScriptWitness(const std::vector<std::vector<unsigned char>>& stack_in) : stack{stack_in} {}
 
     bool IsNull() const { return stack.empty(); }
+    bool empty() const noexcept { return stack.empty(); }
 
     void SetNull() { stack.clear(); stack.shrink_to_fit(); }
+
+    /** Number of elements. */
+    size_t size() const noexcept { return stack.size(); }
+    Iterator begin() const noexcept LIFETIMEBOUND { return Iterator{stack.begin()}; }
+    Iterator end() const noexcept LIFETIMEBOUND { return Iterator{stack.end()}; }
+    /** The first (bottom) element. The stack must not be empty. */
+    std::span<const unsigned char> front() const noexcept LIFETIMEBOUND { return stack.front(); }
+    /** The last (top) element. The stack must not be empty. */
+    std::span<const unsigned char> back() const noexcept LIFETIMEBOUND { return stack.back(); }
+    /** The element at a given index (from the bottom), which must exist. */
+    std::span<const unsigned char> operator[](size_t index) const noexcept LIFETIMEBOUND
+    {
+        Assume(index < stack.size());
+        return stack[index];
+    }
+
+    /** The elements, bottom to top, as vectors. For code that needs to modify or take ownership of them (e.g. to
+     *  execute a script with them as its initial stack). */
+    std::vector<std::vector<unsigned char>> ToVectors() const { return stack; }
+    /** Spans of the elements, bottom to top, which are valid as long as this witness is. For code that accesses many
+     *  elements by index, as indexing a witness need not be constant-time. */
+    std::vector<std::span<const unsigned char>> ToSpans() const LIFETIMEBOUND { return {begin(), end()}; }
+
+    /** The dynamic memory usage of the stack, including that of its elements. */
+    size_t DynamicMemoryUsage() const noexcept;
+
+    SERIALIZE_METHODS(CScriptWitness, obj) { READWRITE(obj.stack); }
 
     std::string ToString() const;
 
