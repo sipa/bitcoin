@@ -209,11 +209,11 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
 
     const CTransactionRef& final_coinbase{pblock->vtx[0]};
     if (final_coinbase->HasWitness()) {
-        const auto& witness_stack{final_coinbase->vin[0].scriptWitness.stack};
+        const auto& witness_stack{final_coinbase->vin[0].scriptWitness};
         // Consensus requires the coinbase witness stack to have exactly one
         // element of 32 bytes.
-        Assert(witness_stack.size() == 1 && witness_stack[0].size() == 32);
-        coinbase_tx.witness = uint256(witness_stack[0]);
+        Assert(witness_stack.size() == 1 && witness_stack.front().size() == 32);
+        coinbase_tx.witness = uint256(witness_stack.front());
     }
     if (const int witness_index = GetWitnessCommitmentIndex(*pblock); witness_index != NO_WITNESS_COMMITMENT) {
         Assert(witness_index >= 0 && static_cast<size_t>(witness_index) < final_coinbase->vout.size());

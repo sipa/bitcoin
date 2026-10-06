@@ -3883,9 +3883,9 @@ static bool CheckWitnessMalleation(const CBlock& block, bool expect_witness_comm
         int commitpos = GetWitnessCommitmentIndex(block);
         if (commitpos != NO_WITNESS_COMMITMENT) {
             assert(!block.vtx.empty() && !block.vtx[0]->vin.empty());
-            const auto& witness_stack{block.vtx[0]->vin[0].scriptWitness.stack};
+            const auto& witness_stack{block.vtx[0]->vin[0].scriptWitness};
 
-            if (witness_stack.size() != 1 || witness_stack[0].size() != 32) {
+            if (witness_stack.size() != 1 || witness_stack.front().size() != 32) {
                 return state.Invalid(
                     /*result=*/BlockValidationResult::BLOCK_MUTATED,
                     /*reject_reason=*/"bad-witness-nonce-size",
@@ -3897,7 +3897,7 @@ static bool CheckWitnessMalleation(const CBlock& block, bool expect_witness_comm
             // witness tree.
             uint256 hash_witness = BlockWitnessMerkleRoot(block);
 
-            CHash256().Write(hash_witness).Write(witness_stack[0]).Finalize(hash_witness);
+            CHash256().Write(hash_witness).Write(witness_stack.front()).Finalize(hash_witness);
             if (memcmp(hash_witness.begin(), &block.vtx[0]->vout[commitpos].scriptPubKey[6], 32)) {
                 return state.Invalid(
                     /*result=*/BlockValidationResult::BLOCK_MUTATED,
@@ -3996,8 +3996,7 @@ void ChainstateManager::UpdateUncommittedBlockStructures(CBlock& block, const CB
     static const std::vector<unsigned char> nonce(32, 0x00);
     if (commitpos != NO_WITNESS_COMMITMENT && DeploymentActiveAfter(pindexPrev, *this, Consensus::DEPLOYMENT_SEGWIT) && !block.vtx[0]->HasWitness()) {
         CMutableTransaction tx(*block.vtx[0]);
-        tx.vin[0].scriptWitness.stack.resize(1);
-        tx.vin[0].scriptWitness.stack[0] = nonce;
+        tx.vin[0].scriptWitness = CScriptWitness{{nonce}};
         block.vtx[0] = MakeTransactionRef(std::move(tx));
     }
 }

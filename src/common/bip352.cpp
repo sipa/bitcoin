@@ -146,7 +146,7 @@ std::optional<PubKey> GetPubKeyFromInput(const CTxIn& txin, const CScript& spk)
     const TxoutType type = Solver(spk, solutions);
 
     if (type == TxoutType::WITNESS_V1_TAPROOT) {
-        const auto& stack = txin.scriptWitness.stack;
+        const auto& stack = txin.scriptWitness;
         if (stack.empty()) return std::nullopt;
         const bool has_annex = !stack.back().empty() && stack.back()[0] == ANNEX_TAG;
         const size_t effective_size = stack.size() - (has_annex ? 1 : 0);
@@ -154,7 +154,7 @@ std::optional<PubKey> GetPubKeyFromInput(const CTxIn& txin, const CScript& spk)
         if (effective_size > 1) {
             // BIP-352: skip script-path spends using NUMS-H internal key.
             // Validate control block size before checking internal key.
-            const auto& control = stack[effective_size - 1];
+            const auto control = stack.GetElementAtSlow(effective_size - 1);
             if (control.size() < TAPROOT_CONTROL_BASE_SIZE ||
                 control.size() > TAPROOT_CONTROL_MAX_SIZE ||
                 (control.size() - TAPROOT_CONTROL_BASE_SIZE) % TAPROOT_CONTROL_NODE_SIZE != 0) {
@@ -171,7 +171,7 @@ std::optional<PubKey> GetPubKeyFromInput(const CTxIn& txin, const CScript& spk)
     }
 
     if (type == TxoutType::WITNESS_V0_KEYHASH) {
-        const auto& stack = txin.scriptWitness.stack;
+        const auto& stack = txin.scriptWitness;
         if (stack.empty()) return std::nullopt;
         CPubKey key{stack.back()};
         if (!key.IsCompressed() || !key.IsFullyValid()) return std::nullopt;

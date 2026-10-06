@@ -750,9 +750,10 @@ size_t btck_witness_stack_count_items(const btck_WitnessStack* witness_stack)
 
 int btck_witness_stack_get_item_at(const btck_WitnessStack* witness_stack, size_t index, btck_WriteBytes writer, void* user_data)
 {
-    const auto& stack{btck_WitnessStack::get(witness_stack).stack};
-    assert(index < stack.size());
-    return writer(stack[index].data(), stack[index].size(), user_data);
+    const auto& witness{btck_WitnessStack::get(witness_stack)};
+    assert(index < witness.size());
+    const auto element{witness.GetElementAtSlow(index)};
+    return writer(element.data(), element.size(), user_data);
 }
 
 btck_WitnessStack* btck_witness_stack_copy(const btck_WitnessStack* witness_stack)
