@@ -384,6 +384,35 @@ inline void AppendCompactSize(std::vector<std::byte>& data, uint64_t n)
 }
 
 /**
+ * Decode the CompactSize at the start of data, and advance data past it.
+ *
+ * This is only for data whose CompactSizes were already checked: unlike ReadCompactSize, it does not check that the
+ * encoding is canonical, that the value is at most MAX_SIZE, or even that data is long enough to hold it. Use it for
+ * data that was produced by WriteCompactSize (or AppendCompactSize), or that consists of CompactSizes previously read
+ * with ReadCompactSize and re-encoded, such as an in-memory serialization built while deserializing. Skipping the
+ * checks makes it small enough to be inlined into loops that decode many CompactSizes, like iterating over the
+ * elements of such a serialization.
+ */
+inline uint64_t DecodeCompactSize(std::span<const std::byte>& data) noexcept
+{
+    //! A minimal stream that reads from (and advances) data, without bounds checks.
+    struct Reader {
+        std::span<const std::byte>& data;
+        void read(std::span<std::byte> dst) noexcept
+        {
+            std::memcpy(dst.data(), data.data(), dst.size());
+            data = data.subspan(dst.size());
+        }
+    };
+    Reader reader{data};
+    const auto first = ser_readdata8(reader);
+    if (first < 253) return first;
+    if (first == 253) return ser_readdata16(reader);
+    if (first == 254) return ser_readdata32(reader);
+    return ser_readdata64(reader);
+}
+
+/**
  * Variable-length integers: bytes are a MSB base-128 encoding of the number.
  * The high bit in each byte signifies whether another digit follows. To make
  * sure the encoding is one-to-one, one is subtracted from all but the last digit.
