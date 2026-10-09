@@ -724,9 +724,31 @@ public:
     template <typename Stream>
     void Unserialize(Stream& s)
     {
-        std::vector<std::vector<unsigned char>> stack;
-        s >> stack;
-        *this = CScriptWitness{stack};
+        const auto count = ReadCompactSize(s);
+        if (count == 0) {
+            m_data.reset();
+            return;
+        }
+        // Build the serialization from what is read, re-encoding each CompactSize as read (ReadCompactSize rejects
+        // non-canonical encodings and sizes above MAX_SIZE), and reading large elements in chunks (so that a bogus
+        // size does not cause a large allocation), just like deserializing a vector of vectors does.
+        std::vector<std::byte> data;
+        AppendCompactSize(data, count);
+        for (uint64_t i = 0; i < count; ++i) {
+            auto len = ReadCompactSize(s);
+            AppendCompactSize(data, len);
+            while (len > 0) {
+                const size_t chunk = std::min<uint64_t>(len, MAX_VECTOR_ALLOCATE);
+                const auto old_size = data.size();
+                data.resize(old_size + chunk);
+                s.read(std::span{data}.subspan(old_size));
+                len -= chunk;
+            }
+        }
+        // Fail like other deserialization errors (rather than with Assign's std::length_error) if the size of the
+        // serialization does not fit in the header.
+        if (data.size() > std::numeric_limits<uint32_t>::max()) throw std::ios_base::failure("Witness stack too large");
+        Assign(data);
     }
 
     std::string ToString() const;
