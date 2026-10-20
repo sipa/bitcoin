@@ -5,6 +5,7 @@
 #include <blockencodings.h>
 #include <chainparams.h>
 #include <consensus/merkle.h>
+#include <consensus/validation.h>
 #include <pow.h>
 #include <streams.h>
 #include <test/util/random.h>
@@ -484,6 +485,43 @@ BOOST_AUTO_TEST_CASE(EmptyTransactionDeserializationTest)
         check(short_ids);
         check(block_txn);
     }
+}
+
+BOOST_AUTO_TEST_CASE(WeightLimitedDeserializationTest)
+{
+    auto rand_ctx(FastRandomContext(uint256{42}));
+    const CBlock block(BuildBlockTestCase(rand_ctx));
+    uint64_t txs_weight{0};
+    for (const auto& tx : block.vtx) txs_weight += GetTransactionWeight(*tx);
+
+    // A compact block with all transactions prefilled, and a blocktxn message with all of them.
+    TestHeaderAndShortIDs short_ids(block, rand_ctx);
+    short_ids.shorttxids.clear();
+    short_ids.prefilledtxn.clear();
+    for (const auto& tx : block.vtx) short_ids.prefilledtxn.push_back({0, tx});
+    BlockTransactions block_txn;
+    block_txn.blockhash = block.GetHash();
+    block_txn.txn = block.vtx;
+
+    // Deserializing them with a weight limit succeeds if and only if the limit is at least the total weight of the
+    // transactions, and then consumes exactly that.
+    const auto check{[&](const auto& obj, auto deser) {
+        const auto data{DataStream{} << TX_WITH_WITNESS(obj)};
+        for (const uint64_t limit : {txs_weight, txs_weight - 1}) {
+            SpanReader reader{data};
+            const TransactionSerParams params{.allow_witness = true, .reject_empty = true, .max_weight = limit};
+            ParamsStream pstream{reader, params};
+            if (limit == txs_weight) {
+                pstream >> deser;
+                BOOST_CHECK_EQUAL(pstream.GetState<TransactionSerParams>().weight_left, 0U);
+                BOOST_CHECK_EQUAL((DataStream{} << TX_WITH_WITNESS(deser)).str(), data.str());
+            } else {
+                BOOST_CHECK_EXCEPTION(pstream >> deser, std::ios_base::failure, HasReason{"Weight limit exceeded"});
+            }
+        }
+    }};
+    check(short_ids, CBlockHeaderAndShortTxIDs{});
+    check(block_txn, BlockTransactions{});
 }
 
 BOOST_AUTO_TEST_SUITE_END()

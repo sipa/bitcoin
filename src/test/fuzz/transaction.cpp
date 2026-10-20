@@ -53,6 +53,24 @@ FUZZ_TARGET(transaction, .init = initialize_transaction)
         return;
     }
 
+    // Deserializing the transaction with a weight limit succeeds if and only if the limit is at least its weight, and
+    // then uses up exactly its weight.
+    const uint64_t weight = GetTransactionWeight(tx);
+    for (const uint64_t limit : {uint64_t{0}, weight / 2, weight - 1, weight, weight + 1}) {
+        CMutableTransaction limited_tx;
+        const TransactionSerParams params{.allow_witness = true, .max_weight = limit};
+        SpanReader reader{buffer};
+        ParamsStream pstream{reader, params};
+        try {
+            pstream >> limited_tx;
+            assert(limit >= weight);
+            assert(pstream.GetState<TransactionSerParams>().weight_left == limit - weight);
+            assert(CTransaction{limited_tx}.GetWitnessHash() == tx.GetWitnessHash());
+        } catch (const std::ios_base::failure&) {
+            assert(limit < weight);
+        }
+    }
+
     {
         TxValidationState state_with_dupe_check;
         const bool res{CheckTransaction(tx, state_with_dupe_check)};
