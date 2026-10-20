@@ -76,10 +76,10 @@ BOOST_AUTO_TEST_CASE(SimpleRoundTripTest)
         CBlockHeaderAndShortTxIDs shortIDs{block, rand_ctx.rand64()};
 
         DataStream stream{};
-        stream << shortIDs;
+        stream << TX_WITH_WITNESS(shortIDs);
 
         CBlockHeaderAndShortTxIDs shortIDs2;
-        stream >> shortIDs2;
+        stream >> TX_WITH_WITNESS(shortIDs2);
 
         PartiallyDownloadedBlock partialBlock(&pool);
         BOOST_CHECK(partialBlock.InitData(shortIDs2, empty_extra_txn) == READ_STATUS_OK);
@@ -127,17 +127,17 @@ public:
 
     explicit TestHeaderAndShortIDs(const CBlockHeaderAndShortTxIDs& orig) {
         DataStream stream{};
-        stream << orig;
-        stream >> *this;
+        stream << TX_WITH_WITNESS(orig);
+        stream >> TX_WITH_WITNESS(*this);
     }
     explicit TestHeaderAndShortIDs(const CBlock& block, FastRandomContext& ctx) :
         TestHeaderAndShortIDs(CBlockHeaderAndShortTxIDs{block, ctx.rand64()}) {}
 
     uint64_t GetShortID(const Wtxid& txhash) const {
         DataStream stream{};
-        stream << *this;
+        stream << TX_WITH_WITNESS(*this);
         CBlockHeaderAndShortTxIDs base;
-        stream >> base;
+        stream >> TX_WITH_WITNESS(base);
         return base.GetShortID(txhash);
     }
 
@@ -174,10 +174,10 @@ BOOST_AUTO_TEST_CASE(NonCoinbasePreforwardRTTest)
         shortIDs.shorttxids[1] = shortIDs.GetShortID(block.vtx[2]->GetWitnessHash());
 
         DataStream stream{};
-        stream << shortIDs;
+        stream << TX_WITH_WITNESS(shortIDs);
 
         CBlockHeaderAndShortTxIDs shortIDs2;
-        stream >> shortIDs2;
+        stream >> TX_WITH_WITNESS(shortIDs2);
 
         PartiallyDownloadedBlock partialBlock(&pool);
         BOOST_CHECK(partialBlock.InitData(shortIDs2, empty_extra_txn) == READ_STATUS_OK);
@@ -245,10 +245,10 @@ BOOST_AUTO_TEST_CASE(SufficientPreforwardRTTest)
         shortIDs.shorttxids[0] = shortIDs.GetShortID(block.vtx[1]->GetWitnessHash());
 
         DataStream stream{};
-        stream << shortIDs;
+        stream << TX_WITH_WITNESS(shortIDs);
 
         CBlockHeaderAndShortTxIDs shortIDs2;
-        stream >> shortIDs2;
+        stream >> TX_WITH_WITNESS(shortIDs2);
 
         PartiallyDownloadedBlock partialBlock(&pool);
         BOOST_CHECK(partialBlock.InitData(shortIDs2, empty_extra_txn) == READ_STATUS_OK);
@@ -297,10 +297,10 @@ BOOST_AUTO_TEST_CASE(EmptyBlockRoundTripTest)
         CBlockHeaderAndShortTxIDs shortIDs{block, rand_ctx.rand64()};
 
         DataStream stream{};
-        stream << shortIDs;
+        stream << TX_WITH_WITNESS(shortIDs);
 
         CBlockHeaderAndShortTxIDs shortIDs2;
-        stream >> shortIDs2;
+        stream >> TX_WITH_WITNESS(shortIDs2);
 
         PartiallyDownloadedBlock partialBlock(&pool);
         BOOST_CHECK(partialBlock.InitData(shortIDs2, empty_extra_txn) == READ_STATUS_OK);
@@ -459,7 +459,8 @@ BOOST_AUTO_TEST_CASE(TransactionsRequestDeserializationOverflowTest) {
 
 BOOST_AUTO_TEST_CASE(EmptyTransactionDeserializationTest)
 {
-    // Transactions without inputs or without outputs are rejected in compact blocks and blocktxn messages.
+    // Transactions without inputs or without outputs in compact blocks and blocktxn messages are rejected when
+    // deserializing with TX_WITH_WITNESS_P2P, but not with TX_WITH_WITNESS.
     auto rand_ctx(FastRandomContext(uint256{42}));
     CBlock block{BuildBlockTestCase(rand_ctx)};
     for (const bool with_input : {false, true}) {
@@ -473,9 +474,12 @@ BOOST_AUTO_TEST_CASE(EmptyTransactionDeserializationTest)
         block_txn.txn = block.vtx;
 
         const auto check{[&]<typename T>(const T& obj) {
-            const auto data{DataStream{} << obj};
+            const auto data{DataStream{} << TX_WITH_WITNESS(obj)};
+            T deser{};
+            SpanReader{data} >> TX_WITH_WITNESS(deser);
+            BOOST_CHECK_EQUAL((DataStream{} << TX_WITH_WITNESS(deser)).str(), data.str());
             const auto reason = with_input ? "Transaction without outputs" : "Transaction without inputs";
-            BOOST_CHECK_EXCEPTION(SpanReader{data} >> T{}, std::ios_base::failure, HasReason{reason});
+            BOOST_CHECK_EXCEPTION(SpanReader{data} >> TX_WITH_WITNESS_P2P(deser), std::ios_base::failure, HasReason{reason});
         }};
         check(short_ids);
         check(block_txn);
