@@ -579,4 +579,98 @@ BOOST_AUTO_TEST_CASE(with_params_derived)
                                     "0f\x02XY");
 }
 
+//! Serialization parameters with state: the number of CountedBytes that may still be deserialized.
+struct CountLimit {
+    const int max_count;
+    struct State {
+        int count_left;
+    };
+    State InitState() const { return {.count_left = max_count}; }
+    //! Giving these parameters to a stream that already has them is a compile-time error.
+    static constexpr bool NO_OVERRIDE{true};
+    SER_PARAMS_OPFUNC
+};
+
+// A stream holds the state of the parameters it was created with, and gives access to that of the
+// streams it wraps.
+static_assert(!StreamHasState<DataStream, CountLimit>);
+static_assert(StreamHasState<ParamsStream<DataStream&, CountLimit>, CountLimit>);
+static_assert(!StreamHasState<ParamsStream<DataStream&, OtherParam>, CountLimit>);
+static_assert(StreamHasState<ParamsStream<ParamsStream<DataStream&, CountLimit>&, OtherParam>, CountLimit>);
+static_assert(StreamHasState<ParamsStream<ParamsStream<DataStream, OtherParam>, CountLimit>, CountLimit>);
+
+//! A byte whose deserialization uses up one of the stream's CountLimit, and fails when none is left.
+struct CountedByte {
+    uint8_t value{0};
+
+    template <typename Stream>
+    void Serialize(Stream& s) const { s << value; }
+
+    template <typename Stream>
+    void Unserialize(Stream& s)
+    {
+        auto& state = s.template GetState<CountLimit>();
+        if (state.count_left == 0) throw std::ios_base::failure("Count limit exceeded");
+        --state.count_left;
+        s >> value;
+    }
+};
+
+//! Test that a ParamsStream holds the state that goes with its parameters, that everything
+//! deserialized through it shares that state, and that every stream starts with a state of its own.
+BOOST_AUTO_TEST_CASE(with_params_state)
+{
+    const CountLimit limit_3{.max_count = 3};
+    const OtherParam other_param{.param = 0x10};
+    // A vector of three bytes, followed by one more byte.
+    const auto data{DataStream{} << std::vector<uint8_t>{1, 2, 3} << uint8_t{4}};
+
+    // The state starts as InitState(), and is shared by the elements of the vector and what follows it.
+    {
+        DataStream stream{data};
+        ParamsStream pstream{stream, limit_3};
+        BOOST_CHECK_EQUAL(pstream.GetState<CountLimit>().count_left, 3);
+        std::vector<CountedByte> vec;
+        pstream >> vec;
+        BOOST_CHECK_EQUAL(vec.size(), 3U);
+        BOOST_CHECK_EQUAL(pstream.GetState<CountLimit>().count_left, 0);
+        CountedByte byte;
+        BOOST_CHECK_EXCEPTION(pstream >> byte, std::ios_base::failure, HasReason{"Count limit exceeded"});
+    }
+
+    // Wrapping an object in the parameters deserializes it through a stream, and thus with a state, of its own.
+    {
+        DataStream stream{data};
+        std::vector<CountedByte> vec;
+        CountedByte byte;
+        stream >> limit_3(vec) >> limit_3(byte);
+        BOOST_CHECK_EQUAL(vec.size(), 3U);
+        BOOST_CHECK_EQUAL(byte.value, 4);
+        BOOST_CHECK(stream.empty());
+    }
+
+    // The state is found in a stream with multiple parameters, wherever its parameters are among them, and code
+    // outside of deserialization can modify it too.
+    const auto check_multi{[&](auto& pstream) {
+        std::vector<CountedByte> vec;
+        CountedByte byte;
+        pstream >> vec;
+        BOOST_CHECK_EXCEPTION(pstream >> byte, std::ios_base::failure, HasReason{"Count limit exceeded"});
+        pstream.template GetState<CountLimit>().count_left = 1;
+        pstream >> byte;
+        BOOST_CHECK_EQUAL(byte.value, 4);
+        BOOST_CHECK_EQUAL(pstream.template GetState<CountLimit>().count_left, 0);
+    }};
+    {
+        DataStream stream{data};
+        ParamsStream pstream{stream, limit_3, other_param};
+        check_multi(pstream);
+    }
+    {
+        DataStream stream{data};
+        ParamsStream pstream{stream, other_param, limit_3};
+        check_multi(pstream);
+    }
+}
+
 BOOST_AUTO_TEST_SUITE_END()

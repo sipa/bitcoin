@@ -1168,11 +1168,44 @@ concept ContainsStream = requires(T t) { t.GetStream(); };
 template <typename Stream, typename P>
 concept StreamHasParams = requires(const Stream& s) { s.template GetParams<P>(); };
 
-/** Wrapper that overrides the GetParams() function of a stream. */
+/** Serialization parameters that come with mutable state: a State type, and an InitState() method
+ *  that returns its initial value. A ParamsStream with such parameters holds a State, which
+ *  (de)serialization code can read and modify through GetState(). This makes it possible to keep
+ *  track of something across everything that passes through that stream (e.g. to limit the total
+ *  size of what is deserialized), while the parameters themselves stay immutable.
+ *
+ *  Giving such parameters to a stream that already has them would hide the state that it holds for
+ *  them behind a new one. A parameter type can make that a compile-time error by having a
+ *  NO_OVERRIDE member (set to true). */
+template <typename P>
+concept HasSerState = requires(const P& p) {
+    { p.InitState() } -> std::same_as<typename P::State>;
+};
+/** What a ParamsStream holds for parameters without state. */
+struct NoSerState {};
+template <typename P> struct SerStateOf { using type = NoSerState; };
+template <HasSerState P> struct SerStateOf<P> { using type = typename P::State; };
+
+//! Check if a stream of type Stream holds the state of serialization parameters of type P, by
+//! seeing if GetState<P>() can be called on it.
+template <typename Stream, typename P>
+concept StreamHasState = requires(Stream& s) { s.template GetState<P>(); };
+
+/** Wrapper that overrides the GetParams() function of a stream, and holds the state that goes with
+ *  the parameters, if they have any (see HasSerState). */
 template <typename SubStream, typename Params>
 class ParamsStream
 {
+    // Parameter types can have a NO_OVERRIDE member (set to true) to forbid overriding them.
+    static_assert(!(requires { requires Params::NO_OVERRIDE; } && StreamHasParams<SubStream, Params>),
+                  "The stream already has parameters of this type, which cannot be overridden");
+
+    using State = typename SerStateOf<Params>::type;
+
     const Params& m_params;
+    //! The state for m_params, which starts as m_params.InitState() (empty if they have none).
+    State m_state;
+
     // If ParamsStream constructor is passed an lvalue argument, Substream will
     // be a reference type, and m_substream will reference that argument.
     // Otherwise m_substream will be a substream instance and move from the
@@ -1182,12 +1215,29 @@ class ParamsStream
     // SubStream is a file stream.
     SubStream m_substream;
 
+    static State InitState(const Params& params)
+    {
+        if constexpr (HasSerState<Params>) {
+            return params.InitState();
+        } else {
+            return {};
+        }
+    }
+
 public:
-    ParamsStream(SubStream&& substream, const Params& params LIFETIMEBOUND) : m_params{params}, m_substream{std::forward<SubStream>(substream)} {}
+    ParamsStream(SubStream&& substream, const Params& params LIFETIMEBOUND) : m_params{params}, m_state{InitState(m_params)}, m_substream{std::forward<SubStream>(substream)} {}
 
     template <typename NestedSubstream, typename Params1, typename Params2, typename... NestedParams>
     ParamsStream(NestedSubstream&& s, const Params1& params1 LIFETIMEBOUND, const Params2& params2 LIFETIMEBOUND, const NestedParams&... params LIFETIMEBOUND)
         : ParamsStream{::ParamsStream{std::forward<NestedSubstream>(s), params2, params...}, params1} {}
+
+    // Disallow copying (which would duplicate m_state, and possibly m_substream).
+    ParamsStream(const ParamsStream&) = delete;
+    // Allow moving.
+    ParamsStream(ParamsStream&&) = default;
+    // Disallow assignment (m_params is a reference).
+    ParamsStream& operator=(const ParamsStream&) = delete;
+    ParamsStream& operator=(ParamsStream&&) = delete;
 
     template <typename U> ParamsStream& operator<<(const U& obj) { ::Serialize(*this, obj); return *this; }
     template <typename U> ParamsStream& operator>>(U&& obj) { ::Unserialize(*this, obj); return *this; }
@@ -1207,6 +1257,23 @@ public:
             return m_params;
         } else {
             return m_substream.template GetParams<P>();
+        }
+    }
+
+    //! Get reference to the state that goes with the stream parameters GetParams<P>() returns. It
+    //! is shared by everything (de)serialized through this stream, and does not outlive it. In
+    //! particular, wrapping an object in parameters (PARAMS(obj)) creates a new stream, and thus a
+    //! new state, every time such a wrapped object is (de)serialized. This only compiles for the
+    //! parameter types whose state this stream, or a stream that it wraps, holds (see
+    //! StreamHasState).
+    template <HasSerState P>
+        requires std::is_convertible_v<Params, P> || StreamHasState<SubStream, P>
+    typename P::State& GetState()
+    {
+        if constexpr (std::is_convertible_v<Params, P>) {
+            return m_state;
+        } else {
+            return m_substream.template GetState<P>();
         }
     }
 
