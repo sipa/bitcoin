@@ -1163,6 +1163,11 @@ uint64_t GetSerializeSize(const T& t)
 template<typename T>
 concept ContainsStream = requires(T t) { t.GetStream(); };
 
+//! Check if a stream of type Stream has serialization parameters of type P, by seeing if
+//! GetParams<P>() can be called on it.
+template <typename Stream, typename P>
+concept StreamHasParams = requires(const Stream& s) { s.template GetParams<P>(); };
+
 /** Wrapper that overrides the GetParams() function of a stream. */
 template <typename SubStream, typename Params>
 class ParamsStream
@@ -1192,8 +1197,10 @@ public:
     bool empty() const { return GetStream().empty(); }
     size_t size() const { return GetStream().size(); }
 
-    //! Get reference to stream parameters.
+    //! Get reference to stream parameters. This only compiles for the parameter types that this
+    //! stream, or a stream that it wraps, has (see StreamHasParams).
     template <typename P>
+        requires std::is_convertible_v<Params, P> || StreamHasParams<SubStream, P>
     const auto& GetParams() const
     {
         if constexpr (std::is_convertible_v<Params, P>) {

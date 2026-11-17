@@ -436,6 +436,14 @@ struct OtherParam {
     SER_PARAMS_OPFUNC
 };
 
+// A stream has the parameters it was created with, and those of the streams it wraps.
+static_assert(!StreamHasParams<DataStream, BaseFormat>);
+static_assert(StreamHasParams<ParamsStream<DataStream&, BaseFormat>, BaseFormat>);
+static_assert(!StreamHasParams<ParamsStream<DataStream&, BaseFormat>, OtherParam>);
+static_assert(StreamHasParams<ParamsStream<ParamsStream<DataStream&, BaseFormat>&, OtherParam>, BaseFormat>);
+static_assert(StreamHasParams<ParamsStream<ParamsStream<DataStream, BaseFormat>, OtherParam>, OtherParam>);
+static_assert(!StreamHasParams<ParamsStream<ParamsStream<DataStream, BaseFormat>, OtherParam>, DerivedAndBaseFormat>);
+
 //! Checker for value of OtherParam. When being serialized, serializes the
 //! param to the stream. When being unserialized, verifies the value in the
 //! stream matches the param.
