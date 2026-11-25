@@ -5,11 +5,14 @@
 #include <chain.h>
 #include <test/util/random.h>
 #include <test/util/setup_common.h>
+#include <tinyformat.h>
 
 #include <algorithm>
 #include <bit>
+#include <cstddef>
 #include <cstdint>
 #include <iterator>
+#include <span>
 #include <vector>
 
 #include <boost/test/unit_test.hpp>
@@ -75,6 +78,58 @@ std::vector<CBlockIndex> BuildChain(uint32_t length)
 
 /** The height of a block index entry. */
 uint32_t Height(const CBlockIndex* index) { return static_cast<uint32_t>(index->nHeight); }
+
+/**
+ * Upper bound on the number of pointers that get followed to go from height h to its ancestor at
+ * height t, for h >= 3 and t < h. With H = h + 1, T = t + 1, bw(x) the number of bits needed to
+ * represent x, and M = min(bw(H), bw((H + bw(H)) ^ T)), that bound is
+ *
+ *     min(floor(log2(h - t + 1)), M - 2) + M - 1
+ *
+ * It is never more than 2*floor(log2(h + 1)) - 1, the bound that is explained in chain.cpp.
+ */
+int MaxSteps(uint32_t h, uint32_t t)
+{
+    const uint32_t h1{h + 1};
+    const uint32_t t1{t + 1};
+    const int bw_h1{std::bit_width(h1)};
+    const int m{std::min(bw_h1, std::bit_width((h1 + bw_h1) ^ t1))};
+    const int log_dist{std::bit_width(h - t + 1) - 1};
+    return std::min(log_dist, m - 2) + m - 1;
+}
+
+/**
+ * The entries visited when walking from index to its ancestor at the given height by following
+ * pskip whenever it does not go below that height, and pprev otherwise.
+ */
+std::vector<const CBlockIndex*> Walk(const CBlockIndex* index, uint32_t height)
+{
+    std::vector<const CBlockIndex*> ret{index};
+    while (Height(index) > height) {
+        index = Height(index->pskip) >= height ? index->pskip : index->pprev;
+        ret.push_back(index);
+    }
+    return ret;
+}
+
+/**
+ * Whether GetAncestor follows exactly the given walk. This is determined using copies of the
+ * entries of the walk, in which every pointer that the walk does not follow leads to a dead end.
+ */
+bool FollowsWalk(std::span<const CBlockIndex* const> walk)
+{
+    CBlockIndex dead_end;
+    dead_end.pprev = dead_end.pskip = &dead_end;
+    std::vector<CBlockIndex> copy(walk.size());
+    for (size_t i = 0; i < walk.size(); ++i) {
+        copy[i].nHeight = walk[i]->nHeight;
+        copy[i].pprev = copy[i].pskip = &dead_end;
+        if (i + 1 < walk.size()) {
+            (walk[i]->pskip == walk[i + 1] ? copy[i].pskip : copy[i].pprev) = &copy[i + 1];
+        }
+    }
+    return copy.front().GetAncestor(walk.back()->nHeight) == &copy.back();
+}
 
 } // namespace
 
@@ -298,6 +353,57 @@ BOOST_AUTO_TEST_CASE(skip_height_test)
         if (height <= std::size(EXPECTED)) BOOST_CHECK_EQUAL(skip_height, EXPECTED[height - 1]);
         // Above height 1, the skip pointer never points to the same entry as pprev.
         if (height >= 2) BOOST_CHECK_LE(skip_height, height - 2);
+    }
+}
+
+BOOST_AUTO_TEST_CASE(ancestor_steps_test)
+{
+    const auto index{BuildChain(SKIPLIST_LENGTH)};
+    const uint32_t length{static_cast<uint32_t>(index.size())};
+
+    // Walk from one height to a lower one. Check that this arrives at the right entry, that
+    // GetAncestor follows the same pointers, and that the number of pointers followed is within
+    // the bounds. Returns that number.
+    const auto check_walk = [&](uint32_t from, uint32_t to) {
+        const auto walk{Walk(&index[from], to)};
+        const int steps{static_cast<int>(walk.size()) - 1};
+        bool ok{walk.back() == &index[to] && index[from].GetAncestor(to) == &index[to] && FollowsWalk(walk)};
+        // The bound in terms of the starting height alone, and the tighter one.
+        if (to < from) ok = ok && steps <= 2 * (std::bit_width(from + 1) - 1) - 1;
+        if (from >= 3 && to < from) ok = ok && steps <= MaxSteps(from, to);
+        BOOST_CHECK_MESSAGE(ok, strprintf("walk from height %d to height %d, in %d steps", from, to, steps));
+        return steps;
+    };
+
+    // All pairs of heights below 2^9 - 1, which form a tree of level 9. In the tree of level k
+    // that starts at the genesis block, the largest number of steps is 2*k - 3.
+    int max_steps{0};
+    for (uint32_t from = 0; from < 511; ++from) {
+        for (uint32_t to = 0; to <= from; ++to) {
+            max_steps = std::max(max_steps, check_walk(from, to));
+        }
+    }
+    BOOST_CHECK_EQUAL(max_steps, 2 * 9 - 3);
+
+    for (int i = 0; i < 20000; ++i) {
+        // Uniformly random pairs of heights.
+        uint32_t from{m_rng.randrange(length)};
+        check_walk(from, m_rng.randrange(from + 1));
+        // Heights that are close to each other.
+        from = m_rng.randrange(length);
+        check_walk(from, from - m_rng.randrange(std::min<uint32_t>(from, 3000) + 1));
+        // Heights close to each other, and close to a power of two: between 50 below it and 50
+        // above it, as far as those heights are in the chain.
+        from = (uint32_t{1} << (3 + m_rng.randrange(16))) + m_rng.randrange<uint32_t>(100);
+        from = std::min(from - std::min<uint32_t>(from, 50), length - 1);
+        check_walk(from, from - m_rng.randrange(std::min<uint32_t>(from, 100) + 1));
+    }
+
+    // The bound is reached when going from height 2^k - 3 to height 1, in 2*k - 3 steps.
+    for (int k = 3; (uint32_t{1} << k) <= length; ++k) {
+        const uint32_t from{(uint32_t{1} << k) - 3};
+        BOOST_CHECK_EQUAL(check_walk(from, 1), 2 * k - 3);
+        BOOST_CHECK_EQUAL(MaxSteps(from, 1), 2 * k - 3);
     }
 }
 
