@@ -7,6 +7,10 @@
 #include <tinyformat.h>
 #include <util/check.h>
 
+#include <bit>
+#include <cassert>
+#include <cstdint>
+
 std::string CBlockIndex::ToString() const
 {
     return strprintf("CBlockIndex(pprev=%p, nHeight=%d, merkle=%s, hashBlock=%s)",
@@ -65,19 +69,221 @@ CBlockIndex* CChain::FindEarliestAtLeast(int64_t nTime, int height) const
     return (lower == vChain.end() ? nullptr : *lower);
 }
 
-/** Turn the lowest '1' bit in the binary representation of a number into a '0'. */
-int static inline InvertLowestOne(int n) { return n & (n - 1); }
+namespace {
+
+/*
+ * Skip pointers
+ * =============
+ *
+ * Besides a pointer to its parent (pprev), every block index entry has a pointer to one further
+ * ancestor (pskip). Which ancestor that is depends only on the height of the entry. It is chosen
+ * such that any ancestor can be reached by following few pointers (see CBlockIndex::GetAncestor):
+ * at most 2*floor(log2(h + 1)) - 1 of them from an entry at height h.
+ *
+ * Arranging the heights into trees
+ * --------------------------------
+ *
+ * Where pskip leads is defined by arranging the heights 0, 1, 2, ... into binary trees. A tree
+ * consists of consecutive heights, and there are many trees of every level k >= 1:
+ * - A tree of level 1 is a single height.
+ * - A tree of level k + 1 consists of two trees of level k and one more height. The tree with
+ *   the lower heights is its left half, the tree right above that one is its right half, and
+ *   the height right above both is its root. The roots of the two halves are the left and the
+ *   right child of that root.
+ *
+ * So a tree of level k has 2^k - 1 heights, the highest of which is its root. For every k, the
+ * heights 0 through 2^k - 2 are a tree of level k. This is the one of level 5 (the numbers in
+ * parentheses are explained further down):
+ *
+ *                                   30
+ *                   .---------------'---------------.
+ *                   14                              29
+ *           .-------'-------.               .-------'-------.
+ *           6               13              21              28
+ *       .---'---.       .---'---.       .---'---.       .---'---.
+ *       2       5       9       12      17      20      24      27
+ *     .-'-.   .-'-.   .-'-.   .-'-.   .-'-.   .-'-.   .-'-.   .-'-.
+ *     0   1   3   4   7   8   10  11  15  16  18  19  22  23  25  26
+ *      (0)     (0)     (0)     (7)     (0)     (15)    (15)    (22)
+ *
+ * Its two halves are the trees of level 4 with the heights 0 through 14, and 15 through 29. Each
+ * of those has two trees of level 3 as its halves, and so on, down to the 16 trees of level 1
+ * at the bottom, the leaves. The picture as a whole is the left half of the tree of level 6 with
+ * the heights 0 through 62, and so on, so every height has its place.
+ *
+ * Some terms:
+ * - The subtree of a height is the tree that it is the root of: the height itself, and
+ *   everything under it in the picture. Every height is the root of exactly one tree. That tree
+ *   ends with the height itself, and starts with the leftmost leaf under it. For example, the
+ *   subtree of 28 consists of the heights 22 through 28.
+ * - The level of a height is the level of its subtree. In the picture, 30 has level 5, 14 and 29
+ *   have level 4, and so on down to the leaves, which have level 1. A large height can have a
+ *   small level: 21 has level 3, just like 6.
+ * - The leaves come in pairs of consecutive heights: the left and the right leaf under a height
+ *   of level 2. The genesis block is the left leaf of the lowest pair.
+ *
+ * The right child of a height is always the height just below it, and its left child is the
+ * height just below the subtree of the right child.
+ *
+ * The heights 0 through h always form a stack of entire subtrees: the subtree of h on top, below
+ * it the subtree whose root is the next height down, and so on until the genesis block. For
+ * example, the heights 0 through 26 are the subtrees of 26 (only 26 itself), 25 (only 25
+ * itself), 24 (heights 22 through 24), 21 (heights 15 through 21) and 14 (heights 0 through 14).
+ * Their levels are 1, 1, 2, 3 and 4. Going down such a stack, every subtree is larger than the
+ * one above it, except that the second one can be as large as the first (the sizes form what is
+ * known as the skew binary representation of h + 1).
+ *
+ * Where the pointers lead
+ * -----------------------
+ *
+ * For a height that is not a leaf, pskip leads to its left child, and pprev to its right child.
+ * For example, the pskip of 29 leads to 21, and its pprev to 28.
+ *
+ * A leaf has no children. Its pprev leads to the height just below it, like every pprev: that is
+ * the left leaf of the pair for a right leaf, and the root of the subtree below the pair for a
+ * left leaf. The pskip of both leaves of a pair jumps over that entire subtree, to its lowest
+ * height. Those are the numbers in parentheses in the picture. For example:
+ * - Below the pair 25 and 26 is the subtree of 24 (heights 22 through 24), so the pskip of both
+ *   leads to 22.
+ * - Below the pair 15 and 16 is the subtree of 14, the entire left half of the picture, so their
+ *   pskip leads to 0, the genesis block.
+ * - Below the lowest pair, 0 and 1, there is nothing. The genesis block has no pointers at all,
+ *   and the pskip of 1 leads to the genesis block, like its pprev.
+ *
+ * As a result, pskip never leads to the same entry as pprev, except at height 1.
+ *
+ * Finding an ancestor
+ * -------------------
+ *
+ * To get from an entry at height h to its ancestor at a lower height t, follow pskip whenever
+ * that does not lead below t, and pprev otherwise.
+ *
+ * If t is in the subtree of h, this works like a lookup in a binary search tree: every step goes
+ * to the child whose subtree t is in. For example, from 29 to 19:
+ *
+ *     29 -> 21   pskip. 19 is in the subtree of the left child (heights 15 through 21).
+ *     21 -> 20   pprev, as pskip leads to 17, which is below 19. 19 is in the subtree of the
+ *                right child (heights 18 through 20).
+ *     20 -> 19   pprev, as pskip leads to 18. 19 is the right child.
+ *
+ * If t is below the subtree of h, the walk has three parts:
+ * 1. Down to the lowest height of the subtree of h, by following pskip to the left child until
+ *    a leaf is reached.
+ * 2. Over the subtrees between the subtree of h and the one that t is in. The pskip of a leaf
+ *    jumps over the subtree below its pair, and lands on the lowest height of that subtree,
+ *    which is a left leaf again. That is repeated for as long as it does not lead below t.
+ * 3. Into the subtree that t is in, unless part 2 ended at t. The root of that subtree is the
+ *    height just below, so pprev leads to it. The rest is a lookup in a binary search tree
+ *    again.
+ *
+ * For example, from 12 to 1:
+ *
+ *     12 -> 10   pskip, to the left child, the lowest height of the subtree of 12.   (part 1)
+ *     10 -> 7    pskip, over the subtree of 9 (heights 7 through 9).                 (part 2)
+ *     7 -> 6     pprev, as pskip leads to 0, which is below 1. 6 is the root of      (part 3)
+ *                the subtree that 1 is in.
+ *     6 -> 2     pskip. 1 is in the subtree of the left child (heights 0 through 2).
+ *     2 -> 1     pprev, as pskip leads to 0. 1 is the right child.
+ *
+ * From 26 to 2 there is no part 1, as 26 is a leaf:
+ *
+ *     26 -> 22   pskip, over the left leaf of its pair (25) and the subtree of 24    (part 2)
+ *                (heights 22 through 24).
+ *     22 -> 15   pskip, over the subtree of 21 (heights 15 through 21).
+ *     15 -> 14   pprev, as pskip leads to 0, which is below 2. 14 is the root of     (part 3)
+ *                the subtree that 2 is in.
+ *     14 -> 6    pskip. 2 is in the subtree of the left child (heights 0 through 6).
+ *     6 -> 2     pskip. 2 is the left child.
+ *
+ * As the first step of that walk shows, the pskip of a right leaf also jumps over the left leaf
+ * of its pair. If a walk starts at a right leaf and that jump leads below t, it follows pprev to
+ * the left leaf first, as part 2, and continues from there. For example, from 23 to 17:
+ *
+ *     23 -> 22   pprev, as pskip leads to 15, which is below 17.                     (part 2)
+ *     22 -> 21   pprev, as pskip leads to 15 here too. 21 is the root of the         (part 3)
+ *                subtree that 17 is in.
+ *     21 -> 17   pskip. 17 is the left child.
+ *
+ * The number of steps
+ * -------------------
+ *
+ * Getting from height h to any lower height takes at most 2*floor(log2(h + 1)) - 1 steps.
+ *
+ * To see why, let k = floor(log2(h + 1)). A subtree whose heights are all below h has at most h
+ * heights, so its level is at most k. A walk to a height t below the subtree of h has two
+ * halves:
+ * - Getting to the subtree that t is in (parts 1 and 2 above). No two steps of this half are
+ *   about the same level: the walk first goes down through the levels of the subtree of h, and
+ *   then jumps over subtrees that are at least as large as that one, and larger every time. All
+ *   those levels are below the level of the subtree that t is in, so this takes at most k - 1
+ *   steps.
+ * - Getting to t inside that subtree (part 3). That is one step onto its root, and then at most
+ *   k - 1 steps down, one per level.
+ *
+ * Together that is at most 2*k - 1 steps. If t is in the subtree of h itself, the walk only goes
+ * down, which takes at most k steps.
+ *
+ * The walk from 29 to 1 uses all of that: k is 4, and the walk takes three steps down the
+ * subtree of 29 (to 21, 17 and 15), one onto the root of the subtree that 1 is in (14), and
+ * three more down inside it (to 6, 2 and 1). A tighter bound, which also depends on t, is
+ * checked by the unit tests.
+ */
+
+/** The number of heights in a subtree of the given level. */
+constexpr uint32_t TreeSize(int level) { return (uint32_t{1} << level) - 1; }
+
+/**
+ * Information about the subtree of a height, in the arrangement of heights into trees described
+ * above.
+ */
+struct SubtreeInfo {
+    //! The height of the root of the subtree, which is its highest height.
+    uint32_t root;
+    //! The level of the subtree.
+    int level{0};
+
+    /** Find the subtree of a height. */
+    explicit SubtreeInfo(uint32_t height) : root{height}
+    {
+        // Find the stack of subtrees that the heights 0 through height form, from the bottom up.
+        // At the bottom is the largest tree starting at height 0 that fits: the heights 0 through
+        // 2^k - 2. That tree is the left half of a larger one, so the heights above it are the
+        // first heights of another tree of level k. All trees of a level are built up in the same
+        // way, so those heights form the same subtrees as that many heights starting at height 0
+        // do. The next subtree is thus found in the same way from the number of heights that are
+        // left, and so on.
+        uint32_t remaining{height + 1};
+        do {
+            // The highest level for which TreeSize(level) <= remaining.
+            level = std::bit_width(remaining + 1) - 1;
+            remaining -= TreeSize(level);
+            // If no heights are left, that was the subtree of height itself, on top of the stack.
+        } while (remaining > 0);
+    }
+
+    /** The number of heights in this subtree. */
+    uint32_t Size() const { return TreeSize(level); }
+};
 
 /** Compute what height to jump back to with the CBlockIndex::pskip pointer. */
-int static inline GetSkipHeight(int height) {
-    if (height < 2)
-        return 0;
-
-    // Determine which height to jump back to. Any number strictly lower than height is acceptable,
-    // but the following expression seems to perform well in simulations (max 110 steps to go back
-    // up to 2**18 blocks).
-    return (height & 1) ? InvertLowestOne(InvertLowestOne(height - 1)) + 1 : InvertLowestOne(height);
+uint32_t GetSkipHeight(uint32_t height)
+{
+    const SubtreeInfo subtree{height};
+    // If the height is not a leaf, pskip leads to its left child. That is below the height itself
+    // and the heights of the right half of its subtree.
+    if (subtree.level > 1) return height - 1 - TreeSize(subtree.level - 1);
+    // A leaf. It is the right leaf of its pair if the height below it is a leaf too.
+    const bool is_right_leaf{height > 0 && SubtreeInfo{height - 1}.level == 1};
+    const uint32_t left_leaf{height - is_right_leaf};
+    // The lowest pair has nothing below it. The pskip of its right leaf leads to its left leaf,
+    // the genesis block, which has no pskip itself.
+    if (left_leaf == 0) return 0;
+    // Otherwise, jump over the subtree below the pair, to its lowest height.
+    const SubtreeInfo below{left_leaf - 1};
+    return below.root - below.Size() + 1;
 }
+
+} // namespace
 
 const CBlockIndex* CBlockIndex::GetAncestor(int height) const
 {
@@ -85,25 +291,19 @@ const CBlockIndex* CBlockIndex::GetAncestor(int height) const
         return nullptr;
     }
 
-    const CBlockIndex* pindexWalk = this;
-    int heightWalk = nHeight;
-    while (heightWalk > height) {
-        int heightSkip = GetSkipHeight(heightWalk);
-        int heightSkipPrev = GetSkipHeight(heightWalk - 1);
-        if (pindexWalk->pskip != nullptr &&
-            (heightSkip == height ||
-             (heightSkip > height && !(heightSkipPrev < heightSkip - 2 &&
-                                       heightSkipPrev >= height)))) {
-            // Only follow pskip if pprev->pskip isn't better than pskip->pprev.
-            pindexWalk = pindexWalk->pskip;
-            heightWalk = heightSkip;
+    // Walk down from this entry, following pskip whenever that does not lead below the requested
+    // height, and pprev otherwise. See the explanation of skip pointers above.
+    const CBlockIndex* walk{this};
+    while (walk->nHeight > height) {
+        // Entries on which BuildSkip was not called have no pskip. Always follow pprev for those.
+        if (walk->pskip != nullptr && walk->pskip->nHeight >= height) {
+            walk = walk->pskip;
         } else {
-            assert(pindexWalk->pprev);
-            pindexWalk = pindexWalk->pprev;
-            heightWalk--;
+            assert(walk->pprev);
+            walk = walk->pprev;
         }
     }
-    return pindexWalk;
+    return walk;
 }
 
 CBlockIndex* CBlockIndex::GetAncestor(int height)

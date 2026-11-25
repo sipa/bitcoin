@@ -7,12 +7,76 @@
 #include <test/util/setup_common.h>
 
 #include <algorithm>
+#include <bit>
+#include <cstdint>
+#include <iterator>
 #include <vector>
-#include <utility>
 
 #include <boost/test/unit_test.hpp>
 
 #define SKIPLIST_LENGTH 300000
+
+namespace {
+
+/**
+ * A reference implementation of the heights that skip pointers point to. It is written directly
+ * from the description in chain.cpp of how heights are arranged into trees, rather than from the
+ * way they are computed there.
+ */
+
+/** The number of heights in a subtree of the given level. */
+uint32_t RefTreeSize(int level) { return (uint32_t{1} << level) - 1; }
+
+/** The level of a height, which is that of the subtree it is the root of. */
+int RefLevel(uint32_t height)
+{
+    // Go down from the root of the smallest tree starting at height 0 that the height is in,
+    // towards the height. pos is its position in the tree that is being looked at, counting from
+    // 1 for the lowest height of that tree.
+    uint32_t pos{height + 1};
+    int level{std::bit_width(pos)};
+    // The highest height of a tree is its root.
+    while (pos != RefTreeSize(level)) {
+        // Otherwise the height is in one of the halves of the tree, which are trees one level
+        // lower. The right half comes after the heights of the left half.
+        --level;
+        if (pos > RefTreeSize(level)) pos -= RefTreeSize(level);
+    }
+    return level;
+}
+
+/** The height that the skip pointer of an entry at a positive height points to. */
+uint32_t RefSkipHeight(uint32_t height)
+{
+    const int level{RefLevel(height)};
+    // Not a leaf: its left child, which is the root of the left half of its subtree. That is the
+    // height just below the right half.
+    if (level >= 2) return height - 1 - RefTreeSize(level - 1);
+    // A leaf, which is the right one of its pair if the height below it is a leaf too.
+    const uint32_t left{RefLevel(height - 1) == 1 ? height - 1 : height};
+    // The lowest pair has nothing below it. Its right leaf points to its left leaf, the genesis
+    // block.
+    if (left == 0) return 0;
+    // The lowest height of the subtree whose root is just below the pair.
+    return left - RefTreeSize(RefLevel(left - 1));
+}
+
+/** Build a chain of block index entries at heights 0 through length - 1, with skip pointers. */
+std::vector<CBlockIndex> BuildChain(uint32_t length)
+{
+    std::vector<CBlockIndex> index(length);
+    for (uint32_t height = 0; height < length; ++height) {
+        index[height].nHeight = height;
+        index[height].pprev = (height == 0) ? nullptr : &index[height - 1];
+        index[height].BuildSkip();
+    }
+    return index;
+}
+
+/** The height of a block index entry. */
+uint32_t Height(const CBlockIndex* index) { return static_cast<uint32_t>(index->nHeight); }
+
+} // namespace
 
 BOOST_FIXTURE_TEST_SUITE(skiplist_tests, BasicTestingSetup)
 
@@ -215,101 +279,26 @@ BOOST_AUTO_TEST_CASE(findearliestatleast_edge_test)
     BOOST_CHECK(ret2->nHeight == 4);
 }
 
-BOOST_AUTO_TEST_CASE(build_skip_height_test)
+BOOST_AUTO_TEST_CASE(skip_height_test)
 {
-    // clang-format off
-    const std::pair<int, int> TEST_DATA[]{
-        // EVEN values: the rightmost set bit is zeroed
-        // Various even values with at least 2 bits set
-        { 0b00010010 ,
-          0b00010000 },
-        { 0b00100010 ,
-          0b00100000 },
-        { 0b01000010 ,
-          0b01000000 },
-        { 0b00010100 ,
-          0b00010000 },
-        { 0b00011000 ,
-          0b00010000 },
-        { 0b10101010 ,
-          0b10101000 },
-        // ODD values: the 2nd and 3rd set bits are zeroed
-        // Various odd values with at least 4 bits set
-        { 0b10010011 ,
-          0b10000001 },
-        { 0b10100011 ,
-          0b10000001 },
-        { 0b11000011 ,
-          0b10000001 },
-        { 0b10010101 ,
-          0b10000001 },
-        { 0b10011001 ,
-          0b10000001 },
-        { 0b10101011 ,
-          0b10100001 },
-        // Some longer random values (even and odd)
-        { 0b0001011101101000 ,
-          0b0001011101100000 },
-        { 0b0001011101101001 ,
-          0b0001011101000001 },
-        { 0b0110101101011000 ,
-          0b0110101101010000 },
-        { 0b0110101101011001 ,
-          0b0110101101000001 },
-        // All values 1-20
-        {  1,  0 },
-        {  2,  0 },
-        {  3,  1 },
-        {  4,  0 },
-        {  5,  1 },
-        {  6,  4 },
-        {  7,  1 },
-        {  8,  0 },
-        {  9,  1 },
-        { 10,  8 },
-        { 11,  1 },
-        { 12,  8 },
-        { 13,  1 },
-        { 14, 12 },
-        { 15,  9 },
-        { 16,  0 },
-        { 17,  1 },
-        { 18, 16 },
-        { 19,  1 },
-        { 20, 16 },
-    };
-    // clang-format on
+    // The heights that the skip pointers of the entries at heights 1 through 30 point to. With
+    // the genesis block, those are the heights of the tree in the picture in chain.cpp.
+    static constexpr uint32_t EXPECTED[]{0, 0, 0, 0, 3, 2, 0, 0, 7, 7, 7, 10, 9, 6, 0,
+                                         0, 15, 15, 15, 18, 17, 15, 15, 22, 22, 22, 25, 24, 21, 14};
 
-    // Test `CBlockIndex::BuildSkip()` and that the skip height conforms to expected logic.
-    // It tests that:
-    // - `pprev` field is set (to an earlier block index),
-    // - the skip is to the index as dictated by the `GetSkipHeight()` bit-manipulation logic,
-    // - `GetAncestor()` works as expected (indirectly).
+    const auto index{BuildChain(SKIPLIST_LENGTH)};
 
-    // Build a chain (up to the highest test input value)
-    const auto max_test_input{std::ranges::max_element(TEST_DATA, [](auto& a, auto& b) { return a.first < b.first; })};
-    const int chain_size{max_test_input->first + 1};
-    std::vector<CBlockIndex> block_index(chain_size);
-    for (auto i{0}; i < chain_size; ++i) {
-        // pprev and nHeight are used by BuildSkip()
-        block_index[i].pprev = i == 0 ? nullptr : &block_index[i - 1];
-        block_index[i].nHeight = i;
-        block_index[i].BuildSkip();
-        BOOST_CHECK(block_index[i].pskip || i == 0);
+    // The genesis block has no skip pointer.
+    BOOST_CHECK(index[0].pskip == nullptr);
+    for (uint32_t height = 1; height < index.size(); ++height) {
+        BOOST_REQUIRE(index[height].pskip != nullptr);
+        const uint32_t skip_height{Height(index[height].pskip)};
+        BOOST_CHECK(index[height].pskip == &index[skip_height]);
+        BOOST_CHECK_EQUAL(skip_height, RefSkipHeight(height));
+        if (height <= std::size(EXPECTED)) BOOST_CHECK_EQUAL(skip_height, EXPECTED[height - 1]);
+        // Above height 1, the skip pointer never points to the same entry as pprev.
+        if (height >= 2) BOOST_CHECK_LE(skip_height, height - 2);
     }
-
-    for (auto& [input, expected] : TEST_DATA) {
-        BOOST_REQUIRE_LT(input, chain_size);
-        BOOST_REQUIRE_GT(input, 0);
-        BOOST_REQUIRE_LT(expected, input);
-        BOOST_REQUIRE(block_index[input].pskip);
-
-        const int skip_height{block_index[input].pskip->nHeight};
-        BOOST_CHECK_EQUAL(skip_height, expected);
-    }
-
-    // Special value: height 0 (genesis) has no skip
-    BOOST_CHECK(!block_index[0].pskip);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
