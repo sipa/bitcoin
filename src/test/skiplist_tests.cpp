@@ -45,6 +45,29 @@ BOOST_AUTO_TEST_CASE(skiplist_test)
     }
 }
 
+BOOST_AUTO_TEST_CASE(missing_skip_test)
+{
+    // GetAncestor must also work when BuildSkip was not called on all entries (or on none at all),
+    // in which case it has to fall back to following pprev.
+    static constexpr uint32_t LENGTH{2000};
+    for (const int skip_percentage : {0, 10, 50, 90}) {
+        std::vector<CBlockIndex> index(LENGTH);
+        for (uint32_t height = 0; height < LENGTH; ++height) {
+            index[height].nHeight = height;
+            index[height].pprev = (height == 0) ? nullptr : &index[height - 1];
+            if (m_rng.randrange(100) < skip_percentage) index[height].BuildSkip();
+        }
+        for (int i = 0; i < 1000; ++i) {
+            const uint32_t from{m_rng.randrange(LENGTH)};
+            const uint32_t to{m_rng.randrange(from + 1)};
+            BOOST_CHECK(index[from].GetAncestor(to) == &index[to]);
+        }
+        BOOST_CHECK(index[LENGTH - 1].GetAncestor(0) == &index[0]);
+        BOOST_CHECK(index[LENGTH - 1].GetAncestor(LENGTH) == nullptr);
+        BOOST_CHECK(index[LENGTH - 1].GetAncestor(-1) == nullptr);
+    }
+}
+
 BOOST_AUTO_TEST_CASE(getlocator_test)
 {
     // Build a main chain 100000 blocks long.
