@@ -115,10 +115,13 @@ std::vector<const CBlockIndex*> Walk(const CBlockIndex* index, uint32_t height)
 /**
  * Whether GetAncestor follows exactly the given walk. This is determined using copies of the
  * entries of the walk, in which every pointer that the walk does not follow leads to a dead end.
+ * That dead end is at the height that the walk ends at, so GetAncestor would end up there if it
+ * went by the height of an entry that it does not go through.
  */
 bool FollowsWalk(std::span<const CBlockIndex* const> walk)
 {
     CBlockIndex dead_end;
+    dead_end.nHeight = walk.back()->nHeight;
     dead_end.pprev = dead_end.pskip = &dead_end;
     std::vector<CBlockIndex> copy(walk.size());
     for (size_t i = 0; i < walk.size(); ++i) {

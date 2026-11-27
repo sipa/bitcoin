@@ -232,15 +232,31 @@ namespace {
 /** The number of heights in a subtree of the given level. */
 constexpr uint32_t TreeSize(int level) { return (uint32_t{1} << level) - 1; }
 
+/** The bit that stands for a level, in a set of levels. */
+constexpr uint32_t LevelBit(int level) { return uint32_t{1} << level; }
+
 /**
  * Information about the subtree of a height, in the arrangement of heights into trees described
  * above.
+ *
+ * Besides the root and the level of the subtree, this holds the levels of the subtrees below it,
+ * in the stack of subtrees that the heights 0 through its root form. For example, the subtree of
+ * 28 (heights 22 through 28) has level 3, and the subtrees below it have levels 3 and 4. The
+ * subtree of 26 (only 26 itself) has level 1, and the subtrees below it have levels 1, 2, 3 and
+ * 4.
+ *
+ * That is all that is needed to find the subtrees of the heights that the pskip and pprev of an
+ * entry at the root lead to. So during a walk, only the subtree of the height it starts at has
+ * to be found from the height itself, which is what the constructor does.
  */
 struct SubtreeInfo {
     //! The height of the root of the subtree, which is its highest height.
     uint32_t root;
     //! The level of the subtree.
     int level{0};
+    //! The levels of the subtrees below this one, as a set of bits (see LevelBit). That is
+    //! 0b11000 for the subtree of 28, and 0b11110 for the subtree of 26.
+    uint32_t levels_below{0};
 
     /** Find the subtree of a height. */
     explicit SubtreeInfo(uint32_t height) : root{height}
@@ -253,35 +269,85 @@ struct SubtreeInfo {
         // do. The next subtree is thus found in the same way from the number of heights that are
         // left, and so on.
         uint32_t remaining{height + 1};
-        do {
+        while (true) {
             // The highest level for which TreeSize(level) <= remaining.
             level = std::bit_width(remaining + 1) - 1;
             remaining -= TreeSize(level);
-            // If no heights are left, that was the subtree of height itself, on top of the stack.
-        } while (remaining > 0);
+            // If no heights are left, this is the top of the stack: the subtree of height itself.
+            if (remaining == 0) break;
+            levels_below |= LevelBit(level);
+        }
     }
 
     /** The number of heights in this subtree. */
     uint32_t Size() const { return TreeSize(level); }
+
+    /** The left half of this subtree, whose root is the left child. Not for leaves. */
+    SubtreeInfo LeftChild() const
+    {
+        // The left child is below the root and the 2^(level-1) - 1 heights of the right half. The
+        // left half has the same subtrees below it as this subtree has.
+        return {root - LevelBit(level - 1), level - 1, levels_below};
+    }
+
+    /** The right half of this subtree, whose root is the right child. Not for leaves. */
+    SubtreeInfo RightChild() const
+    {
+        // The right child is the height just below the root. The right half also has the left
+        // half below it.
+        return {root - 1, level - 1, levels_below | LevelBit(level - 1)};
+    }
+
+    /** The subtree just below this one. Not for the lowest subtree, which has nothing below it. */
+    SubtreeInfo Below() const
+    {
+        // Its root is the height just below the lowest height of this subtree. It is the smallest
+        // one of the subtrees below this one, and has the other ones below it.
+        return {root - Size(), std::countr_zero(levels_below), levels_below & (levels_below - 1)};
+    }
+
+    /** The leftmost leaf of this subtree, which is its lowest height. */
+    SubtreeInfo LeftmostLeaf() const { return {root - Size() + 1, 1, levels_below}; }
+
+    /** Whether this subtree, which must be a leaf, is the right leaf of its pair. */
+    bool IsRightLeaf() const
+    {
+        // That is the case if the subtree below it is a leaf too: the left leaf of the pair.
+        return (levels_below & LevelBit(1)) != 0;
+    }
+
+    /**
+     * The subtree of the height that the pprev of an entry at the root leads to. Not for the
+     * genesis block, which has no pprev.
+     */
+    SubtreeInfo Prev() const
+    {
+        // That is the height just below the root: its right child if it has children, and the
+        // root of the subtree below it if it is a leaf.
+        return level > 1 ? RightChild() : Below();
+    }
+
+    /** The subtree of the height that the pskip of an entry at the root leads to. */
+    SubtreeInfo Skip() const
+    {
+        // If the root has children, its left child.
+        if (level > 1) return LeftChild();
+        // A leaf. Both leaves of a pair lead to the same height, so start from the left leaf.
+        const SubtreeInfo left_leaf{IsRightLeaf() ? Below() : *this};
+        // The lowest pair has nothing below it. The pskip of its right leaf leads to its left
+        // leaf, the genesis block, which has no pskip itself.
+        if (left_leaf.levels_below == 0) return left_leaf;
+        // Otherwise, jump over the subtree below the pair, to its lowest height.
+        return left_leaf.Below().LeftmostLeaf();
+    }
+
+private:
+    SubtreeInfo(uint32_t root_in, int level_in, uint32_t levels_below_in)
+        : root{root_in}, level{level_in}, levels_below{levels_below_in} {}
 };
 
 /** Compute what height to jump back to with the CBlockIndex::pskip pointer. */
-uint32_t GetSkipHeight(uint32_t height)
-{
-    const SubtreeInfo subtree{height};
-    // If the height is not a leaf, pskip leads to its left child. That is below the height itself
-    // and the heights of the right half of its subtree.
-    if (subtree.level > 1) return height - 1 - TreeSize(subtree.level - 1);
-    // A leaf. It is the right leaf of its pair if the height below it is a leaf too.
-    const bool is_right_leaf{height > 0 && SubtreeInfo{height - 1}.level == 1};
-    const uint32_t left_leaf{height - is_right_leaf};
-    // The lowest pair has nothing below it. The pskip of its right leaf leads to its left leaf,
-    // the genesis block, which has no pskip itself.
-    if (left_leaf == 0) return 0;
-    // Otherwise, jump over the subtree below the pair, to its lowest height.
-    const SubtreeInfo below{left_leaf - 1};
-    return below.root - below.Size() + 1;
-}
+uint32_t GetSkipHeight(uint32_t height) { return SubtreeInfo{height}.Skip().root; }
 
 } // namespace
 
@@ -290,17 +356,26 @@ const CBlockIndex* CBlockIndex::GetAncestor(int height) const
     if (height > nHeight || height < 0) {
         return nullptr;
     }
+    if (height == nHeight) return this;
 
     // Walk down from this entry, following pskip whenever that does not lead below the requested
     // height, and pprev otherwise. See the explanation of skip pointers above.
     const CBlockIndex* walk{this};
-    while (walk->nHeight > height) {
+    const uint32_t target{static_cast<uint32_t>(height)};
+    // Keep track of the subtree of the height that the walk is at. It tells where pskip leads
+    // without looking at the entry that pskip points to, which would mean accessing the memory of
+    // entries that the walk never goes through.
+    SubtreeInfo subtree{static_cast<uint32_t>(nHeight)};
+    while (subtree.root > target) {
+        const SubtreeInfo skip{subtree.Skip()};
         // Entries on which BuildSkip was not called have no pskip. Always follow pprev for those.
-        if (walk->pskip != nullptr && walk->pskip->nHeight >= height) {
+        if (skip.root >= target && walk->pskip != nullptr) {
             walk = walk->pskip;
+            subtree = skip;
         } else {
             assert(walk->pprev);
             walk = walk->pprev;
+            subtree = subtree.Prev();
         }
     }
     return walk;
